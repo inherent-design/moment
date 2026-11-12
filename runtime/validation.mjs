@@ -40,7 +40,9 @@ defs.Change = { anyOf: [
   object({ kind: { const: 'assertion.withdraw' }, assertionId: id, reason: string }),
 ] };
 defs.View = object({ id, selector: reference('Selector'), fields: array(string) }, { groupBy: enumeration('record', 'schema') });
-defs.Rule = object({ id, triggerEventTypes: array(string), condition: reference('Condition'), operation: string, literalInput: true, inputBindings: { type: 'object', additionalProperties: string }, limits: reference('Limits') });
+defs.Rule = object({ id, triggerEventTypes: array(string), condition: reference('Condition'), operation: string, literalInput: true, inputBindings: { type: 'object', additionalProperties: string, maxProperties:64 }, limits: reference('Limits') });
+defs.ExecutionIntent=object({ id,incidentId:id,capability:reference('Ref'),grant:reference('Ref'),input:true,limits:reference('Limits') });
+defs.Proposal=object({ id,incidentId:id,basisRevision:integer,policy:reference('Ref'),changes:array(reference('Change')),executions:array(reference('ExecutionIntent')),evidence:reference('Evidence') },{ rule:reference('Ref') });
 const read = { contextId: id };
 const readOptional = { atRevision: integer };
 const mutation = { contextId: id, expectedRevision: integer, idempotencyKey: string };
@@ -66,11 +68,14 @@ export const inputSchemas = {
   'view.publish': object({ ...mutation, view: reference('View') }),
   'view.read': object({ ...read, view: reference('Ref'), limit: page }, { ...readOptional, cursor: string }),
   'rule.publish': object({ ...mutation, rule: reference('Rule') }),
+  'transition.propose': object({ ...mutation,proposal:reference('Proposal') }),
+  'transition.commit': object({ ...mutation,proposalId:id }),
+  'transition.get': object({ ...read,proposalId:id },readOptional),
   'reaction.evaluate': object({ ...read, rule: reference('Ref'), eventIds: array(id), incidentId: id }, readOptional),
 };
 const ajv = new Ajv({ strict: true, allErrors: false, ownProperties: true });
 const validators = new Map(Object.entries(inputSchemas).map(([method, schema]) => [method, ajv.compile({ ...schema, $defs: defs })]));
-const bindings = new Set(['principalId', 'incidentId', 'action', 'resourceRefs', 'contextRevision', 'now', 'event.id', 'event.type', 'event.subjectRefs']);
+const bindings = new Set(['contextId','event.ids','principalId', 'incidentId', 'action', 'resourceRefs', 'contextRevision', 'now', 'event.id', 'event.type', 'event.subjectRefs']);
 export function validateCondition(condition) {
   let count = 0;
   function visit(node, depth) {
@@ -103,7 +108,7 @@ export function validateInput(method, input) {
     if (!Number.isFinite(date.getTime()) || date.toISOString() !== normal) fail('INVALID_ARGUMENT', 'Invalid UTC calendar instant');
   }
   if (input.policy?.rules) for (const rule of input.policy.rules) validateCondition(rule.when);
-  if (input.rule) validateCondition(input.rule.condition);
+  if (method==='rule.publish') validateCondition(input.rule.condition);
 }
 
 export function compileDocument(document) {

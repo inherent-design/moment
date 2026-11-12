@@ -321,10 +321,15 @@ export interface View {
   groupBy?: "record" | "schema";
 }
 
+export interface ProjectedRecord {
+  ref: Ref;
+  fields: { [jsonPointer: string]: Json };
+}
+
 export interface Projection {
   view: Ref;
-  revision: Revision;
-  records: Stored<SemanticRecord>[];
+  version: Digest;
+  records: ProjectedRecord[];
   support: AssertionState[];
   complete: boolean;
   nextCursor?: Cursor;
@@ -505,6 +510,7 @@ export interface Snapshot {
 }
 
 export interface DurableBatch {
+  commitId?: Id;
   mutation: Mutation;
   principalId: Id;
   requestDigest: Digest;

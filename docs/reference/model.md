@@ -44,11 +44,17 @@ The initial schema vocabulary distinguishes the following relations. Names are i
 | `moment.during` | `inner`, `outer` | One interval per role; temporal containment, independent of structural parentage. |
 | `moment.derivedFrom` | `result`, `source` | One result, one or more source references, retaining provenance. |
 
-The bootstrap implementation must ship schemas for this vocabulary before accepting corresponding records. Custom schemas may extend the vocabulary. They do not acquire built-in authority semantics by using similar labels. Schema admission checks role types and graph invariants in addition to JSON shape.
+The `owner-local` bootstrap installs these nine schemas at version `1`, bound to the actual document digests. Installed relationship schemas accept relation records only. `moment.precedes` and `moment.during` additionally accept one optional `frame` endpoint; omission selects the current context as the temporal frame. Custom schemas may extend the vocabulary. They do not acquire built-in authority semantics by using similar labels. The reserved `moment.` namespace admits only exact installed definitions.
+
+Containment and precedence invariants apply to the final asserted graph of an admitted change, after withdrawals and new support. A conflicting hypothesis can remain an unasserted immutable record. Multiple independent assertions of the same placement retain their provenance. Record declarations in a batch are available to all of its assertions and relation endpoints, regardless of declaration order; support commands execute in their supplied order. Replacing an accepted placement requires withdrawing all conflicting support in the same transaction. Old contexts can admit the exact installed schemas through operator `schema.publish`; opening a context does not silently rewrite its history.
 
 ## Perspectives
 
 A view defines selection, visible fields, and optional grouping. Authorization filters records before projection and aggregation; counts, missing-field markers, and cursors must not expose hidden records. `Projection.complete` means complete for the authorized selection and snapshot, not complete knowledge of reality. Pagination sets it false until the final page.
+
+`View.fields` contains JSON Pointers into a stored semantic record, such as `/value/value/summary`. Each projected record returns its exact reference and a `fields` dictionary keyed by the requested pointers; absent fields are omitted. An empty pointer explicitly selects the full stored record. The special `/support` field includes authorized assertion states in `Projection.support`; support is otherwise empty. Nested support pointers are unsupported. Grouping sorts by record ID or schema name and record ID using code-unit order. Schema grouping requires the schema name to be explicitly visible.
+
+`Projection.version` hashes the visible page, view reference, authorized support, and completeness. It excludes global revision and cursor bytes. Hidden changes therefore leave the version unchanged unless a requested field exposes their effect. Cursors conceal snapshot metadata using authenticated encryption and fixed-size envelopes. These guarantees concern returned data; they do not promise timing side-channel isolation or conceal information available through separately authorized methods.
 
 Different detailed transitions may project to the same visible state. This is expected. An investigation can observe an execution as a pending interaction and then a result while a host perspective exposes intermediate steps. Views do not independently mutate the underlying state. Field suppression never changes the authority required to access the remaining content.
 

@@ -1,3 +1,4 @@
+import { applyGraph } from './graph.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, chmodSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -101,24 +102,7 @@ export class Store {
       const revision = m.expectedRevision + 1;
       const now = new Date().toISOString();
       const wrap = value => ({ value, ref: { systemId: this.systemId, contextId: m.contextId, id: value.id }, digest: digest(value), recordedAt: now, recordedBy: principalId, revision });
-      for (const change of batch.changes) {
-        if (change.kind === 'record.put') {
-          const existing = snapshot.records.find(record => record.value.id === change.record.id);
-          if (existing && existing.digest !== digest(change.record)) fail('IDENTITY_CONFLICT', 'Record identity has different content');
-          if (!existing) snapshot.records.push(wrap(change.record));
-        } else if (change.kind === 'assertion.put') {
-          const value = change.assertion;
-          if (value.record.systemId !== this.systemId || value.record.contextId !== m.contextId || !snapshot.records.some(record => record.value.id === value.record.id)) fail('NOT_FOUND', 'Assertion requires an existing local record');
-          const existing = snapshot.assertions.find(item => item.assertion.value.id === value.id);
-          if (existing && existing.assertion.digest !== digest(value)) fail('IDENTITY_CONFLICT', 'Assertion identity has different content');
-          if (existing?.status === 'withdrawn') fail('IDENTITY_CONFLICT', 'Withdrawn assertion cannot be restored under the same ID');
-          if (!existing) snapshot.assertions.push({ assertion: wrap(value), status: 'asserted' });
-        } else if (change.kind === 'assertion.withdraw') {
-          const item = snapshot.assertions.find(item => item.assertion.value.id === change.assertionId);
-          if (!item) fail('NOT_FOUND', 'Assertion not found');
-          if (item.status !== 'withdrawn') { item.status = 'withdrawn'; item.withdrawnAtRevision = revision; }
-        } else fail('INVALID_ARGUMENT', 'Unknown graph change');
-      }
+      applyGraph(snapshot,batch.changes,wrap,{ systemId:this.systemId,contextId:m.contextId,revision });
       for (const change of batch.controlChanges) {
         if (!Object.hasOwn(snapshot.controlState, change.namespace)) Object.defineProperty(snapshot.controlState, change.namespace, { value: {}, enumerable: true });
         const namespace = snapshot.controlState[change.namespace];
@@ -138,7 +122,7 @@ export class Store {
       }
       snapshot.context.revision = revision;
       this.db.prepare('INSERT INTO snapshots VALUES (?, ?, ?)').run(m.contextId, revision, canonical(snapshot));
-      const commit = { transitionId: randomUUID(), contextId: m.contextId, previousRevision: m.expectedRevision, revision, eventIds: events.map(event => event.id) };
+      const commit = { transitionId: batch.commitId ?? randomUUID(), contextId: m.contextId, previousRevision: m.expectedRevision, revision, eventIds: events.map(event => event.id) };
       this.db.prepare('INSERT INTO receipts VALUES (?, ?, ?, ?, ?, ?, ?)').run(principalId, m.contextId, method, m.idempotencyKey, batch.requestDigest, canonical(batch.response), canonical(commit));
       this.db.exec('COMMIT');
       return { ok: true, value: commit };

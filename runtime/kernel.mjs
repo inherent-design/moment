@@ -1,10 +1,14 @@
-import { randomUUID, createHmac, timingSafeEqual } from 'node:crypto';
+import { sealCursor, openCursor } from './cursors.mjs';
+import { randomUUID } from 'node:crypto';
 import { canonical, digest, fail, DomainError, resultError } from './json.mjs';
 import { validateInput, compileDocument } from './validation.mjs';
 import { boundLimits, attenuates, grantChain, limitedPolicy, sameRef, includesRef } from './authority.mjs';
-import { evaluatePolicy } from './conditions.mjs';
+import { builtinSchemas, installedSchema, validateTopology } from './builtins.mjs';
+import { applyGraph } from './graph.mjs';
+import { select, tokens, bindInput } from './pointers.mjs';
+import { evaluate, evaluatePolicy } from './conditions.mjs';
 
-const methods = ['system.describe', 'context.create', 'context.get', 'context.close', 'control.get', 'schema.publish', 'schema.get', 'incident.create', 'incident.get', 'incident.update', 'graph.transact', 'graph.query', 'policy.publish', 'policy.activate', 'policy.evaluate', 'grant.issue', 'grant.revoke'];
+const methods = ['system.describe', 'context.create', 'context.get', 'context.close', 'control.get', 'schema.publish', 'schema.get', 'incident.create', 'incident.get', 'incident.update', 'graph.transact', 'graph.query', 'policy.publish', 'policy.activate', 'policy.evaluate', 'grant.issue', 'grant.revoke','view.publish','view.read','rule.publish','reaction.evaluate','transition.propose','transition.commit','transition.get'];
 const bootstrapActions = [...methods, 'policy.publish', 'policy.activate', 'grant.issue', 'grant.revoke', 'rule.publish', 'reaction.evaluate', 'transition.propose', 'transition.commit', 'transition.get'];
 const equal = (a,b) => canonical(a) === canonical(b);
 const ok = value => ({ ok: true, value });
@@ -12,14 +16,15 @@ const ok = value => ({ ok: true, value });
 /** In-process API. principalId must come from an authenticated transport binding. */
 export class Kernel {
   constructor(store, { ownerId, cursorKey }) {
-    if (!ownerId || !cursorKey || Buffer.byteLength(cursorKey) < 32) throw new Error('An operator identity and cursor signing key are required');
+    if (!ownerId || !cursorKey || Buffer.byteLength(cursorKey) < 32) throw new Error('An operator identity and cursor encryption key are required');
     this.store = store;
     this.ownerId = ownerId;
     this.cursorKey = cursorKey;
+    this.schemaValidators = new Map();
   }
   ref(contextId, id) { return { systemId: this.store.systemId, contextId, id }; }
-  stored(contextId, value, revision, principalId) {
-    return { value, ref: this.ref(contextId, value.id), digest: digest(value), revision, recordedAt: new Date().toISOString(), recordedBy: principalId };
+  stored(contextId, value, revision, principalId, id=value.id) {
+    return { value, ref: this.ref(contextId, id), digest: digest(value), revision, recordedAt: new Date().toISOString(), recordedBy: principalId };
   }
   local(ref, contextId) {
     if (ref.systemId !== this.store.systemId || ref.contextId !== contextId) fail('NOT_FOUND', 'Reference is not in this context');
@@ -91,11 +96,12 @@ export class Kernel {
     if (!access.operator && access.chain.some(grant => !grant.actions.includes(method))) fail('FORBIDDEN', 'Action is outside delegated authority');
     if (method==='schema.publish' && !access.operator) fail('FORBIDDEN','Schema admission requires operator authority');
     if (['context.close','policy.activate'].includes(method) && !access.operator && !access.chain.every(grant=>grant.incidentIds==='all' && includesRef(grant.resourceRefs,this.ref(snapshot.context.id,snapshot.context.id)))) fail('FORBIDDEN','Operation requires context-wide delegation');
-    if (input.incidentId && !access.canIncident(input.incidentId)) fail('NOT_FOUND', 'Incident is not accessible');
+    const incidentId=input.incidentId ?? input.proposal?.incidentId ?? snapshot.controlState.transitions?.[input.proposalId]?.value.proposal.incidentId;
+    if (incidentId && !access.canIncident(incidentId)) fail('NOT_FOUND', 'Incident is not accessible');
     const resources=input.resourceRefs ?? (input.changes ?? []).map(change=>change.kind==='record.put'?this.ref(snapshot.context.id,change.record.id):change.kind==='assertion.put'?change.assertion.record:snapshot.assertions.find(item=>item.assertion.value.id===change.assertionId)?.assertion.value.record).filter(Boolean);
     if (method!=='policy.evaluate' && resources.some(ref=>!access.canRead(ref))) fail('FORBIDDEN','Resources are outside delegated authority');
     const policy = this.lookup(snapshot, snapshot.context.policy).value;
-    const decision = evaluatePolicy(policy, method, { ...this.policyQueries(snapshot,access,principalId),bindings: { principalId, incidentId: input.incidentId ?? null, action: method, resourceRefs: resources, contextRevision: snapshot.context.revision, now: new Date().toISOString() } });
+    const decision = evaluatePolicy(policy, method, { ...this.policyQueries(snapshot,access,principalId),bindings: { principalId, incidentId: incidentId ?? null, action: method, resourceRefs: resources,contextId:snapshot.context.id, contextRevision: snapshot.context.revision, now: new Date().toISOString() } });
     if (decision !== 'permit') fail(decision === 'indeterminate' ? 'POLICY_INDETERMINATE' : 'FORBIDDEN', 'Current policy does not admit this operation');
     return access;
   }
@@ -117,6 +123,7 @@ export class Kernel {
         if (current.context.revision !== input.expectedRevision) fail('REVISION_CONFLICT', 'Context changed since observation', 'refresh');
         if (current.context.state !== 'open' && method !== 'context.close') fail('FORBIDDEN', 'Context is closed');
       }
+      const commitEventId=randomUUID();
       const batch = { mutation: input, principalId, requestDigest: digest(input), changes: [], controlChanges: [], events: [], outbox: [], response: { kind: 'commit-receipt' } };
       const revision = current.context.revision + 1;
       const control = (namespace, key, value) => batch.controlChanges.push({ namespace, key, value });
@@ -181,7 +188,7 @@ export class Kernel {
         }
         case 'schema.publish': {
           if (!access.operator) fail('FORBIDDEN','Schema admission currently requires the operator');
-          if (input.schema.name.startsWith('moment.')) fail('FORBIDDEN', 'The moment schema namespace is reserved for installed definitions');
+          if (input.schema.name.startsWith('moment.') && !installedSchema(input.schema)) fail('FORBIDDEN', 'The moment schema namespace is reserved for installed definitions');
           if (digest(input.document) !== input.schema.digest) fail('INVALID_ARGUMENT', 'Schema digest does not match document');
           compileDocument(input.document);
           const key = canonical([input.schema.name, input.schema.version]);
@@ -218,19 +225,63 @@ export class Kernel {
           stored.digest = digest(stored.value);
           control('incidents', input.incidentId, stored); batch.response = stored; break;
         }
-        case 'graph.transact':
-          for (const change of input.changes) {
-            const ref=change.kind==='record.put'?this.ref(input.contextId,change.record.id):change.kind==='assertion.put'?change.assertion.record:current.assertions.find(item=>item.assertion.value.id===change.assertionId)?.assertion.value.record;
-            if (!ref || !access.canRead(ref)) fail('FORBIDDEN','Graph mutation is outside delegated resources');
-            if (change.kind==='assertion.withdraw' && !access.operator && current.assertions.find(item=>item.assertion.value.id===change.assertionId)?.assertion.recordedBy!==principalId) fail('FORBIDDEN','Cannot withdraw another source\'s assertion');
-            const references=change.kind==='record.put' && change.record.kind==='relation'?Object.values(change.record.roles).flat():change.kind==='assertion.put'?change.assertion.evidence.sources:[];
-            if (references.some(ref=>!access.canRead(ref))) fail('NOT_FOUND','Referenced evidence is not accessible');
-          }
-          this.validateChanges(current, input.changes); batch.changes = input.changes; break;
+        case 'graph.transact': this.admitGraph(current,input.changes,principalId,access);batch.changes=input.changes;break;
+        case 'view.publish': {
+          this.ensureNewId(current,input.view.id);
+          if (input.view.fields.length>64) fail('LIMIT_EXCEEDED','Too many projection fields');
+          for (const pointer of input.view.fields) { tokens(pointer);if (pointer.startsWith('/support/') || (pointer!=='/support' && !select({ value:{},ref:{},digest:'',revision:0,recordedAt:'',recordedBy:'' },pointer).found && !pointer.startsWith('/value/') && !pointer.startsWith('/ref/'))) fail('INVALID_ARGUMENT','Unknown projection field'); }
+          if (input.view.groupBy==='schema' && !input.view.fields.includes('') && !input.view.fields.includes('/value') && !input.view.fields.includes('/value/schema') && !input.view.fields.includes('/value/schema/name')) fail('INVALID_ARGUMENT','Schema grouping requires a visible schema name');
+          const value=this.stored(input.contextId,input.view,revision,principalId);control('views',input.view.id,value);batch.response=value;break;
+        }
+        case 'view.read': {
+          if (!access.canRead(input.view)) fail('NOT_FOUND','View is not accessible');
+          this.local(input.view,input.contextId);const stored=snapshot.controlState.views?.[input.view.id];if (!stored) fail('NOT_FOUND','View not found');
+          const view=stored.value;const page=this.query(snapshot,{ contextId:input.contextId,selector:view.selector,limit:input.limit,...(input.cursor?{ cursor:input.cursor }:{}),...(input.atRevision!==undefined?{ atRevision:input.atRevision }:{}) },principalId,access,{ scope:'view:'+view.id,groupBy:view.groupBy });
+          const records=page.items.map(item=>{ const fields={};for (const pointer of view.fields) if (pointer!=='/support') { const value=select(item.record,pointer);if (value.found) fields[pointer]=value.value; }return { ref:item.record.ref,fields }; });
+          const result={ view:input.view,records,support:view.fields.includes('/support')?page.items.flatMap(item=>item.support):[],complete:!page.nextCursor };
+          return ok({ ...result,version:digest(result),...(page.nextCursor?{ nextCursor:page.nextCursor }:{}) });
+        }
+        case 'rule.publish': {
+          this.ensureNewId(current,input.rule.id);
+          if (!methods.includes(input.rule.operation)) fail('CAPABILITY_UNAVAILABLE','Reaction destination is not installed');
+          boundLimits(input.rule.limits,current.context.limits);
+          if (!access.operator) for (const grant of access.chain) boundLimits(input.rule.limits,grant.limits);
+          // Validate pointer structure and binding names at publication; actual values arrive at evaluation.
+          const dummy=Object.fromEntries(Object.values(input.rule.inputBindings).map(name=>[name,null]));bindInput(input.rule.literalInput,input.rule.inputBindings,dummy);
+          for (const name of Object.values(input.rule.inputBindings)) if (!['contextId','principalId','incidentId','action','resourceRefs','contextRevision','now','event.id','event.ids','event.type','event.subjectRefs'].includes(name)) fail('INVALID_ARGUMENT','Unknown input binding');
+          const value=this.stored(input.contextId,input.rule,revision,principalId);control('rules',input.rule.id,value);batch.response=value;break;
+        }
+        case 'reaction.evaluate': return ok(this.evaluateReaction(snapshot,input,principalId,access));
+        case 'transition.propose': {
+          const proposal=input.proposal;this.ensureNewId(current,proposal.id);
+          if (!access.canIncident(proposal.incidentId) || !current.controlState.incidents?.[proposal.incidentId]) fail('NOT_FOUND','Incident not found');
+          if (proposal.basisRevision!==input.expectedRevision || !sameRef(proposal.policy,current.context.policy)) fail('REVISION_CONFLICT','Proposal basis or policy is stale','refresh');
+          if (!proposal.changes.length && !proposal.executions.length) fail('INVALID_ARGUMENT','Proposal is empty');
+          if (proposal.executions.length) fail('CAPABILITY_UNAVAILABLE','Execution admission is not installed yet');
+          if (proposal.changes.some(change=>(change.record?.id ?? change.assertion?.id)===proposal.id)) fail('IDENTITY_CONFLICT','Proposal identity aliases its graph change');
+          if (proposal.rule) { this.local(proposal.rule,input.contextId);if (!access.canRead(proposal.rule) || !current.controlState.rules?.[proposal.rule.id]) fail('NOT_FOUND','Rule not found'); }
+          for (const ref of proposal.evidence.sources) { if (!access.canRead(ref)) fail('NOT_FOUND','Proposal evidence is inaccessible');this.lookup(current,ref); }
+          this.authorize(current,'graph.transact',principalId,{ ...input,changes:proposal.changes },boundGrant);
+          this.admitGraph(current,proposal.changes,principalId,access);
+          const value=this.stored(input.contextId,{ proposal,state:'proposed' },revision,principalId,proposal.id);control('transitions',proposal.id,value);control('transitionOrigins',proposal.id,{ principalId,grantId:boundGrant?.id ?? null });batch.response=value.value;break;
+        }
+        case 'transition.get': {
+          const stored=this.transition(snapshot,input.proposalId,principalId,access);return ok(stored.value);
+        }
+        case 'transition.commit': {
+          const stored=this.transition(current,input.proposalId,principalId,access),proposal=stored.value.proposal;
+          if (stored.value.state!=='proposed') fail('IDENTITY_CONFLICT','Proposal is already terminal; use its original retry key or transition.get');
+          if (stored.revision!==current.context.revision || !sameRef(proposal.policy,current.context.policy)) fail('REVISION_CONFLICT','Proposal requires a fresh basis','refresh');
+          this.authorize(current,'graph.transact',principalId,{ ...input,changes:proposal.changes },boundGrant);
+          this.admitGraph(current,proposal.changes,principalId,access);
+          const commit={ transitionId:randomUUID(),contextId:input.contextId,previousRevision:input.expectedRevision,revision,eventIds:[commitEventId] };
+          batch.commitId=commit.transitionId;batch.changes=proposal.changes;
+          control('transitions',proposal.id,this.stored(input.contextId,{ proposal,state:'committed',commit },revision,principalId,proposal.id));break;
+        }
         case 'graph.query': return ok(this.query(snapshot, input, principalId, access));
         default: fail('INVALID_ARGUMENT', 'Method is not implemented');
       }
-      batch.events.push({ id: randomUUID(), contextId: input.contextId, type: `${method}.committed`, subjectRefs: [], causeIds: [], payload: null });
+      batch.events.push({ id:commitEventId, contextId: input.contextId, type: `${method}.committed`, subjectRefs: [], causeIds: [], payload: null });
       const committed = this.store.commit(batch, method);
       if (!committed.ok) return committed;
       return ok(batch.response.kind === 'commit-receipt' ? committed.value : batch.response);
@@ -239,14 +290,60 @@ export class Kernel {
       throw error;
     }
   }
+  admitGraph(current,changes,principalId,access) {
+    for (const change of changes) {
+      const ref=change.kind==='record.put'?this.ref(current.context.id,change.record.id):change.kind==='assertion.put'?change.assertion.record:current.assertions.find(item=>item.assertion.value.id===change.assertionId)?.assertion.value.record;
+      if (!ref || !access.canRead(ref)) fail('FORBIDDEN','Graph mutation is outside delegated resources');
+      if (change.kind==='assertion.withdraw' && !access.operator && current.assertions.find(item=>item.assertion.value.id===change.assertionId)?.assertion.recordedBy!==principalId) fail('FORBIDDEN','Cannot withdraw another source\'s assertion');
+      const references=change.kind==='record.put' && change.record.kind==='relation'?Object.values(change.record.roles).flat():change.kind==='assertion.put'?change.assertion.evidence.sources:[];
+      if (references.some(ref=>!access.canRead(ref))) fail('NOT_FOUND','Referenced evidence is not accessible');
+    }
+    this.validateChanges(current,changes);
+    const preview={ ...current,records:[...current.records],assertions:current.assertions.map(item=>({...item})) };
+    applyGraph(preview,changes,value=>this.stored(current.context.id,value,current.context.revision+1,principalId),{ systemId:this.store.systemId,contextId:current.context.id,revision:current.context.revision+1 });
+    validateTopology(preview);
+  }
+  transition(snapshot,id,principalId,access) {
+    const stored=snapshot.controlState.transitions?.[id];
+    const origin=snapshot.controlState.transitionOrigins?.[id];
+    const ownBranch=origin?.principalId===principalId && access.chain.some(grant=>grant.id===origin.grantId);
+    if (!stored || !access.canIncident(stored.value.proposal.incidentId) || (!access.operator && !ownBranch && !access.canRead(stored.ref))) fail('NOT_FOUND','Transition not found');
+    return stored;
+  }
+  evaluateReaction(snapshot,input,principalId,access) {
+    this.local(input.rule,input.contextId);
+    const stored=snapshot.controlState.rules?.[input.rule.id];
+    if (!stored || !access.canRead(input.rule)) fail('NOT_FOUND','Rule not found');
+    const rule=stored.value;
+    const events=input.eventIds.map(id=>{ const row=this.store.db.prepare('SELECT value FROM events WHERE context_id=? AND event_id=? AND sequence>=0').get(input.contextId,id);if (!row) fail('NOT_FOUND','Event not found');const event=JSON.parse(row.value);if (event.revision>snapshot.context.revision || event.subjectRefs.some(ref=>!access.canRead(ref))) fail('NOT_FOUND','Event not accessible');return event; }).filter(event=>!rule.triggerEventTypes.length || rule.triggerEventTypes.includes(event.type)).sort((a,b)=>a.sequence-b.sequence);
+    const candidates=events.length?events:!input.eventIds.length && !rule.triggerEventTypes.length?[undefined]:[];
+    let unknown=false;
+    for (const event of candidates) {
+      const bindings={ contextId:input.contextId,principalId,incidentId:input.incidentId,action:rule.operation,resourceRefs:[],contextRevision:snapshot.context.revision,now:new Date().toISOString(),'event.ids':events.map(item=>item.id),...(event?{'event.id':event.id,'event.type':event.type,'event.subjectRefs':event.subjectRefs}:{}) };
+      const value=evaluate(rule.condition,{ bindings,...this.policyQueries(snapshot,access,principalId) });
+      if (value==='unknown') { unknown=true;continue; }
+      if (value) { const candidateInput=bindInput(rule.literalInput,rule.inputBindings,bindings);validateInput(rule.operation,candidateInput);return { eligible:true,explanation:'Condition matched; destination input validated',candidateInput }; }
+    }
+    if (unknown) fail('POLICY_INDETERMINATE','Reaction condition is unresolved');
+    return { eligible:false,explanation:'No triggering condition matched' };
+  }
   create(input, principalId) {
     if (principalId !== this.ownerId) fail('FORBIDDEN', 'Context bootstrap requires operator authority');
     if (input.bootstrapProfile !== 'owner-local') fail('INVALID_ARGUMENT', 'Unknown installed bootstrap profile');
     const policyId = randomUUID();
     const policy = { id: policyId, authorityIssuers:[principalId], rules: [{ id: 'owner-local', effect: 'permit', actions: bootstrapActions.filter(method => method !== 'context.create'), when: { kind: 'equal', left: { kind: 'binding', name: 'principalId' }, right: { kind: 'literal', value: principalId } } }], limits: input.limits, evidence: { sources: [], method: 'installed-owner-local-profile', artifactDigests: [] } };
-    const controlState = { owners: { principalId }, policies: { [policyId]: this.stored(input.id, policy, 1, principalId) } };
+    const schemas=Object.fromEntries(builtinSchemas.map(item=>[canonical([item.schema.name,item.schema.version]),this.stored(input.id,{ schema:item.schema,document:item.document },1,principalId,randomUUID())]));
+    const controlState = { schemas,owners: { principalId }, policies: { [policyId]: this.stored(input.id, policy, 1, principalId) } };
     const context = { id: input.id, label: input.label, policy: this.ref(input.id, policyId), limits: input.limits, imports: [] };
     return this.store.create(context, principalId, input.idempotencyKey, digest(input), controlState);
+  }
+  compiled(schema) {
+    const key=schema.value.schema.digest;
+    if (!this.schemaValidators.has(key)) {
+      if (this.schemaValidators.size>=64) this.schemaValidators.delete(this.schemaValidators.keys().next().value);
+      this.schemaValidators.set(key,compileDocument(schema.value.document));
+    }
+    return this.schemaValidators.get(key);
   }
   schema(snapshot, ref) {
     const schema = snapshot.controlState.schemas?.[canonical([ref.name, ref.version])];
@@ -258,7 +355,8 @@ export class Kernel {
     for (const record of records) {
       if (record.id===snapshot.context.id || snapshot.assertions.some(item=>item.assertion.ref.id===record.id) || changes.some(change=>change.kind==='assertion.put' && change.assertion.id===record.id) || Object.values(snapshot.controlState).some(namespace => namespace && typeof namespace === 'object' && Object.values(namespace).some(item => item?.ref?.id === record.id))) fail('IDENTITY_CONFLICT', 'Record ID already names a control object');
       const schema = this.schema(snapshot, record.schema);
-      if (!compileDocument(schema.value.document)(record.kind === 'atom' ? record.value : record.roles)) fail('INVALID_ARGUMENT', 'Record does not satisfy its admitted schema');
+      if (installedSchema(record.schema) && record.kind!=='relation') fail('INVALID_ARGUMENT','Installed relationship schemas require a relation record');
+      if (!this.compiled(schema)(record.kind === 'atom' ? record.value : record.roles)) fail('INVALID_ARGUMENT', 'Record does not satisfy its admitted schema');
       if (record.kind === 'relation') for (const refs of Object.values(record.roles)) for (const ref of refs) {
         this.local(ref, snapshot.context.id);
         if (!records.some(item => item.id === ref.id)) this.lookup(snapshot, ref);
@@ -274,18 +372,12 @@ export class Kernel {
       }
     }
   }
-  query(snapshot, input, principalId, access) {
+  query(snapshot, input, principalId, access, options={}) {
     let offset = 0;
     const selection = digest(input.selector);
     if (input.cursor) {
-      const parts = input.cursor.split('.');
-      if (parts.length !== 2 || !/^[0-9a-f]{64}$/.test(parts[1])) fail('INVALID_ARGUMENT', 'Invalid cursor');
-      const [encoded, signature] = parts;
-      const expected = createHmac('sha256', this.cursorKey).update(encoded).digest('hex');
-      if (!signature || signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) fail('INVALID_ARGUMENT', 'Invalid cursor');
-      let cursor;
-      try { cursor = JSON.parse(Buffer.from(encoded, 'base64url').toString()); } catch { fail('INVALID_ARGUMENT', 'Invalid cursor'); }
-      if (cursor.principalId !== principalId || cursor.authority !== access.scopeKey || cursor.contextId !== input.contextId || cursor.selection !== selection || (input.atRevision !== undefined && input.atRevision !== cursor.revision)) fail('INVALID_ARGUMENT', 'Cursor does not match query');
+      const cursor=openCursor(input.cursor,this.cursorKey);
+      if (cursor.scope!==(options.scope ?? 'graph.query') || cursor.principalId !== principalId || cursor.authority !== access.scopeKey || cursor.contextId !== input.contextId || cursor.selection !== selection || (input.atRevision !== undefined && input.atRevision !== cursor.revision)) fail('INVALID_ARGUMENT', 'Cursor does not match query');
       snapshot = this.store.read(input.contextId, cursor.revision); offset = cursor.offset;
     }
     if (input.selector.relatedTo && !access.canRead(input.selector.relatedTo)) fail('NOT_FOUND','Related object is not accessible');
@@ -311,11 +403,13 @@ export class Kernel {
       if (relatedIds && !relatedIds.has(item.ref.id)) return false;
       return true;
     });
+    const compare=(a,b)=>a<b?-1:a>b?1:0;
+    if (options.groupBy==='schema') selected.sort((a,b)=>compare(a.value.schema.name,b.value.schema.name) || compare(a.ref.id,b.ref.id));
+    if (options.groupBy==='record') selected.sort((a,b)=>compare(a.ref.id,b.ref.id));
     const items = selected.slice(offset, offset + input.limit).map(record => ({ record, support: visibleSupport(record.ref) }));
     const page = { items, snapshotRevision: snapshot.context.revision };
     if (offset + input.limit < selected.length) {
-      const encoded = Buffer.from(canonical({ principalId,authority:access.scopeKey, contextId: input.contextId, revision: snapshot.context.revision, selection, offset: offset + input.limit })).toString('base64url');
-      page.nextCursor = `${encoded}.${createHmac('sha256', this.cursorKey).update(encoded).digest('hex')}`;
+      page.nextCursor = sealCursor({ scope:options.scope ?? 'graph.query',principalId,authority:access.scopeKey,contextId:input.contextId,revision:snapshot.context.revision,selection,offset:offset+input.limit },this.cursorKey);
     }
     return page;
   }

@@ -38,6 +38,8 @@ Use `mise.toml` to pin Node.js and relevant native runtime/build tools, and expo
 
 Review and reuse applicable conventions from cfgate/cfgate.io, inherent.design/inherent.design, and create-skyweave when they resolve a current need. Extract the principle and its consumer; retain Moment's local service architecture, central task store, and actual permissions. Keep commands independent of sibling checkouts. On this shared host, avoid automatic mise pruning and global tool upgrades; pin versions and do not remove installations used by other work. Local overrides belong in ignored `mise.local.toml` files.
 
+Prefer purpose-specific mise tasks and explicit, allowlisted private operations, following inherent.design's operations tooling. Keep ordinary checks independent of secrets. Native dependencies used by a separate consumer, as in Skyweave's Python setup, belong in that consumer's setup and checks. Keep Markdown prose unwrapped, preserve intentional hard breaks, and consolidate durable guidance under one owning document.
+
 ## Private configuration
 
 When private information needs to be tracked, use SOPS with age recipients, including for a future public repository. Commit only ciphertext and public recipient configuration. Keep age private identities and recovery material in owner-controlled host custody outside Git; never copy another project's private key or plaintext credential. Verify intended recipients and a recoverable decryption path before relying on encrypted custody. Encryption does not authorize publication or use of the contents.

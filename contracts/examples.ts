@@ -69,7 +69,7 @@ export const wakeOnEvidence: Schedule = {
   rule: { ...ref, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
   wake: {
     kind: "event",
-    eventTypes: ["assertion.added"],
+    eventTypes: ["graph.transact.committed"],
     selector: { schemaNames: ["example.observation"], assertionStatus: "asserted" },
     mode: "each",
   },
@@ -133,3 +133,8 @@ const connection = createClient('/compile-only-example');
 export const described = connection.call('system.describe', { protocolVersion: '0.1' });
 // @ts-expect-error The runtime client cannot accept a caller-selected identity.
 export const clientForgery = connection.call('incident.get', { contextId, incidentId, principalId: 'forged' });
+
+import type { ProjectedRecord } from './index.js';
+declare const projected: ProjectedRecord;
+// @ts-expect-error A projection exposes selected fields, not an implicitly complete record.
+export const hiddenProjectionPayload = projected.value;

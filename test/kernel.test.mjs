@@ -1,33 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { Store } from '../runtime/store.mjs';
-import { Kernel } from '../runtime/kernel.mjs';
 import { digest } from '../runtime/json.mjs';
-
-const limits = { concurrentExecutions: 1, cpuMillis: 10000, memoryBytes: 10000, outputBytes: 10000, modelTokens: 0, apiSpendMicrounits: 0, currency: 'USD' };
-const incident = { purpose: 'Keep an attributable result', completionCriteria: ['One real observation'], status: 'open', continuation: [] };
-function setup(t) {
-  const directory = mkdtempSync(join(tmpdir(), 'moment-kernel-'));
-  const systemId = randomUUID(), ownerId = randomUUID(), contextId = randomUUID(), cursorKey = 'test-only-secret-key-at-least-32-bytes';
-  const filename = join(directory, 'store.sqlite');
-  let store = new Store(filename, systemId), kernel = new Kernel(store, { ownerId, cursorKey });
-  t.after(() => { store.close(); rmSync(directory, { recursive: true, force: true }); });
-  const call = (method,input,principal = ownerId,boundGrant) => kernel.call(method,input,principal,boundGrant);
-  const create = { id: contextId, label: 'Kernel context', bootstrapProfile: 'owner-local', idempotencyKey: 'bootstrap', limits };
-  assert.equal(call('context.create',create).ok,true);
-  const write = (method,input,key = randomUUID()) => call(method,{ contextId, expectedRevision: store.read(contextId).context.revision, idempotencyKey: key, ...input });
-  return { call,write,contextId,ownerId,systemId,create, get store() { return store; }, reopen() { store.close(); store = new Store(filename,systemId); kernel = new Kernel(store,{ ownerId,cursorKey }); } };
-}
-function schema(f,document = { type: 'string' }) {
-  const value = { name: `test.${randomUUID()}`,version:'1',digest:digest(document) };
-  assert.equal(f.write('schema.publish',{ schema:value,document }).ok,true);
-  return value;
-}
-const atom = schema => ({ kind:'atom',id:randomUUID(),schema,value:'observation' });
+import { limits, incident, setup, schema, atom, allowDelegated, grant, delegated } from './helpers.mjs';
 
 test('kernel authenticates admission and stores bootstrap policy atomically with context',t => {
   const f=setup(t);
@@ -105,7 +80,7 @@ test('query cursors bind principal, selection and snapshot across later writes',
   const second=f.call('graph.query',{ ...input,cursor:first.nextCursor }).value;
   assert.equal(second.snapshotRevision,first.snapshotRevision);assert.notEqual(second.items[0].record.value.id,first.items[0].record.value.id);
   assert.equal(f.call('graph.query',{ ...input,selector:{ assertionStatus:'asserted' },cursor:first.nextCursor }).error.code,'INVALID_ARGUMENT');
-  assert.equal(f.call('graph.query',{ ...input,cursor:first.nextCursor.replace(/\.[^.]+$/,'.'+'é'.repeat(64)) }).error.code,'INVALID_ARGUMENT');
+  assert.equal(f.call('graph.query',{ ...input,cursor:first.nextCursor.slice(0,-2)+'!!' }).error.code,'INVALID_ARGUMENT');
 });
 
 test('closure is revisioned, retryable and prevents new admitted work',t => {
@@ -116,22 +91,6 @@ test('closure is revisioned, retryable and prevents new admitted work',t => {
   assert.equal(f.call('context.get',{ contextId:f.contextId,atRevision:1 }).value.state,'open');
   assert.equal(f.write('incident.create',{ id:randomUUID(),incident }).error.code,'FORBIDDEN');
 });
-
-function allowDelegated(f) {
-  const context=f.call('context.get',{ contextId:f.contextId }).value;
-  const initial=f.call('control.get',{ contextId:f.contextId,ref:context.policy }).value.value;
-  const policy={ ...initial,id:randomUUID(),parent:context.policy,rules:[...initial.rules,{ id:'delegated-actions-still-require-grants',effect:'permit',actions:initial.rules[0].actions,when:{ kind:'equal',left:{ kind:'literal',value:true },right:{ kind:'literal',value:true } } }] };
-  const stored=f.write('policy.publish',{ policy });assert.equal(stored.ok,true);
-  assert.equal(f.write('policy.activate',{ policy:stored.value.ref,evidence:{ sources:[],method:'operator-admission',artifactDigests:[] } }).ok,true);
-  return { policy,ref:stored.value.ref };
-}
-function grant(f,principalId,overrides={}) {
-  const value={ id:randomUUID(),principalId,actions:['context.get','graph.query','graph.transact','incident.get','control.get','grant.issue'],incidentIds:'all',resourceRefs:[],delegable:true,limits,...overrides };
-  const result=f.write('grant.issue',{ grant:value });assert.equal(result.ok,true,JSON.stringify(result));return result.value;
-}
-function delegated(f,actor,bound,method,input,mutation=false) {
-  return f.call(method,{ contextId:f.contextId,...(mutation?{ expectedRevision:f.store.read(f.contextId).context.revision,idempotencyKey:randomUUID() }:{}),...input },actor,bound.ref);
-}
 
 test('restricted delegates can read and change selected records without reaching siblings',t=>{
   const f=setup(t);allowDelegated(f);const s=schema(f),allowed=atom(s),hidden=atom(s);
