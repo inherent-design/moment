@@ -273,6 +273,29 @@ export interface Execution {
   attempt: number;
   lease?: Lease;
   outcome?: Outcome;
+  cancellation?: { requestedBy: Id; requestedAt: Instant; reason: string };
+  /** Provider-reported cumulative usage across attempts; unknown keeps its reservation. */
+  usage: ExecutionUsage;
+}
+
+export interface ExecutionUsage {
+  cpuMillis: number;
+  memoryBytes: number;
+  outputBytes: number;
+  modelTokens: number;
+  apiSpendMicrounits: number;
+}
+
+export interface ExecutionReport {
+  attempt: number;
+  outcome: Outcome;
+  usage: ExecutionUsage;
+}
+
+export interface ReconciliationReport {
+  attempt: number;
+  resolution: Reconciliation;
+  usage: ExecutionUsage;
 }
 
 export type Wake =
@@ -434,7 +457,7 @@ export interface Methods {
   "transition.get": { input: Read & { proposalId: Id }; output: Transition };
   "capability.advertise": { input: Mutation & { capability: Capability }; output: Stored<Capability> };
   "capability.match": {
-    input: Read & { requirement: CapabilityRequirement; grant: Ref; limit: number };
+    input: Read & { requirement: CapabilityRequirement; grant: Ref; limit: number; incidentId?: Id };
     output: CapabilityMatch[];
   };
   "execution.request": { input: Mutation & { execution: ExecutionIntent }; output: Execution };
@@ -448,11 +471,11 @@ export interface Methods {
     output: Execution;
   };
   "execution.finish": {
-    input: Mutation & { executionId: Id; leaseId: Id; fencingToken: number; outcome: Outcome };
+    input: Mutation & { executionId: Id; leaseId: Id; fencingToken: number; outcome: Outcome; usage: ExecutionUsage };
     output: Execution;
   };
   "execution.reconcile": {
-    input: Mutation & { executionId: Id; resolution: Reconciliation };
+    input: Mutation & { executionId: Id; attempt: number; resolution: Reconciliation; usage: ExecutionUsage };
     output: Execution;
   };
   "execution.cancel": { input: Mutation & { executionId: Id; reason: string }; output: Execution };
@@ -524,9 +547,9 @@ export interface DurableBatch {
 /** Adapter implementations enforce the admitted grant at the effect boundary. */
 export interface HostPort {
   inspect(): Promise<{ platform: Capability["platform"]; measurements: Measurement[] }>;
-  execute(input: { execution: Execution; grant: Stored<Grant>; policy: Ref }): Promise<Outcome>;
-  reconcile(execution: Execution): Promise<Reconciliation>;
-  cancel(execution: Execution): Promise<Outcome>;
+  execute(input: { execution: Execution; grant: Stored<Grant>; policy: Ref }): Promise<ExecutionReport>;
+  reconcile(execution: Execution): Promise<ReconciliationReport>;
+  cancel(execution: Execution): Promise<ExecutionReport>;
 }
 
 export interface Measurement {
@@ -539,8 +562,8 @@ export interface Measurement {
 
 /** Provider-neutral agent boundary; proposed output enters ordinary validation. */
 export interface AgentPort {
-  invoke(input: { prompt: PromptArtifact; execution: Execution; grant: Stored<Grant> }): Promise<Outcome>;
-  cancel(execution: Execution): Promise<Outcome>;
+  invoke(input: { prompt: PromptArtifact; execution: Execution; grant: Stored<Grant> }): Promise<ExecutionReport>;
+  cancel(execution: Execution): Promise<ExecutionReport>;
 }
 
 export interface ClockPort {

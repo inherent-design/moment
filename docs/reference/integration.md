@@ -8,6 +8,10 @@ Adapters connect Moment's governed operations to concrete execution platforms. A
 
 `capability.match` returns eligibility and unmet requirements. Capability fit and permission are separate checks. The caller selects a candidate; the scheduler rechecks it when claiming and dispatching. An imported advertisement is evidence about a remote capability, not an installed local provider or permission to contact it. Peer configuration binds actual providers to authenticated endpoints.
 
+The implemented registry retains at most 4,096 advertisements per context, forbids names colliding with protocol methods, and validates exact input/output schema references. Publication cannot impersonate another provider. Grant actions may name an advertised capability; publication does not add that action to the active policy. A caller still needs both the explicit action permit and a grant covering the advertisement and incident before queueing work.
+
+Matching considers authorized advertisements of the requested name, reports exact version/schema/feature/isolation mismatches, and orders eligible candidates before unknown and ineligible ones before applying the result limit. Its optional `incidentId` supplies incident-specific admission context. Without it, an incident-restricted grant produces unknown eligibility. Delegates can match only their bound grant. Matching reserves no resources and authenticates no external implementation; claims recheck the exact advertisement, execution grant, policy, input schema, and incident state.
+
 ## Host adapter
 
 `HostPort.inspect` reports observed platform and resource measurements with units, timestamp, and source. Missing measurements stay unknown. Memory, disk, CPU, available subscription quota, and billed usage must not be invented from guessed token counts or previous snapshots.
@@ -17,6 +21,8 @@ Adapters connect Moment's governed operations to concrete execution platforms. A
 Resolve paths and mounts at dispatch, then enforce them with the strongest available host mechanism. A directory label or Git worktree is not a sandbox. `isolation: none` explicitly represents host execution; policy decides where that is acceptable. Container and VM providers must establish actual boundaries through execution tests. Graphical execution is a capability using a display/browser endpoint inside its admitted environment; it is not part of the core scheduler.
 
 Dispatch uses a durable execution ID as the external idempotency identity when the provider supports one. Fencing tokens stop stale workers only where the provider or adapter can enforce them; they cannot revoke an arbitrary external process by themselves. Cancellation and reconciliation follow [reactions](reactions.md). Model output, stdout, screenshots, and traces enter as attributed observations with bounded artifacts.
+
+Host and agent adapters return an `ExecutionReport` containing exact attempt, outcome, and cumulative usage. Reconciliation returns a `ReconciliationReport` with attempt, resolution, and usage. The adapter retains discriminating receipts and submits them through the ordinary finish or reconciliation API. Advertisement and kernel state-machine support are implemented; automatic provider dispatch and a concrete bounded verifier remain implementation work.
 
 ## Agent adapter and prompts
 

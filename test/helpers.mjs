@@ -9,17 +9,17 @@ import { digest } from '../runtime/json.mjs';
 
 export const limits = { concurrentExecutions: 1, cpuMillis: 10000, memoryBytes: 10000, outputBytes: 10000, modelTokens: 0, apiSpendMicrounits: 0, currency: 'USD' };
 export const incident = { purpose: 'Keep an attributable result', completionCriteria: ['One real observation'], status: 'open', continuation: [] };
-export function setup(t) {
+export function setup(t,options={}) {
   const directory = mkdtempSync(join(tmpdir(), 'moment-kernel-'));
   const systemId = randomUUID(), ownerId = randomUUID(), contextId = randomUUID(), cursorKey = 'test-only-secret-key-at-least-32-bytes';
   const filename = join(directory, 'store.sqlite');
-  let store = new Store(filename, systemId), kernel = new Kernel(store, { ownerId, cursorKey });
+  let store = new Store(filename, systemId), kernel = new Kernel(store, { ownerId, cursorKey,clock:options.clock });
   t.after(() => { store.close(); rmSync(directory, { recursive: true, force: true }); });
   const call = (method,input,principal = ownerId,boundGrant) => kernel.call(method,input,principal,boundGrant);
-  const create = { id: contextId, label: 'Kernel context', bootstrapProfile: 'owner-local', idempotencyKey: 'bootstrap', limits };
+  const create = { id: contextId, label: 'Kernel context', bootstrapProfile: 'owner-local', idempotencyKey: 'bootstrap', limits:options.limits ?? limits };
   assert.equal(call('context.create',create).ok,true);
   const write = (method,input,key = randomUUID()) => call(method,{ contextId, expectedRevision: store.read(contextId).context.revision, idempotencyKey: key, ...input });
-  return { call,write,contextId,ownerId,systemId,create, get store() { return store; }, reopen() { store.close(); store = new Store(filename,systemId); kernel = new Kernel(store,{ ownerId,cursorKey }); } };
+  return { call,write,contextId,ownerId,systemId,create, get store() { return store; }, reopen() { store.close(); store = new Store(filename,systemId); kernel = new Kernel(store,{ ownerId,cursorKey,clock:options.clock }); } };
 }
 export function schema(f,document = { type: 'string' }) {
   const value = { name: `test.${randomUUID()}`,version:'1',digest:digest(document) };

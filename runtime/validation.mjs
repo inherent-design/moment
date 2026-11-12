@@ -42,6 +42,12 @@ defs.Change = { anyOf: [
 defs.View = object({ id, selector: reference('Selector'), fields: array(string) }, { groupBy: enumeration('record', 'schema') });
 defs.Rule = object({ id, triggerEventTypes: array(string), condition: reference('Condition'), operation: string, literalInput: true, inputBindings: { type: 'object', additionalProperties: string, maxProperties:64 }, limits: reference('Limits') });
 defs.ExecutionIntent=object({ id,incidentId:id,capability:reference('Ref'),grant:reference('Ref'),input:true,limits:reference('Limits') });
+defs.Usage=object(Object.fromEntries(['cpuMillis','memoryBytes','outputBytes','modelTokens','apiSpendMicrounits'].map(key=>[key,integer])));
+const isolation=enumeration('none','process','container','vm');
+defs.Capability=object({ id,providerId:id,name:string,version:string,inputSchema:reference('SchemaRef'),outputSchema:reference('SchemaRef'),features:array(string),platform:object({ os:string,architecture:string }),isolation,reconciliation:enumeration('lookup','idempotent','manual'),evidence:reference('Evidence'),expiresAt:instant });
+defs.Requirement=object({ name:string,versions:array(string),inputSchema:reference('SchemaRef'),outputSchema:reference('SchemaRef'),features:array(string),acceptableIsolation:array(isolation) });
+defs.Outcome={ anyOf:[object({ kind:{ const:'succeeded' },output:true,evidence:reference('Evidence') }),object({ kind:{ const:'failed' },code:string,detail:text,evidence:reference('Evidence') }),object({ kind:{ const:'cancelled' },evidence:reference('Evidence') }),object({ kind:{ const:'unknown' },detail:text,evidence:reference('Evidence') })] };
+defs.Reconciliation={ anyOf:[object({ kind:{ const:'observed' },outcome:reference('Outcome') }),object({ kind:{ const:'retry' },basis:enumeration('not_started','idempotent'),evidence:reference('Evidence') })] };
 defs.Proposal=object({ id,incidentId:id,basisRevision:integer,policy:reference('Ref'),changes:array(reference('Change')),executions:array(reference('ExecutionIntent')),evidence:reference('Evidence') },{ rule:reference('Ref') });
 const read = { contextId: id };
 const readOptional = { atRevision: integer };
@@ -72,6 +78,15 @@ export const inputSchemas = {
   'transition.commit': object({ ...mutation,proposalId:id }),
   'transition.get': object({ ...read,proposalId:id },readOptional),
   'reaction.evaluate': object({ ...read, rule: reference('Ref'), eventIds: array(id), incidentId: id }, readOptional),
+  'capability.advertise':object({ ...mutation,capability:reference('Capability') }),
+  'capability.match':object({ ...read,requirement:reference('Requirement'),grant:reference('Ref'),limit:page },{ ...readOptional,incidentId:id }),
+  'execution.request':object({ ...mutation,execution:reference('ExecutionIntent') }),
+  'execution.get':object({ ...read,executionId:id },readOptional),
+  'execution.claim':object({ ...mutation,executionId:id,leaseMillis:{ type:'integer',minimum:1,maximum:30000 } }),
+  'execution.heartbeat':object({ ...mutation,executionId:id,leaseId:id,fencingToken:{ ...integer,minimum:1 },leaseMillis:{ type:'integer',minimum:1,maximum:30000 } }),
+  'execution.finish':object({ ...mutation,executionId:id,leaseId:id,fencingToken:{ ...integer,minimum:1 },outcome:reference('Outcome'),usage:reference('Usage') }),
+  'execution.reconcile':object({ ...mutation,executionId:id,attempt:{ ...integer,minimum:1 },resolution:reference('Reconciliation'),usage:reference('Usage') }),
+  'execution.cancel':object({ ...mutation,executionId:id,reason:string }),
 };
 const ajv = new Ajv({ strict: true, allErrors: false, ownProperties: true });
 const validators = new Map(Object.entries(inputSchemas).map(([method, schema]) => [method, ajv.compile({ ...schema, $defs: defs })]));
@@ -101,7 +116,7 @@ export function validateInput(method, input) {
   if (!validators.get(method)(input)) fail('INVALID_ARGUMENT', `Invalid ${method} input`);
   if (input.selector?.relationRole && !input.selector.relatedTo) fail('INVALID_ARGUMENT', 'A relation role requires a related reference');
   if (input.view?.selector?.relationRole && !input.view.selector.relatedTo) fail('INVALID_ARGUMENT', 'A relation role requires a related reference');
-  for (const value of [input.limits?.deadline, input.policy?.limits?.deadline, input.grant?.limits?.deadline, input.grant?.expiresAt, input.rule?.limits?.deadline]) {
+  for (const value of [input.limits?.deadline, input.policy?.limits?.deadline, input.grant?.limits?.deadline, input.grant?.expiresAt, input.rule?.limits?.deadline,input.capability?.expiresAt,input.execution?.limits?.deadline,...(input.proposal?.executions ?? []).map(item=>item.limits.deadline)]) {
     if (value === undefined) continue;
     const normal = value.replace(/(?:\.(\d{1,3}))?Z$/, (_, fraction) => `.${(fraction ?? '').padEnd(3, '0')}Z`);
     const date = new Date(value);

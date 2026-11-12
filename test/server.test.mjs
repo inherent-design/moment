@@ -9,6 +9,8 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { request, createClient } from '../runtime/client.mjs';
 import { parseJson } from '../runtime/wire.mjs';
+import { DatabaseSync } from 'node:sqlite';
+import { digest } from '../runtime/json.mjs';
 
 const cli=new URL('../runtime/cli.mjs',import.meta.url);
 const limits={ concurrentExecutions:1,cpuMillis:1000,memoryBytes:1000,outputBytes:1000,modelTokens:0,apiSpendMicrounits:0,currency:'USD' };
@@ -107,4 +109,56 @@ test('separate transport credentials exercise delegated grants and immediate rev
   assert.equal((await client.call('context.get',{ contextId })).error.code,'FORBIDDEN');
   const owner=JSON.parse(readFileSync(join(root,'runtime','owner.json'),'utf8'));
   assert.throws(()=>issueCredential(root,owner.principalId,{ [contextId]:grant.ref }),/separate principal/);
+});
+
+test('a real daemon expires leases without client activity and fences running work after abrupt restart',async t=>{
+  const root=mkdtempSync(join(tmpdir(),'moment-execution-rpc-'));let child=await start(root);
+  t.after(async()=>{ if (child.exitCode===null && child.signalCode===null) await stop(child);rmSync(root,{ recursive:true,force:true }); });
+  const client=createClient(root),contextId=randomUUID(),incidentId=randomUUID();
+  const { principalId }=JSON.parse(readFileSync(join(root,'runtime','owner.json'),'utf8'));
+  const call=async(method,input)=>{ const result=await client.call(method,input);assert.equal(result.ok,true,JSON.stringify(result));return result.value; };
+  const write=async(method,input)=>{
+    const context=await call('context.get',{ contextId });
+    return call(method,{ contextId,expectedRevision:context.revision,idempotencyKey:randomUUID(),...input });
+  };
+  await call('context.create',{ id:contextId,label:'Execution recovery',bootstrapProfile:'owner-local',idempotencyKey:'bootstrap',limits });
+  await write('incident.create',{ id:incidentId,incident:{ purpose:'Preserve uncertain effects',completionCriteria:['No blind replay'],status:'open',continuation:[] } });
+  const document={ type:'string' },schema={ name:'fixture.verification',version:'1',digest:digest(document) };
+  await write('schema.publish',{ schema,document });
+  const evidence={ sources:[],method:'socket test provider',artifactDigests:[] };
+  const cap=await write('capability.advertise',{ capability:{ id:randomUUID(),providerId:principalId,name:'fixture.socket',version:'1',inputSchema:schema,outputSchema:schema,features:[],platform:{ os:process.platform,architecture:process.arch },isolation:'none',reconciliation:'lookup',evidence,expiresAt:new Date(Date.now()+60000).toISOString() } });
+  const context=await call('context.get',{ contextId }),old=await call('control.get',{ contextId,ref:context.policy });
+  const candidate=await write('policy.publish',{ policy:{ ...old.value,id:randomUUID(),parent:context.policy,rules:old.value.rules.map(rule=>({ ...rule,actions:[...rule.actions,cap.value.name] })) } });
+  await write('policy.activate',{ policy:candidate.ref,evidence });
+  const bound=await write('grant.issue',{ grant:{ id:randomUUID(),principalId,actions:['execution.request',cap.value.name],incidentIds:[incidentId],resourceRefs:[cap.ref],delegable:false,limits } });
+  const enqueue=async()=>write('execution.request',{ execution:{ id:randomUUID(),incidentId,capability:cap.ref,grant:bound.ref,input:'fixture',limits } });
+  const dispatch=async(id,leaseMillis)=>{
+    const leased=await write('execution.claim',{ executionId:id,leaseMillis });
+    const lease={ executionId:id,leaseId:leased.lease.id,fencingToken:leased.lease.fencingToken };
+    await write('execution.heartbeat',{ ...lease,leaseMillis });return lease;
+  };
+  const first=await enqueue();await dispatch(first.intent.id,250);
+  // Observe SQLite read-only, without any RPC that could trigger lazy maintenance.
+  const observer=new DatabaseSync(join(root,'runtime','store.sqlite'),{ readOnly:true });
+  try {
+    let observed;
+    const until=Date.now()+3000;
+    do {
+      const row=observer.prepare('SELECT value FROM snapshots WHERE context_id=? ORDER BY revision DESC LIMIT 1').get(contextId);
+      observed=JSON.parse(row.value).controlState.executions[first.intent.id].value;
+      if (observed.state==='unknown') break;
+      await new Promise(resolve=>setTimeout(resolve,20));
+    } while (Date.now()<until);
+    assert.equal(observed.state,'unknown');assert.equal(observed.attempt,1);
+  } finally { observer.close(); }
+  const proofId=randomUUID();await write('graph.transact',{ changes:[{ kind:'record.put',record:{ kind:'atom',id:proofId,schema,value:'Test provider observed no external dispatch' } }] });
+  const systemId=(await call('system.describe',{ protocolVersion:'0.1' })).systemId;
+  const usage={ cpuMillis:0,memoryBytes:0,outputBytes:0,modelTokens:0,apiSpendMicrounits:0 };
+  await write('execution.reconcile',{ attempt:1,executionId:first.intent.id,resolution:{ kind:'observed',outcome:{ kind:'cancelled',evidence:{ ...evidence,sources:[{ systemId,contextId,id:proofId }] } } },usage });
+  const second=await enqueue(),stale=await dispatch(second.intent.id,10000);
+  await stop(child,'SIGKILL');child=await start(root);
+  const recovered=await call('execution.get',{ contextId,executionId:second.intent.id });assert.equal(recovered.state,'unknown');assert.equal(recovered.attempt,1);
+  const current=await call('context.get',{ contextId });
+  const refused=await client.call('execution.finish',{ contextId,expectedRevision:current.revision,idempotencyKey:'stale-result',...stale,outcome:{ kind:'cancelled',evidence },usage });
+  assert.equal(refused.error.code,'LEASE_STALE');
 });

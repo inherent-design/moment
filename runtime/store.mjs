@@ -66,6 +66,10 @@ export class Store {
     return JSON.parse(row.value);
   }
 
+  contextIds() {
+    return this.db.prepare('SELECT DISTINCT context_id FROM snapshots').all().map(row=>row.context_id);
+  }
+
   receipt(principalId, contextId, method, key, requestDigest) {
     const row = this.db.prepare('SELECT * FROM receipts WHERE principal_id=? AND context_id=? AND method=? AND key=?').get(principalId, contextId, method, key);
     if (!row) return undefined;

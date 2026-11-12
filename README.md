@@ -2,7 +2,7 @@
 
 Moment is a proposed local system for contextual incidents, governed reactions, and coordination between agents. It preserves the relationships, evidence, and intent needed to continue useful work across sessions, projects, and levels of detail.
 
-This repository contains a local daemon, typed client, CLI, and SQLite storage backend. It supports operator and grant-bound identities, contexts, schemas, incidents, graph operations, governed policy changes, semantic transitions, deterministic rules, and field-selecting views. Scheduling, execution providers, and the complete native agent workflow remain under implementation.
+This repository contains a local daemon, typed client, CLI, and SQLite storage backend. It supports operator and grant-bound identities, contexts, schemas, incidents, graph operations, governed policy changes, semantic transitions, deterministic rules, field-selecting views, capability negotiation, and a durable execution state machine. Wake scheduling, concrete execution providers, and the complete native agent workflow remain under implementation.
 
 Start with the [documentation map](docs/README.md), [semantic model](docs/reference/model.md), and [TypeScript API](contracts/index.ts). The [implementation sequence](docs/development/implementation.md) identifies bounded deliverables and their acceptance cases.
 

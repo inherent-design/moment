@@ -84,7 +84,9 @@ export const retryAfterObservation: Input<"execution.reconcile"> = {
   expectedRevision: 10,
   idempotencyKey: "reconcile-1",
   executionId: execution.id,
+  attempt: 1,
   resolution: { kind: "retry", basis: "not_started", evidence },
+  usage: { cpuMillis: 0, memoryBytes: 0, outputBytes: 0, modelTokens: 0, apiSpendMicrounits: 0 },
 };
 
 export async function readIncident(client: MomentClient): Promise<Result<string>> {

@@ -37,6 +37,23 @@ export async function serve(root,systemId) {
       unlinkSync(socketPath);
     } catch(error) { if (error.code!=='ENOENT') throw error; }
     const kernel=new Kernel(store,{ ownerId:auth.principalId,cursorKey:auth.cursorKey });
+    let maintenanceTimer,closed=false;
+    const maintenanceFailure=()=>{
+      clearTimeout(maintenanceTimer);
+      if (closed) return;
+      process.stderr.write('Moment execution maintenance failed; retrying retained deadlines.\n');
+      maintenanceTimer=setTimeout(runMaintenance,1000);
+    };
+    const armMaintenance=()=>{
+      clearTimeout(maintenanceTimer);
+      if (closed) return;
+      try {
+        const delay=kernel.executions.nextDelay();
+        if (delay!==null) maintenanceTimer=setTimeout(runMaintenance,Math.min(delay,2147483647));
+      } catch { maintenanceFailure(); }
+    };
+    const runMaintenance=()=>{ if (closed) return;try { kernel.executions.maintainAll();armMaintenance(); } catch { maintenanceFailure(); } };
+    kernel.executions.maintainAll();
     const sockets=new Set();
     const server=net.createServer(socket=>{
       sockets.add(socket);socket.on('close',()=>sockets.delete(socket));socket.on('error',()=>{});
@@ -67,6 +84,7 @@ export async function serve(root,systemId) {
         if (!description.methods.includes(request.method)) { error(request.id,-32601,'Method not found');return; }
         try {
           const result=kernel.call(request.method,request.params,session.principalId,session.grants?.[request.params?.contextId]);
+          armMaintenance();
           if (!result.ok && result.error.code==='INVALID_ARGUMENT') { error(request.id,-32602,'Invalid params');return; }
           const frame=JSON.stringify({ jsonrpc:'2.0',id:request.id,result })+'\n';
           if (Buffer.byteLength(frame)>1048576) { error(request.id,-32603,'Response exceeds frame limit; use a smaller page');return; }
@@ -76,9 +94,9 @@ export async function serve(root,systemId) {
     });
     await new Promise((resolve,reject)=>{ server.once('error',reject);server.listen(socketPath,resolve); });
     chmodSync(socketPath,0o600);
-    let closed=false;
+    armMaintenance();
     return { socketPath, close:async()=>{
-      if (closed) return;closed=true;
+      if (closed) return;closed=true;clearTimeout(maintenanceTimer);
       for (const socket of sockets) socket.destroy();
       await new Promise(resolve=>server.close(resolve));store.releaseWriter(claim);store.close();
     } };

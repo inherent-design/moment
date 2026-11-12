@@ -7,20 +7,24 @@ import { builtinSchemas, installedSchema, validateTopology } from './builtins.mj
 import { applyGraph } from './graph.mjs';
 import { select, tokens, bindInput } from './pointers.mjs';
 import { evaluate, evaluatePolicy } from './conditions.mjs';
+import { Executions, executionMethods } from './executions.mjs';
 
 const methods = ['system.describe', 'context.create', 'context.get', 'context.close', 'control.get', 'schema.publish', 'schema.get', 'incident.create', 'incident.get', 'incident.update', 'graph.transact', 'graph.query', 'policy.publish', 'policy.activate', 'policy.evaluate', 'grant.issue', 'grant.revoke','view.publish','view.read','rule.publish','reaction.evaluate','transition.propose','transition.commit','transition.get'];
-const bootstrapActions = [...methods, 'policy.publish', 'policy.activate', 'grant.issue', 'grant.revoke', 'rule.publish', 'reaction.evaluate', 'transition.propose', 'transition.commit', 'transition.get'];
+methods.push(...executionMethods);
+const bootstrapActions = [...methods];
 const equal = (a,b) => canonical(a) === canonical(b);
 const ok = value => ({ ok: true, value });
 
 /** In-process API. principalId must come from an authenticated transport binding. */
 export class Kernel {
-  constructor(store, { ownerId, cursorKey }) {
+  constructor(store, { ownerId, cursorKey, clock }) {
     if (!ownerId || !cursorKey || Buffer.byteLength(cursorKey) < 32) throw new Error('An operator identity and cursor encryption key are required');
     this.store = store;
     this.ownerId = ownerId;
     this.cursorKey = cursorKey;
     this.schemaValidators = new Map();
+    this.clock=clock ?? { wall:()=>Date.now(),monotonic:()=>performance.now(),bootId:randomUUID() };
+    this.executions=new Executions(this);
   }
   ref(contextId, id) { return { systemId: this.store.systemId, contextId, id }; }
   stored(contextId, value, revision, principalId, id=value.id) {
@@ -41,7 +45,7 @@ export class Kernel {
   }
   admission(snapshot, principalId, boundGrant) {
     const operator = principalId === this.ownerId && snapshot.controlState.owners?.principalId === principalId && !boundGrant;
-    const chain = operator ? [] : grantChain(snapshot, boundGrant, principalId);
+    const chain = operator ? [] : grantChain(snapshot, boundGrant, principalId,this.clock.wall());
     const key=ref=>`${ref.systemId}|${ref.contextId}|${ref.id}`;
     const resourceSets=chain.map(grant=>new Set(grant.resourceRefs.map(key)));
     const resources=new Set(chain[0]?.resourceRefs.filter(ref=>resourceSets.every(set=>set.has(key(ref)))).map(key) ?? []);
@@ -96,12 +100,12 @@ export class Kernel {
     if (!access.operator && access.chain.some(grant => !grant.actions.includes(method))) fail('FORBIDDEN', 'Action is outside delegated authority');
     if (method==='schema.publish' && !access.operator) fail('FORBIDDEN','Schema admission requires operator authority');
     if (['context.close','policy.activate'].includes(method) && !access.operator && !access.chain.every(grant=>grant.incidentIds==='all' && includesRef(grant.resourceRefs,this.ref(snapshot.context.id,snapshot.context.id)))) fail('FORBIDDEN','Operation requires context-wide delegation');
-    const incidentId=input.incidentId ?? input.proposal?.incidentId ?? snapshot.controlState.transitions?.[input.proposalId]?.value.proposal.incidentId;
+    const incidentId=input.incidentId ?? input.execution?.incidentId ?? input.proposal?.incidentId ?? snapshot.controlState.transitions?.[input.proposalId]?.value.proposal.incidentId ?? snapshot.controlState.executions?.[input.executionId]?.value.intent.incidentId;
     if (incidentId && !access.canIncident(incidentId)) fail('NOT_FOUND', 'Incident is not accessible');
     const resources=input.resourceRefs ?? (input.changes ?? []).map(change=>change.kind==='record.put'?this.ref(snapshot.context.id,change.record.id):change.kind==='assertion.put'?change.assertion.record:snapshot.assertions.find(item=>item.assertion.value.id===change.assertionId)?.assertion.value.record).filter(Boolean);
     if (method!=='policy.evaluate' && resources.some(ref=>!access.canRead(ref))) fail('FORBIDDEN','Resources are outside delegated authority');
     const policy = this.lookup(snapshot, snapshot.context.policy).value;
-    const decision = evaluatePolicy(policy, method, { ...this.policyQueries(snapshot,access,principalId),bindings: { principalId, incidentId: incidentId ?? null, action: method, resourceRefs: resources,contextId:snapshot.context.id, contextRevision: snapshot.context.revision, now: new Date().toISOString() } });
+    const decision = evaluatePolicy(policy, method, { ...this.policyQueries(snapshot,access,principalId),bindings: { principalId, incidentId: incidentId ?? null, action: method, resourceRefs: resources,contextId:snapshot.context.id, contextRevision: snapshot.context.revision, now: new Date(this.clock.wall()).toISOString() } });
     if (decision !== 'permit') fail(decision === 'indeterminate' ? 'POLICY_INDETERMINATE' : 'FORBIDDEN', 'Current policy does not admit this operation');
     return access;
   }
@@ -113,6 +117,7 @@ export class Kernel {
       if (method === 'system.describe') return ok({ systemId: this.store.systemId, protocolVersion: '0.1', methods: [...methods], implementationVersion: '0.1.0' });
       if (method === 'context.create') return this.create(input, principalId);
       if (principalId!==this.ownerId && !boundGrant) fail('NOT_FOUND','Context is not accessible');
+      this.executions.maintain(input.contextId);
       const current = this.store.read(input.contextId);
       const access = this.authorize(current, method, principalId, input, boundGrant);
       const snapshot = input.atRevision === undefined ? current : this.store.read(input.contextId, input.atRevision);
@@ -121,7 +126,7 @@ export class Kernel {
         const receipt = this.store.receipt(principalId, input.contextId, method, input.idempotencyKey, digest(input));
         if (receipt) return ok(receipt.response.kind === 'commit-receipt' ? receipt.commit : receipt.response);
         if (current.context.revision !== input.expectedRevision) fail('REVISION_CONFLICT', 'Context changed since observation', 'refresh');
-        if (current.context.state !== 'open' && method !== 'context.close') fail('FORBIDDEN', 'Context is closed');
+        if (current.context.state !== 'open' && !['context.close','execution.finish','execution.reconcile','execution.cancel'].includes(method)) fail('FORBIDDEN', 'Context is closed');
       }
       const commitEventId=randomUUID();
       const batch = { mutation: input, principalId, requestDigest: digest(input), changes: [], controlChanges: [], events: [], outbox: [], response: { kind: 'commit-receipt' } };
@@ -157,16 +162,17 @@ export class Kernel {
         case 'grant.issue': {
           const grant=input.grant;
           this.ensureNewId(current,grant.id);
-          if (grant.actions.some(action=>!bootstrapActions.includes(action))) fail('INVALID_ARGUMENT','Grant contains an unknown action');
+          const capabilityNames=Object.values(current.controlState.capabilities ?? {}).map(item=>item.value.name);
+          if (grant.actions.some(action=>!bootstrapActions.includes(action) && !capabilityNames.includes(action))) fail('INVALID_ARGUMENT','Grant contains an unknown action');
           boundLimits(grant.limits,current.context.limits);
           boundLimits(grant.limits,this.lookup(current,current.context.policy).value.limits);
           for (const ref of grant.resourceRefs) this.local(ref,input.contextId);
           if (!access.operator && !sameRef(grant.parentGrant,boundGrant)) fail('FORBIDDEN','Delegation must name the bound parent');
           if (grant.parentGrant) {
             const parent=this.lookup(current,grant.parentGrant).value;
-            grantChain(current,grant.parentGrant,parent.principalId);attenuates(grant,parent);
+            grantChain(current,grant.parentGrant,parent.principalId,this.clock.wall());attenuates(grant,parent);
           }
-          if (grant.expiresAt && Date.parse(grant.expiresAt)<=Date.now()) fail('INVALID_ARGUMENT','Cannot issue an expired grant');
+          if (grant.expiresAt && Date.parse(grant.expiresAt)<=this.clock.wall()) fail('INVALID_ARGUMENT','Cannot issue an expired grant');
           const value=this.stored(input.contextId,grant,revision,principalId);
           control('grants',grant.id,value);batch.response=value;break;
         }
@@ -174,12 +180,15 @@ export class Kernel {
           const target=this.lookup(current,input.grant);
           if (!current.controlState.grants?.[input.grant.id]) fail('NOT_FOUND','Grant not found');
           if (!access.operator) {
-            const chain=grantChain(current,input.grant,target.value.principalId);
+            const chain=grantChain(current,input.grant,target.value.principalId,this.clock.wall());
             if (!sameRef(input.grant,boundGrant) && (target.recordedBy!==principalId || !chain.some(item=>item.id===boundGrant.id))) fail('FORBIDDEN','Cannot revoke outside the active delegation');
           }
-          control('revokedGrants',input.grant.id,true);break;
+          control('revokedGrants',input.grant.id,true);
+          this.executions.cancelMatching(current,(_value,origin)=>origin.grantIds.includes(input.grant.id),'Execution grant revoked',principalId,control);break;
         }
-        case 'context.close': control('contextMetadata', 'state', 'closed'); break;
+        case 'context.close':
+          control('contextMetadata', 'state', 'closed');
+          this.executions.cancelMatching(current,()=>true,'Context closed',principalId,control);break;
         case 'control.get': {
           if (!access.operator && !sameRef(input.ref,boundGrant) && !access.canRead(input.ref)) fail('NOT_FOUND','Control object is not accessible');
           const item = this.lookup(snapshot, input.ref);
@@ -223,9 +232,27 @@ export class Kernel {
           const stored = this.stored(input.contextId, { id: input.incidentId, ...input.incident }, revision, principalId);
           stored.value = { ...input.incident };
           stored.digest = digest(stored.value);
-          control('incidents', input.incidentId, stored); batch.response = stored; break;
+          control('incidents', input.incidentId, stored);
+          if (['completed','cancelled'].includes(input.incident.status)) this.executions.cancelMatching(current,value=>value.intent.incidentId===input.incidentId,'Incident ended',principalId,control);
+          batch.response = stored; break;
         }
         case 'graph.transact': this.admitGraph(current,input.changes,principalId,access);batch.changes=input.changes;break;
+        case 'capability.advertise': {
+          const value=this.executions.publish(current,input.capability,principalId,access,methods);
+          control('capabilities',value.ref.id,value);batch.response=value;break;
+        }
+        case 'capability.match': return ok(this.executions.match(snapshot,current,input,principalId,access,boundGrant));
+        case 'execution.request': {
+          const prepared=this.executions.prepare(current,input.execution,principalId,access);
+          control('executions',input.execution.id,this.stored(input.contextId,prepared.execution,revision,principalId,input.execution.id));
+          control('executionOrigins',input.execution.id,prepared.origin);batch.outbox.push(input.execution);batch.response=prepared.execution;break;
+        }
+        case 'execution.get': return ok(this.executions.get(snapshot,input.executionId,principalId,access).value);
+        case 'execution.claim': case 'execution.heartbeat': case 'execution.finish': case 'execution.cancel': case 'execution.reconcile': {
+          const { value,leaseMeta }=this.executions.update(current,method,input,principalId,access);
+          control('executions',input.executionId,this.stored(input.contextId,value,revision,principalId,input.executionId));
+          control('executionLeases',input.executionId,leaseMeta);batch.response=value;break;
+        }
         case 'view.publish': {
           this.ensureNewId(current,input.view.id);
           if (input.view.fields.length>64) fail('LIMIT_EXCEEDED','Too many projection fields');
@@ -257,12 +284,14 @@ export class Kernel {
           if (!access.canIncident(proposal.incidentId) || !current.controlState.incidents?.[proposal.incidentId]) fail('NOT_FOUND','Incident not found');
           if (proposal.basisRevision!==input.expectedRevision || !sameRef(proposal.policy,current.context.policy)) fail('REVISION_CONFLICT','Proposal basis or policy is stale','refresh');
           if (!proposal.changes.length && !proposal.executions.length) fail('INVALID_ARGUMENT','Proposal is empty');
-          if (proposal.executions.length) fail('CAPABILITY_UNAVAILABLE','Execution admission is not installed yet');
           if (proposal.changes.some(change=>(change.record?.id ?? change.assertion?.id)===proposal.id)) fail('IDENTITY_CONFLICT','Proposal identity aliases its graph change');
           if (proposal.rule) { this.local(proposal.rule,input.contextId);if (!access.canRead(proposal.rule) || !current.controlState.rules?.[proposal.rule.id]) fail('NOT_FOUND','Rule not found'); }
           for (const ref of proposal.evidence.sources) { if (!access.canRead(ref)) fail('NOT_FOUND','Proposal evidence is inaccessible');this.lookup(current,ref); }
-          this.authorize(current,'graph.transact',principalId,{ ...input,changes:proposal.changes },boundGrant);
-          this.admitGraph(current,proposal.changes,principalId,access);
+          if (proposal.changes.length) {
+            this.authorize(current,'graph.transact',principalId,{ ...input,changes:proposal.changes },boundGrant);
+            this.admitGraph(current,proposal.changes,principalId,access);
+          }
+          this.executionPlan(current,proposal,principalId,access,boundGrant,principalId);
           const value=this.stored(input.contextId,{ proposal,state:'proposed' },revision,principalId,proposal.id);control('transitions',proposal.id,value);control('transitionOrigins',proposal.id,{ principalId,grantId:boundGrant?.id ?? null });batch.response=value.value;break;
         }
         case 'transition.get': {
@@ -272,8 +301,15 @@ export class Kernel {
           const stored=this.transition(current,input.proposalId,principalId,access),proposal=stored.value.proposal;
           if (stored.value.state!=='proposed') fail('IDENTITY_CONFLICT','Proposal is already terminal; use its original retry key or transition.get');
           if (stored.revision!==current.context.revision || !sameRef(proposal.policy,current.context.policy)) fail('REVISION_CONFLICT','Proposal requires a fresh basis','refresh');
-          this.authorize(current,'graph.transact',principalId,{ ...input,changes:proposal.changes },boundGrant);
-          this.admitGraph(current,proposal.changes,principalId,access);
+          if (proposal.changes.length) {
+            this.authorize(current,'graph.transact',principalId,{ ...input,changes:proposal.changes },boundGrant);
+            this.admitGraph(current,proposal.changes,principalId,access);
+          }
+          for (const prepared of this.executionPlan(current,proposal,principalId,access,boundGrant,current.controlState.transitionOrigins[proposal.id].principalId)) {
+            const id=prepared.execution.intent.id;
+            control('executions',id,this.stored(input.contextId,prepared.execution,revision,principalId,id));
+            control('executionOrigins',id,prepared.origin);batch.outbox.push(prepared.execution.intent);
+          }
           const commit={ transitionId:randomUUID(),contextId:input.contextId,previousRevision:input.expectedRevision,revision,eventIds:[commitEventId] };
           batch.commitId=commit.transitionId;batch.changes=proposal.changes;
           control('transitions',proposal.id,this.stored(input.contextId,{ proposal,state:'committed',commit },revision,principalId,proposal.id));break;
@@ -302,6 +338,19 @@ export class Kernel {
     const preview={ ...current,records:[...current.records],assertions:current.assertions.map(item=>({...item})) };
     applyGraph(preview,changes,value=>this.stored(current.context.id,value,current.context.revision+1,principalId),{ systemId:this.store.systemId,contextId:current.context.id,revision:current.context.revision+1 });
     validateTopology(preview);
+  }
+  executionPlan(current,proposal,principalId,access,boundGrant,requester) {
+    const preview={ ...current,controlState:{ ...current.controlState,executions:{ ...current.controlState.executions },executionOrigins:{ ...current.controlState.executionOrigins } } };
+    const ids=new Set([proposal.id,...proposal.changes.map(change=>change.record?.id ?? change.assertion?.id).filter(Boolean)]),prepared=[];
+    for (const intent of proposal.executions) {
+      if (intent.incidentId!==proposal.incidentId) fail('FORBIDDEN','Proposal executions must share its incident');
+      if (ids.has(intent.id)) fail('IDENTITY_CONFLICT','Execution identity aliases another proposal object');ids.add(intent.id);
+      this.authorize(current,'execution.request',principalId,{ incidentId:intent.incidentId,resourceRefs:[intent.capability] },boundGrant);
+      const item=this.executions.prepare(preview,intent,principalId,access,requester);
+      preview.controlState.executions[intent.id]=this.stored(current.context.id,item.execution,current.context.revision+1,principalId,intent.id);
+      preview.controlState.executionOrigins[intent.id]=item.origin;prepared.push(item);
+    }
+    return prepared;
   }
   transition(snapshot,id,principalId,access) {
     const stored=snapshot.controlState.transitions?.[id];
