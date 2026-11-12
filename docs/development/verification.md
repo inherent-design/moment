@@ -1,6 +1,14 @@
 # Verification
 
-The `0.1` contract baseline was checked on November 12, 2026, using macOS arm64, Node.js 26.13.0, npm 11.20.0, and TypeScript 7.0.2. Runtime behavior in the reference documents remains unimplemented.
+The `0.1` contract baseline and first storage implementation were checked on November 12, 2026, using macOS arm64, Node.js 26.13.0, npm 11.20.0, TypeScript 7.0.2, and built-in SQLite 3.54.0. The public daemon, policy kernel, scheduler, and agent integration remain unimplemented.
+
+## Storage execution evidence
+
+`node --test test/*.test.mjs` passed eleven tests against temporary directories and actual SQLite databases. `test/store.test.mjs` exercises atomic state/event/receipt/outbox persistence, reopen in a new process after closing the original connection, exact retries, conflicting retries, full rollback on identity conflict, historical snapshots, independently withdrawn support, two competing child processes, rollback after a child receives `SIGKILL` inside a transaction, and system-scoped bootstrap retry identity. Canonical JSON tests reject nonfinite values, unsupported objects, sparse arrays, and unpaired Unicode surrogates.
+
+`test/home.test.mjs` exercises existing directories, aliases, explicit overrides, dangling links, unsupported bootstrap versions, exact-byte import preservation, changed-input rejection, and path/symlink escape refusal. Import does not activate an incident or create a runtime context. `test/projects.test.mjs` creates actual Git repositories, a clone, and a linked worktree to exercise shared identity, unresolved clone hints, and an explicitly confirmed moved locator. The first home test run exposed an incorrect test expectation about macOS `/var` canonicalization; the assertion now compares canonical paths as the storage contract requires.
+
+These tests establish the storage portion of E1, E2, E3, E6, and E12. They do not establish public API admission, OS sandboxing, power-loss durability, cancellation, or external effect reconciliation. The backend is trusted internal code; untrusted input must pass the pending kernel before reaching it.
 
 ## Executed checks
 
@@ -19,7 +27,7 @@ The first documentation-check attempt assumed a JavaScript compiler API unavaila
 
 ## Tested source identifiers
 
-The checks above exercised these SHA-256 source identities. Documentation-only completion records may change without changing these inputs.
+The original contract-baseline checks exercised these SHA-256 source identities. The dependency lock subsequently gained the runtime's Node engine requirement. Current runtime snapshots are identified by Git and the central task checkpoint.
 
 | File | SHA-256 |
 | --- | --- |
@@ -34,4 +42,4 @@ The checks above exercised these SHA-256 source identities. Documentation-only c
 
 `npm run check:docs` checks local document links, Markdown anchors when present, balanced fenced blocks, trailing whitespace, titles, and a one-to-one mapping between declared methods and protocol table entries. It does not validate external website availability or prove that prose and code have identical semantics.
 
-The acceptance scenarios in [implementation](implementation.md) are future runtime obligations, not passing tests in this baseline. No storage recovery, policy evaluation, sandbox isolation, provider execution, or Codex invocation has been tested by compiling the declarations.
+The acceptance scenarios in [implementation](implementation.md) remain overall completion obligations. Storage execution evidence above covers their specified storage portions. Policy evaluation, sandbox isolation, provider execution, and Codex invocation are not proven by compiling declarations or passing the storage suite.

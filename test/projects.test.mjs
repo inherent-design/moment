@@ -1,0 +1,35 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, renameSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { identifyProject, normalizeOrigin } from '../runtime/projects.mjs';
+
+test('real worktrees share a registered identity while clones and moves need explicit association', t => {
+  const root = mkdtempSync(join(tmpdir(), 'moment-projects-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const repository = join(root, 'repository'), clone = join(root, 'clone'), worktree = join(root, 'worktree');
+  const git = args => execFileSync('git', args, { stdio: 'pipe' });
+  git(['init', '--initial-branch=main', repository]);
+  git(['-C', repository, '-c', 'user.name=Moment test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-m', 'fixture']);
+  git(['-C', repository, 'remote', 'add', 'origin', 'git@github.com:example/project.git']);
+  git(['clone', repository, clone]);
+  git(['-C', clone, 'remote', 'set-url', 'origin', 'https://github.com/example/project.git']);
+  git(['-C', repository, 'worktree', 'add', '-b', 'fixture', worktree]);
+  const project = { id: randomUUID(), label: 'fixture', locations: [{ path: repository, kind: 'git-worktree' }], origins: ['git@github.com:example/project.git'], contextIds: [] };
+  const registry = { formatVersion: 1, systemId: randomUUID(), projects: [project] };
+  const before = JSON.stringify(registry);
+  assert.equal(identifyProject(registry, repository).projectId, project.id);
+  assert.equal(identifyProject(registry, worktree).basis, 'git-worktree');
+  const duplicate = identifyProject(registry, clone);
+  assert.equal(duplicate.status, 'unresolved');
+  assert.deepEqual(duplicate.candidateIds, [project.id]);
+  assert.equal(JSON.stringify(registry), before);
+  const moved = join(root, 'moved'); renameSync(clone, moved);
+  assert.equal(identifyProject(registry, moved).status, 'unresolved');
+  project.locations.push({ path: moved, kind: 'git-worktree' });
+  assert.equal(identifyProject(registry, moved).projectId, project.id);
+  assert.equal(normalizeOrigin('https://token@example.invalid/owner/project.git'), 'example.invalid/owner/project');
+});

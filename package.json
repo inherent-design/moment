@@ -6,11 +6,15 @@
   "type": "module",
   "license": "UNLICENSED",
   "scripts": {
-    "check": "tsc --noEmit && node scripts/check-docs.mjs",
+    "check": "tsc --noEmit && node scripts/check-docs.mjs && npm test",
     "check:types": "tsc --noEmit",
-    "check:docs": "node scripts/check-docs.mjs"
+    "check:docs": "node scripts/check-docs.mjs",
+    "test": "node --test test/*.test.mjs"
   },
   "devDependencies": {
     "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=26.13.0"
   }
 }

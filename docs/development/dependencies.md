@@ -1,6 +1,6 @@
 # Dependencies and patches
 
-The contract repository has one direct development dependency: TypeScript, pinned exactly in `package.json` and resolved in `package-lock.json`. No runtime package, database driver, model SDK, policy engine, or VM provider is installed by this baseline. Node.js and npm supply the local check environment.
+The repository has one direct development dependency: TypeScript, pinned exactly in `package.json` and resolved in `package-lock.json`. Node.js 26.13.0 or later supplies the runtime and built-in SQLite binding; npm supplies dependency installation. No external database driver, model SDK, policy engine, or VM provider is installed.
 
 ## Updates
 

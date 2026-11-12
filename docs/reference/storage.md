@@ -27,7 +27,7 @@ Relocation copies or moves the complete store while writers are stopped, verifie
   cache/                           regenerable bounded material
 ```
 
-Only registry, context manifests, incident manifests, intent, checkpoints, and a readable intent link are used by the initial documentation bootstrap. `runtime`, artifact storage, and cache are future runtime concerns. The bootstrap files are not evidence of a running service or executed goal. Readable intent links are convenience aliases; they resolve to the incident's canonical file, preserve its identity, and must not overwrite an existing name.
+Registry, context manifests, incident manifests, intent, checkpoints, and a readable intent link form the documentation bootstrap. The implemented storage backend can create its SQLite database under `runtime`; public service integration, artifact storage, and cache remain implementation work. The bootstrap files are not evidence of a running service or executed goal. Readable intent links are convenience aliases; they resolve to the incident's canonical file, preserve its identity, and must not overwrite an existing name.
 
 ## Bootstrap file contract
 
@@ -52,7 +52,7 @@ Touched repositories need no `.moment` directory, `.git/goals`, marker, hook, or
 
 ## Runtime persistence and retention
 
-The first runtime uses one SQLite writer, a durable event/outbox log, and explicit versioned migrations. Configure and test actual durability settings on the supported filesystem; a successful transaction test does not prove power-loss behavior. Backups must capture a consistent database snapshot, referenced artifacts, schema version, and system identity. Restore checks integrity before admitting effects, then reconciles leases and unknown outcomes.
+The storage backend uses SQLite WAL mode, `synchronous=FULL`, a five-second busy timeout, and `user_version=1`. SQLite serializes competing transactions through `BEGIN IMMEDIATE`; the public service will own admission. Each accepted context revision currently retains a complete snapshot alongside durable events, receipts, and outbox entries. This favors straightforward recovery but has storage growth proportional to cumulative snapshot size; measurement and a versioned compact representation are required before high-volume use. Unknown database versions and conflicting system identities are refused. Configure and test actual durability settings on the supported filesystem; a successful transaction test does not prove power-loss behavior. Backups must capture a consistent database snapshot, referenced artifacts, schema version, and system identity. Restore checks integrity before admitting effects, then reconciles leases and unknown outcomes.
 
 Live intent, current continuation state, unacknowledged messages, idempotency receipts, unresolved effects, active grants, and evidence supporting accepted claims are retained. Raw logs and caches have bounded retention profiles. Cleanup previews candidates with dependency reasons and removes only admitted, unreferenced, regenerable or explicitly expired material. Content deduplication does not erase independent evidence. Secrets are kept in host credential custody and referenced indirectly; they are not stored in goals or ordinary artifacts.
 
