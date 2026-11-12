@@ -3,9 +3,15 @@ import { homedir } from 'node:os';
 import { resolve, isAbsolute, join, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fail } from './json.mjs';
+import { publishPrivate } from './private-files.mjs';
 
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
 const present = path => { try { lstatSync(path); return true; } catch (error) { if (error.code === 'ENOENT') return false; throw error; } };
+export function runtimeSocket(root) {
+  const path=join(root,'runtime/moment.sock'),maximum=process.platform==='darwin'?104:107;
+  if(Buffer.byteLength(path)>maximum) fail('LIMIT_EXCEEDED',`Central path exceeds this host's Unix socket limit (${maximum} bytes); use a shorter central storage path while preserving existing state`);
+  return path;
+}
 /** Observational resolution: never creates an alias, directory or registry. */
 export function inspectHome({ home = homedir(), override = process.env.MOMENT_HOME } = {}) {
   const alias=join(home,'.moment');
@@ -33,7 +39,7 @@ export function openHome({ home = homedir(), override = process.env.MOMENT_HOME 
   const warnings = realpathSync(alias) === root ? [] : ['MOMENT_HOME differs from ~/.moment; existing alias preserved'];
   const registryPath = join(root, 'registry.json');
   if (!present(registryPath)) {
-    try { writeFileSync(registryPath, JSON.stringify({ formatVersion: 1, systemId: randomUUID(), projects: [] }, null, 2) + '\n', { mode: 0o600, flag: 'wx' }); }
+    try { publishPrivate(registryPath, JSON.stringify({ formatVersion: 1, systemId: randomUUID(), projects: [] }, null, 2) + '\n'); }
     catch (error) { if (error.code !== 'EEXIST') throw error; }
   }
   const registry = readVersioned(registryPath);

@@ -5,11 +5,13 @@ import { issueCredential } from './credentials.mjs';
 import { parseJson } from './wire.mjs';
 import { installVerifier } from './providers/bytes-runtime.mjs';
 import { readJsonInput } from './input.mjs';
+import { runManagedCommand } from './commands.mjs';
 
 try {
   const [command,method,raw,...extra]=process.argv.slice(2);
   if (command==='--help' || command==='help' || !command) {
-    console.log('moment serve | moment call <method> <params-json> | moment call <method> --file <path|-> | moment describe | moment credential <principal-id> <grant-bindings-json> | moment verifier <context-id>');
+    console.log('moment agents [operation-id] [--limit N] [--cursor CURSOR]\nmoment mcp [--profile continuity|operator]\nmoment status [--context ID] [--details] [--json]\nmoment show INCIDENT --context ID [--details] [--json]\nmoment stop [--json]\nmoment serve | moment call <method> <params-json> | moment call <method> --file <path|-> | moment describe | moment credential <principal-id> <grant-bindings-json> | moment verifier <context-id>');
+  } else if(await runManagedCommand(process.argv.slice(2))) {
   } else {
     const fileMode=command==='call' && raw==='--file';
     if (!['serve','call','describe','credential','verifier'].includes(command) || (fileMode ? !method || extra.length!==1 : extra.length || (['call','credential'].includes(command) ? !method || raw===undefined : command==='verifier'?!method || raw!==undefined:method!==undefined))) throw new Error('Invalid arguments; use moment --help');

@@ -1,5 +1,5 @@
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { resolve, relative, join } from 'node:path';
+import { readFileSync, readdirSync, writeFileSync, realpathSync } from 'node:fs';
+import { relative, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compileContract } from './schema-compiler.mjs';
 import { inputSchemas, defs } from '../runtime/input-schemas.mjs';
@@ -48,6 +48,8 @@ export function generateBindings() {
   if (canonical([...dispatch].sort()) !== canonical([...kernelMethods].sort())) throw new Error('Kernel dispatch/registration mismatch');
   const server = readFileSync(join(root,'runtime/server.mjs'),'utf8');
   for (const id of serviceMethods) if (!server.includes(`request.method==='${id}'`)) throw new Error(`Missing service handler ${id}`);
+  const adapter = readFileSync(join(root,'runtime/managed.mjs'),'utf8');
+  for (const id of managedMethods) if (!adapter.includes(`operation==='${id}'`)) throw new Error(`Missing managed handler ${id}`);
   const paths = ['contracts/index.ts', 'package.json', 'pnpm-lock.yaml', 'scripts/schema-compiler.mjs', 'scripts/generate-bindings.mjs'];
   const walk = directory => {
     for (const entry of readdirSync(join(root, directory), { withFileTypes: true }).sort((a,b) => a.name.localeCompare(b.name, 'en'))) {
@@ -65,6 +67,9 @@ export function generateBindings() {
     if (names.has(name)) throw new Error(`Tool name collision: ${name}`);names.add(name);
     const implemented = registered.has(id), mutation = schemas.input.required?.includes('expectedRevision');
     const mode = id === 'context.create' ? 'bootstrap' : id === 'service.stop' ? 'control' : mutation ? 'write' : 'read';
+    const owner=managedMethods.includes(id)?(id==='bindings.discover'?'runtime/bindings.mjs':'runtime/managed.mjs'):serviceMethods.includes(id)?'runtime/server.mjs':'runtime/kernel.mjs';
+    const domain={execution:'runtime/executions.mjs',capability:'runtime/executions.mjs',schedule:'runtime/scheduler.mjs',events:'runtime/events.mjs',messages:'runtime/awareness.mjs',prompt:'runtime/awareness.mjs',graph:'runtime/graph.mjs'}[id.split('.')[0]];
+    const operationSources=[...new Set(['contracts/index.ts','runtime/operations.mjs','runtime/input-schemas.mjs','runtime/validation.mjs','runtime/directives.mjs',owner,...(domain?[domain]:[])])].sort().map(source);
     // The checked TS shape and the existing admitted refinements both apply.
     // Keep their local-reference namespaces separate in a self-contained document.
     const input = implemented ? { ...schemas.input, allOf: [{ $ref: '#/$defs/admitted' }], $defs: { ...schemas.input.$defs, admitted: inputSchemas[id], ...defs } } : schemas.input;
@@ -76,17 +81,17 @@ export function generateBindings() {
       retryIdentity: mode === 'control' ? 'service-instance' : mode === 'bootstrap' ? 'bootstrap-key' : mutation ? 'context-revision-key' : 'none',
       summary: summaries[id] ?? `${id}: ${mode === 'read' ? 'read selected admitted state' : 'apply a governed change'} using the exact typed input.`,
       preconditions: implemented ? ['Authenticate with the selected credential; availability grants no authority.', ...(mutation ? ['Use the observed context revision and retain the same key and input on exact retry.'] : [])] : ['Declared only; no installed handler.'],
-      directives: [directive], sources,
+      directives: [directive], sources:operationSources,
       // Internal projection data is stripped from public OperationBinding records.
       mcpName: name, envelopeSchema: { ...schemas.envelope, properties: { ...schemas.envelope.properties, operation: { const: id } } },
     };
   });
   const identity = { formatVersion: 1, implementationVersion: JSON.parse(readFileSync(join(root, 'package.json'))).version, sourceDigest: digest(sources), contractDigest: source('contracts/index.ts').digest };
-  const content = { identity, instructions, operations };
+  const content = { identity, instructions, sources, operations, surfaceSchemas: methods.surfaces };
   return { ...content, identity: { ...identity, digest: digest(content) } };
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const bytes = canonical(generateBindings()) + '\n';
   if (process.argv.includes('--check')) {
     if (readFileSync(outputPath, 'utf8') !== bytes) throw new Error('Bindings are stale; run pnpm generate:bindings');

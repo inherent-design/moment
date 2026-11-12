@@ -1,11 +1,13 @@
 import net from 'node:net';
 import { randomUUID, randomBytes } from 'node:crypto';
-import { mkdirSync, writeFileSync, readFileSync, lstatSync, unlinkSync, chmodSync } from 'node:fs';
+import { mkdirSync, readFileSync, lstatSync, unlinkSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { Store } from './store.mjs';
 import { Kernel } from './kernel.mjs';
 import { authenticate } from './credentials.mjs';
 import { parseJson } from './wire.mjs';
+import { runtimeSocket } from './home.mjs';
+import { publishPrivate } from './private-files.mjs';
 import { catalogIdentity, validateBoundary } from './bindings.mjs';
 import { serviceMethods } from './operations.mjs';
 import { validateInput } from './validation.mjs';
@@ -14,7 +16,12 @@ import { VerifierRuntime } from './providers/bytes-runtime.mjs';
 export function credentials(root) {
   const filename=join(root,'runtime','owner.json');
   mkdirSync(join(root,'runtime'),{ recursive:true,mode:0o700 });
-  try { writeFileSync(filename,JSON.stringify({ formatVersion:1,principalId:randomUUID(),token:randomBytes(32).toString('hex'),cursorKey:randomBytes(32).toString('hex') })+'\n',{ flag:'wx',mode:0o600 }); }
+  try {lstatSync(filename);} catch(error) {
+    if(error.code!=='ENOENT') throw error;
+    try {if(lstatSync(join(root,'runtime/store.sqlite')).size>0) throw new Error('Owner credential is missing for retained state; restore its original custody without resetting identity');}
+    catch(error) {if(error.code!=='ENOENT') throw error;}
+  }
+  try { publishPrivate(filename,JSON.stringify({ formatVersion:1,principalId:randomUUID(),token:randomBytes(32).toString('hex'),cursorKey:randomBytes(32).toString('hex') })+'\n'); }
   catch(error) { if (error.code!=='EEXIST') throw error; }
   const stat=lstatSync(filename);
   if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077)!==0 || stat.uid!==process.getuid()) throw new Error('Owner credential file must be a user-owned private regular file');
@@ -24,7 +31,7 @@ export function credentials(root) {
 }
 
 export async function serve(root,systemId) {
-  const auth=credentials(root), directory=join(root,'runtime'), socketPath=join(directory,'moment.sock');
+  const socketPath=runtimeSocket(root),auth=credentials(root),directory=join(root,'runtime');
   const store=new Store(join(directory,'store.sqlite'),systemId);
   let claim;
   try {
@@ -119,7 +126,10 @@ export async function serve(root,systemId) {
           }
           const grant=session.grants?.[request.params?.contextId];
           let result=kernel.call(request.method,request.params,session.principalId,grant);
-          if(request.method==='system.describe' && result.ok) result.value.methods.push(...serviceMethods);
+          if(request.method==='system.describe' && result.ok) {
+            result.value.methods.push(...serviceMethods);result.value.principalId=session.principalId;
+            if(session.grants) result.value.grants=session.grants;
+          }
           if (request.method==='events.read' && result.ok && request.params.waitMillis>0 && !result.value.items.length) {
             socket.setTimeout(request.params.waitMillis+1000,()=>socket.destroy());
             result=await kernel.events.wait(request.params,session.principalId,grant,abort.signal);

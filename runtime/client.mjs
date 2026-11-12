@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { readCredential } from './credentials.mjs';
 import { parseJson } from './wire.mjs';
 import { canonical } from './json.mjs';
-import { validateBoundary } from './bindings.mjs';
+import { validateBoundary, catalogIdentity } from './bindings.mjs';
 
 function unknown(original) {
   const error=new Error('RPC outcome unknown; reconcile using the retained exact request before retrying');
@@ -39,8 +39,8 @@ export function request(root,method,params,{ token,credentialFile=process.env.MO
         // Only these protocol faults establish that dispatch was refused. Server
         // internal faults and malformed results can follow a durable commit.
         if (!validResult && ![-32601,-32602].includes(reply.error?.code) || reply.result?.error?.code==='INTERNAL') { fail();return; }
-        if(reply.result?.ok===true) {
-          try { validateBoundary(method,'output',reply.result.value); } catch { fail();return; }
+        if(reply.result) {
+          try { validateBoundary(method,'envelope',{operation:method,catalog:catalogIdentity,result:reply.result}); } catch { fail();return; }
         }
         finished=true;socket.destroy();resolve(reply);
       } catch { fail(); }

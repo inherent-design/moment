@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import { lstatSync, openSync, closeSync, constants } from 'node:fs';
 import { join } from 'node:path';
-import { inspectHome, openHome } from './home.mjs';
+import { inspectHome, openHome, runtimeSocket } from './home.mjs';
 import { credentials } from './server.mjs';
 import { request, createClient } from './client.mjs';
 import { catalogIdentity } from './bindings.mjs';
@@ -37,8 +37,10 @@ export function createService({ root, credentialFile=process.env.MOMENT_CREDENTI
     try { home=inspectHome(homeOptions); }
     catch { return {state:'incompatible',reason:'Moment home is invalid; inspect the selected registry without resetting it',home:root??''}; }
     const health=(state,reason,extra={})=>({state,reason,home:home.root,...extra});
+    try {runtimeSocket(home.root);} catch(error) {return health('incompatible',error.message);}
     if (!home.registry) return health('stopped','Moment is not initialized; a domain operation can initialize and start it');
     try {
+      if(optionalStat(join(home.root,'runtime/store.sqlite'))?.size>0 && !optionalStat(join(home.root,'runtime/owner.json'))) return health('unavailable','Original owner credential is missing for retained state; restore its custody without resetting identity');
       const socket=optionalStat(join(home.root,'runtime/moment.sock'));
       if (socket && (!socket.isSocket() || socket.uid!==process.getuid() || socket.mode&0o077)) return health('incompatible','Socket path is not a private owned socket; inspect it explicitly');
       const claim=claimAt(home.root);

@@ -10,7 +10,7 @@ Moment's implementation target is a local kernel whose reactions can be explaine
 | Reactions, scheduling, resources, and execution recovery | [Reactions](reference/reactions.md) |
 | Callable API, errors, transport, and concurrency | [Protocol](reference/protocol.md) |
 | Hosts, agents, prompts, messaging, and other systems | [Integration](reference/integration.md) |
-| Proposed managed MCP, shared bindings, attachment, lifecycle and human commands | [Managed integration](reference/managed-integration.md) |
+| Managed MCP, shared bindings, attachment, lifecycle, installer contract and human commands | [Managed integration](reference/managed-integration.md) |
 | Personal store, repository identity, and retention | [Storage](reference/storage.md) |
 | Exact programmatic boundary shapes | [API declarations](../contracts/index.ts) |
 | Typed usage and rejection examples | [Contract examples](../contracts/examples.ts) |

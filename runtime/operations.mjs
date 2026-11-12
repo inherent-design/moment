@@ -5,8 +5,9 @@ export const kernelMethods = ['system.describe', 'context.create', 'context.get'
 kernelMethods.push(...executionMethods);
 kernelMethods.push('events.read','schedule.put','schedule.cancel','schedule.get');
 kernelMethods.push('messages.send','messages.read','messages.ack','prompt.compose');
+kernelMethods.push('incident.list');
 Object.freeze(kernelMethods);
 
-export const managedMethods = Object.freeze([]);
+export const managedMethods = Object.freeze(['bindings.discover','workspace.attach','workspace.read']);
 export const serviceMethods = Object.freeze(['service.stop']);
 export const continuityProfile = Object.freeze(['bindings.discover','workspace.attach','workspace.read','context.create','incident.create','incident.update','graph.query','graph.transact','transition.propose','transition.commit','messages.send','messages.read','messages.ack','events.read','prompt.compose']);

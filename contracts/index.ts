@@ -150,7 +150,7 @@ export interface Policy {
   authorityIssuers?: Id[];
   parent?: Ref;
   rules: {
-    id: Id;
+    id: string;
     effect: "permit" | "deny";
     actions: string[];
     when: Condition;
@@ -423,6 +423,32 @@ export interface BindingPage {
   operations: OperationBinding[];
   nextCursor?: Cursor;
 }
+export interface AgentManifest {
+  formatVersion: 1;
+  kind: "manifest";
+  catalog: CatalogIdentity;
+  exposedOperations: SurfaceOperation[];
+  nextCursor?: Cursor;
+}
+export type BindingSummary = Omit<OperationBinding, "inputSchema" | "outputSchema"> & {
+  inputSchema: { ref: SchemaRef };
+  outputSchema: { ref: SchemaRef };
+};
+export type AgentRecord = { formatVersion: 1; kind: "operation" } & (OperationBinding | BindingSummary);
+export interface StatusReport {
+  health: ServiceHealth;
+  contexts: Context[];
+  incidents: Stored<Incident>[];
+  issues: Fault[];
+}
+export interface StopReport {
+  accepted: boolean;
+  instanceId?: Id;
+  retired: boolean;
+  health: ServiceHealth;
+}
+export type StatusEnvelope = Result<StatusReport>;
+export type StopEnvelope = Result<StopReport>;
 export interface WorkspaceSelection {
   projectId?: Id;
   location?: string;
@@ -532,7 +558,7 @@ export type Result<T> = { ok: true; value: T } | { ok: false; error: Fault };
 export interface Methods {
   "system.describe": {
     input: { protocolVersion: "0.1" };
-    output: { systemId: Id; protocolVersion: "0.1"; methods: string[]; implementationVersion: string; catalog?: CatalogIdentity; instanceId?: Id };
+    output: { systemId: Id; protocolVersion: "0.1"; methods: string[]; implementationVersion: string; catalog?: CatalogIdentity; instanceId?: Id; principalId?: Id; grants?: { [contextId: string]: Ref } };
   };
   "service.stop": { input: { expectedInstanceId: Id }; output: { accepted: true; instanceId: Id } };
   "context.create": {

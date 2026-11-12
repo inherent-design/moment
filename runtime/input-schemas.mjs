@@ -52,6 +52,7 @@ const read = { contextId: id };
 const readOptional = { atRevision: integer };
 const mutation = { contextId: id, expectedRevision: integer, idempotencyKey: string };
 const page = { type: 'integer', minimum: 1, maximum: 100 };
+export const primitives={Id:id,Digest:hash,Revision:integer,Instant:instant,Cursor:string};
 export const inputSchemas = {
   'system.describe': object({ protocolVersion: { const: '0.1' } }),
   'service.stop': object({ expectedInstanceId: id }),
@@ -63,6 +64,7 @@ export const inputSchemas = {
   'schema.get': object({ ...read, schema: reference('SchemaRef') }, readOptional),
   'incident.create': object({ ...mutation, id, incident: reference('Incident') }),
   'incident.get': object({ ...read, incidentId: id }, readOptional),
+  'incident.list': object({ ...read,limit:page },{ ...readOptional,statuses:{...array(enumeration('open','resting','completed','cancelled')),maxItems:4,uniqueItems:true},cursor:string }),
   'incident.update': object({ ...mutation, incidentId: id, incident: reference('Incident'), evidence: reference('Evidence') }),
   'graph.transact': object({ ...mutation, changes: array(reference('Change')) }),
   'graph.query': object({ ...read, selector: reference('Selector'), limit: page }, { ...readOptional, cursor: string }),
@@ -95,4 +97,7 @@ export const inputSchemas = {
   'messages.read':object({ ...read,limit:page,includeAcknowledged:{ type:'boolean' } },{ ...readOptional,cursor:string }),
   'messages.ack':object({ ...mutation,messageIds:{ ...array(id),minItems:1,maxItems:100,uniqueItems:true } }),
   'prompt.compose':object({ ...read,incidentId:id,template:reference('Ref'),sourceRefs:{ ...array(reference('Ref')),maxItems:32 },outputSchema:reference('SchemaRef'),maximumInputBytes:{ type:'integer',minimum:1,maximum:262144 } },readOptional),
+  'bindings.discover':object({}, {operationId:string,cursor:string,limit:page}),
+  'workspace.attach':object({}, {projectId:id,location:string,contextId:id,incidentId:id}),
+  'workspace.read':object({target:object({systemId:id,contextId:id},{incidentId:id,projectId:id})}, {maximumBytes:{type:'integer',minimum:1,maximum:65536},limit:page,detailRefs:{...array(reference('Ref')),maxItems:100},includeMessages:{type:'boolean'}}),
 };

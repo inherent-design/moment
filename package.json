@@ -17,6 +17,7 @@
     "check:bindings": "node scripts/generate-bindings.mjs --check"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "2.4.0",
     "typescript": "7.0.2",
     "typescript-schema": "npm:typescript@6.0.2"
   },
@@ -24,6 +25,7 @@
     "node": ">=26.13.0"
   },
   "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
     "ajv": "8.20.0"
   },
   "packageManager": "pnpm@12.18.0"

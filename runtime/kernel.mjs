@@ -250,8 +250,10 @@ export class Kernel {
         case 'incident.get': {
           const item = snapshot.controlState.incidents?.[input.incidentId];
           if (!item) fail('NOT_FOUND', 'Incident not found');
+          if (item.value.continuation.some(ref=>!access.canRead(ref))) fail('NOT_FOUND','Incident continuation dependencies are not accessible');
           return ok(item);
         }
+        case 'incident.list': return ok(this.listIncidents(snapshot,current,input,principalId,access,boundGrant));
         case 'incident.update': {
           const item = current.controlState.incidents?.[input.incidentId];
           if (!item) fail('NOT_FOUND', 'Incident not found');
@@ -455,6 +457,25 @@ export class Kernel {
         if (!records.some(item => item.id === ref.id)) this.lookup(snapshot, ref);
       }
     }
+  }
+  listIncidents(snapshot,current,input,principalId,access,boundGrant) {
+    const selection=digest(input.statuses??null);
+    const scope={scope:'incident.list',principalId,authority:access.scopeKey,contextId:input.contextId,selection};
+    let offset=0;
+    if(input.cursor) {
+      const cursor=openCursor(input.cursor,this.cursorKey);
+      if(Object.entries(scope).some(([k,v])=>cursor[k]!==v) || !Number.isSafeInteger(cursor.offset) || cursor.offset<0 || (input.atRevision!==undefined && input.atRevision!==cursor.revision)) fail('INVALID_ARGUMENT','Cursor does not match incident selection');
+      snapshot=this.store.read(input.contextId,cursor.revision);offset=cursor.offset;
+    }
+    const selected=Object.values(snapshot.controlState.incidents??{}).filter(item=>{
+      if(input.statuses && !input.statuses.includes(item.value.status)) return false;
+      try {
+        const latest=current.controlState.incidents?.[item.ref.id];
+        this.authorize(current,'incident.get',principalId,{contextId:input.contextId,incidentId:item.ref.id},boundGrant);
+        return !!latest && item.value.continuation.every(access.canRead) && latest.value.continuation.every(access.canRead);
+      } catch(error) { if(!(error instanceof DomainError)) throw error;return false; }
+    }).sort((a,b)=>a.ref.id.localeCompare(b.ref.id));
+    return {items:selected.slice(offset,offset+input.limit),snapshotRevision:snapshot.context.revision,...(offset+input.limit<selected.length?{nextCursor:sealCursor({...scope,revision:snapshot.context.revision,offset:offset+input.limit},this.cursorKey)}:{})};
   }
   query(snapshot, input, principalId, access, options={}) {
     let offset = 0;

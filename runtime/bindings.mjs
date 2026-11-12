@@ -14,6 +14,12 @@ if (canonical(implemented) !== canonical([...kernelMethods, ...managedMethods, .
 
 const ajv = new Ajv({ strict: true, ownProperties: true });
 const validators = new Map();
+export function validateSurface(name,value) {
+  if(!catalog.surfaceSchemas[name]) fail('INVALID_ARGUMENT','Unknown presentation schema');
+  const key='surface:'+name;
+  if(!validators.has(key)) validators.set(key,ajv.compile(catalog.surfaceSchemas[name]));
+  if(!validators.get(key)(value)) fail('INTERNAL','Presentation does not match its contract');
+}
 export function validateBoundary(id, kind, value) {
   const binding = bindingMap.get(id);
   if (!binding) fail('INVALID_ARGUMENT', 'Unknown operation');
@@ -43,7 +49,7 @@ export function discoverBindings({ operationId, limit = 20, cursor } = {}, profi
       offset = decoded.offset;
     } catch { fail('CURSOR_EXPIRED', 'Discovery changed or cursor is invalid; start discovery again'); }
   }
-  const selected = operationId ? [bindingMap.get(operationId)] : catalog.operations;
+  const selected = operationId ? [bindingMap.get(operationId)] : catalog.operations.filter(o=>o.availability==='implemented');
   if (selected.some(o => !o)) fail('NOT_FOUND', 'Operation is not declared in this build');
   const page = { catalog: catalog.identity, exposedOperations: exposed, operations: [] };
   let count = 0;

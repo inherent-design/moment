@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync, writeFileSync, statSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, writeFileSync, statSync, readFileSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -84,4 +84,14 @@ test('catalog mismatch and an unowned socket path refuse replacement',async t=>{
   writeFileSync(join(f.root,'runtime/moment.sock'),'not a socket',{mode:0o600});
   assert.equal((await f.service.inspect()).state,'incompatible');
   assert.equal((await f.service.ensure()).ok,false);
+});
+
+test('missing retained owner custody and excessive socket paths never trigger replacement or initialization',async t=>{
+  const f=fixture(t);assert.equal((await f.service.ensure()).ok,true);
+  const state=await f.service.inspect();await f.service.stop(state.instanceId);await retired(f.service);
+  const path=join(f.root,'runtime/owner.json'),original=readFileSync(path);unlinkSync(path);
+  assert.equal((await f.service.inspect()).state,'unavailable');assert.equal((await f.service.ensure()).ok,false);assert.equal(existsSync(path),false);
+  writeFileSync(path,original,{mode:0o600});assert.equal((await f.service.ensure()).ok,true);
+  const longRoot=join(f.root,'x'.repeat(110)),long=createService({root:longRoot});
+  assert.equal((await long.inspect()).state,'incompatible');assert.equal(existsSync(longRoot),false);
 });

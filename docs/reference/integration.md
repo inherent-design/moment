@@ -2,7 +2,7 @@
 
 Adapters connect Moment's governed operations to concrete execution platforms. An advertisement describes a possible capability; current evidence, permission, capacity, and provider authentication determine whether it can execute.
 
-The next architecture uses a managed MCP bridge and shared operation bindings. [Managed integration](managed-integration.md) owns that proposed surface, attachment, lifecycle, installation and CLI presentation. Existing native invocation and verifier behavior below remain implemented; the proposed MCP tools are not yet installed or advertised.
+The managed MCP bridge and checked operation bindings provide explicit attachment, bounded context, on-demand lifecycle and selective agent discovery. [Managed integration](managed-integration.md) owns these surfaces and human commands. Installer implementation and actual isolated Codex MCP continuation/child qualification remain pending; no real installation has occurred. Existing native invocation and verifier behavior below remain implemented.
 
 ## Capability negotiation
 

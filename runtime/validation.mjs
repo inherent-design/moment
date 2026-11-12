@@ -2,7 +2,6 @@ import Ajv from 'ajv/dist/2020.js';
 import { canonical, fail } from './json.mjs';
 import generated from './generated/bindings.json' with { type: 'json' };
 
-import { inputSchemas, defs } from './input-schemas.mjs';
 export { inputSchemas } from './input-schemas.mjs';
 
 const ajv = new Ajv({ strict: true, allErrors: false, ownProperties: true });

@@ -1,20 +1,22 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, rmSync, cpSync, symlinkSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { generateBindings, outputPath } from '../scripts/generate-bindings.mjs';
 import { compileContract } from '../scripts/schema-compiler.mjs';
 import { canonical } from '../runtime/json.mjs';
 import { catalog, discoverBindings, exposedOperations, validateBoundary } from '../runtime/bindings.mjs';
-import { kernelMethods, serviceMethods } from '../runtime/operations.mjs';
+import { kernelMethods, serviceMethods, managedMethods } from '../runtime/operations.mjs';
 
 test('catalog generation is deterministic and accounts for exact installed handler availability', () => {
   const first = canonical(generateBindings()) + '\n';
   assert.equal(first, canonical(generateBindings()) + '\n');
   assert.equal(first, readFileSync(outputPath, 'utf8'));
   const implemented = catalog.operations.filter(o => o.availability === 'implemented');
-  assert.deepEqual(implemented.map(o => o.id).sort(), [...kernelMethods, ...serviceMethods].sort());
+  assert.deepEqual(implemented.map(o => o.id).sort(), [...kernelMethods, ...serviceMethods, ...managedMethods].sort());
   assert.equal(new Set(catalog.operations.map(o => o.mcpName)).size, catalog.operations.length);
   assert.equal(discoverBindings({ operationId: 'artifact.put' }).operations[0].availability, 'declared');
   assert.equal(exposedOperations('operator').includes('artifact.put'), false);
@@ -49,4 +51,20 @@ test('offline discovery pages are bounded and tied to catalog, profile and selec
   assert.throws(() => discoverBindings({ cursor: first.nextCursor }, 'operator'), { code: 'CURSOR_EXPIRED' });
   assert.throws(() => discoverBindings({ cursor: first.nextCursor, operationId: 'context.get' }), { code: 'CURSOR_EXPIRED' });
   assert.ok(Buffer.byteLength(JSON.stringify(discoverBindings({ limit: 100 }))) <= 262144);
+});
+
+test('the actual generator refuses stale sources, missing dispatch coverage and tool collisions',t=>{
+  const directory=mkdtempSync(join(tmpdir(),'moment-generation-'));t.after(()=>rmSync(directory,{recursive:true,force:true}));
+  const root=fileURLToPath(new URL('../',import.meta.url));
+  for(const path of ['contracts','runtime','scripts','package.json','pnpm-lock.yaml']) cpSync(join(root,path),join(directory,path),{recursive:true});
+  symlinkSync(join(root,'node_modules'),join(directory,'node_modules'),'dir');
+  const run=()=>execFileSync(process.execPath,[join(directory,'scripts/generate-bindings.mjs'),'--check'],{encoding:'utf8',stdio:'pipe',timeout:10000});
+  assert.match(run(),/Checked deterministic/);
+  const directive=join(directory,'runtime/directives.mjs'),before=readFileSync(directive,'utf8');writeFileSync(directive,before+'\n');
+  assert.throws(run,/Bindings are stale/);writeFileSync(directive,before);
+  const kernel=join(directory,'runtime/kernel.mjs'),dispatch=readFileSync(kernel,'utf8');writeFileSync(kernel,dispatch.replace("case 'graph.query'","case 'graph.missing'"));
+  assert.throws(run,/dispatch\/registration mismatch/);writeFileSync(kernel,dispatch);
+  const contract=join(directory,'contracts/index.ts'),source=readFileSync(contract,'utf8');
+  writeFileSync(contract,source.replace('export interface ManagedMethods {','export interface ManagedMethods {\n  "workspace_attach": { input: {}; output: {} };'));
+  assert.throws(run,/Tool name collision/);
 });

@@ -1,6 +1,6 @@
 # Managed agent integration
 
-This document owns the proposed managed MCP boundary, operation bindings, attachment, service lifecycle, installer, and human presentation. The existing kernel, native client, and foreground service remain implemented as described in [protocol](protocol.md) and [integration](integration.md). The declarations below are an upgrade contract, not an announcement of installed tools. [Implementation](../development/implementation.md) owns the delivery units and executed acceptance gates.
+This document owns the managed MCP boundary, operation bindings, attachment, service lifecycle, installer, and human presentation. Bindings, lifecycle, attachment, SDK stdio and agents/status/show/stop are implemented and exercised; installer and actual native Codex MCP qualification remain unfinished. The kernel, native client, and foreground service remain available as described in [protocol](protocol.md) and [integration](integration.md). Real installation remains deferred. [Implementation](../development/implementation.md) owns the delivery units and executed acceptance gates.
 
 ## Responsibility and initial scope
 
@@ -22,7 +22,7 @@ Keep declared future operations addressable as unavailable metadata when specifi
 
 ## MCP projection and results
 
-Use `@modelcontextprotocol/server` 2.4.0 with its stdio serving entry and 2025-era compatibility enabled; use the matching client package in conformance tests. This is a selected dependency target, not an added dependency in the specification phase. Installed Codex 0.167.2 was observed opening MCP `2025-06-18`, so that revision is the minimum required real-client path. Test `2025-11-25` and `2026-07-28` with the pinned SDK as additional negotiated paths. Do not require modern-only features for the baseline. The SDK documents serving older clients from the same factory. [Pinned SDK compatibility](https://github.com/modelcontextprotocol/typescript-sdk/blob/v2.4.0/docs/serving/legacy-clients.md)
+Use `@modelcontextprotocol/server` 2.4.0 with its stdio serving entry and 2025-era compatibility enabled; use the matching client package in conformance tests. These exact SDK dependencies are installed in the pnpm lockfile. Installed Codex 0.167.2 was observed opening MCP `2025-06-18`, so that revision is the minimum required real-client path. Test `2025-11-25` and `2026-07-28` with the pinned SDK as additional negotiated paths. Do not require modern-only features for the baseline. The SDK documents serving older clients from the same factory. [Pinned SDK compatibility](https://github.com/modelcontextprotocol/typescript-sdk/blob/v2.4.0/docs/serving/legacy-clients.md)
 
 The default continuity profile consists of `bindings.discover`, `workspace.attach`, `workspace.read`, `context.create`, `incident.create`, `incident.update`, `graph.query`, `graph.transact`, `transition.propose`, `transition.commit`, `messages.send`, `messages.read`, `messages.ack`, `events.read`, and `prompt.compose`. Derive collision-checked tool names as `moment_` plus the ID with dots replaced by underscores. An explicitly configured operator profile can expose other implemented kernel operations. `service.stop` and local installation operations are never model tools. No generic shell tool or privileged dispatch escape is added.
 
@@ -64,7 +64,7 @@ This delivery provides on-demand startup and continued operation while the host 
 
 ## Human commands and installer
 
-The proposed command set is intentionally small. Existing raw `call`, `credential`, `verifier`, and foreground `serve` remain operator interfaces. Names and options below become usable only when implemented and exercised:
+The proposed command set is intentionally small. Existing raw `call`, `credential`, `verifier`, and foreground `serve` remain operator interfaces. The bridge, discovery and read/stop commands below are implemented. Connect/disconnect remain proposed until their installer acceptance passes:
 
 | Command | Question answered and behavior |
 | --- | --- |
@@ -73,8 +73,8 @@ The proposed command set is intentionally small. Existing raw `call`, `credentia
 | `moment status [--context ID] [--details] [--json]` | Service health, visible active/resting work and what needs attention; observational by default. |
 | `moment show INCIDENT --context ID [--details] [--json]` | Purpose, current outcome/reason and selected continuation for one incident. |
 | `moment stop` | Owner-requested graceful stop of the currently authenticated instance; confirmed retirement reported separately. |
-| `moment connect --codex-home PATH --moment-home PATH [--apply] [--json]` | Preview or apply only Moment's Codex MCP registration in the explicit target. |
-| `moment disconnect --codex-home PATH --moment-home PATH [--apply] [--json]` | Preview or remove the unchanged owned registration, preserving all runtime data. |
+| `moment connect --codex-home PATH --moment-home PATH [--apply] [--json]` | Proposed: preview or apply only Moment's Codex MCP registration in the explicit target. |
+| `moment disconnect --codex-home PATH --moment-home PATH [--apply] [--json]` | Proposed: preview or remove the unchanged owned registration, preserving all runtime data. |
 
 Human rendering leads with outcome, relevant reason, and an available next action. Details retain exact identities, checked scope and provenance. Machine output preserves typed facts and failures with no terminal controls or progress on stdout. Use familiar words and show missing input, empty work, no-op, partial completion, conflicts and recovery accurately. Never hide the essential reason behind a details hint or invent an unimplemented full-check command. Fast local reads need no spinner. A slow command owns one temporary progress region, clears it before its one final report, and shows actual phases/counters; redirected output is sparse. Test real PTYs where rendering changes. An interruption does not turn completed effects into failure or erase cleanup problems.
 
@@ -89,3 +89,15 @@ Official Codex documentation describes stdio registration, server instructions a
 Resumption acceptance must start from a real persisted turn and exercise a bounded native child-agent propagation case. A metadata-only empty thread cannot establish durable resume. Dynamic-tool tests of the earlier implementation do not substitute for the MCP path. Do not use plugin installation APIs or primary daemon reload as a shortcut. SDK negotiation and real MCP propagation remain execution gates in the separate upgrade goal; current source/probe evidence belongs in [verification](../development/verification.md).
 
 Keep test configuration, state, workspace, transport, child processes and authentication independent from the primary Codex environment. Capture selected schema/version identities, calls, outcomes and limitations; no secret/raw session dumps. A catalog check, passing fixture, or supported method name alone cannot establish workload quality, identity separation, installation readiness, or OS isolation.
+
+## Running the implemented surfaces
+
+Use `pnpm moment agents` for concise versioned NDJSON, or `pnpm moment agents workspace.read` for the exact selected schemas. Default discovery lists implemented operations; explicitly selecting a declared-only operation explains its unavailability. Catalog source closure covers actual runtime, generator, contract and lockfile content; each operation separately names its owning sources. Offline discovery and `pnpm moment status` leave an absent home absent.
+
+`pnpm moment mcp` serves the default 15-tool continuity profile. The optional `--profile operator` exposes additional installed domain operations; it still excludes service stop and installation. Initialization and discovery do not start a service. The first domain call starts the shared service; closing the bridge leaves it running. `pnpm moment show INCIDENT --context CONTEXT` retrieves selected purpose/continuation, and `pnpm moment stop` requests the current owner-bound instance and waits for confirmed retirement. Use `MOMENT_HOME` and, when delegated, `MOMENT_CREDENTIAL_FILE` to select custody explicitly.
+
+`workspace.read.target` contains only routing fields: system/context IDs and optional incident/project IDs. Copy these fields from an attachment; do not submit its attribution/catalog fields as authority. Packets default to 20 records and 16 KiB, support up to 65,536 bytes, and admit at most 256 distinct dependency checks. JSON/NDJSON views are plain machine output. Human views use the same outcomes without an idle spinner.
+
+MCP negotiation and framing remain SDK-owned after strict UTF-8, duplicate-key, depth and frame preflight. Input schema validation runs through Moment’s shared validator so its exact domain fault is returned in the structured envelope and identical text fallback. The bridge permits at most 32 active calls and bounds a serialized envelope before duplicating it into the two result forms. Large ambiguous requests are retained privately in `runtime/retries` with exact content identity and a 64-file envelope; interruption leaves publication evidence for inspection. A full or interrupted retry store never causes automatic replay or eviction of unresolved work.
+
+Registry and owner identities are published as complete private files using exclusive links. Retained databases with missing owner custody refuse replacement. The tested macOS runtime accepts Unix socket paths through 104 bytes and rejects 105; overly long central roots receive an actionable refusal before startup. A shorter storage location requires preserving the existing central state, never reinitializing it. Other platforms have not been qualified by these tests.

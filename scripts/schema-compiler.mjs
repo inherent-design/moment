@@ -1,4 +1,5 @@
 import ts from 'typescript-schema';
+import { primitives } from '../runtime/input-schemas.mjs';
 
 /** Deliberately closed subset: unsupported types fail instead of becoming any. */
 export function compileContract(filename) {
@@ -35,12 +36,14 @@ export function compileContract(filename) {
         const properties = {}, required = [];
         for (const prop of checker.getPropertiesOfType(t)) {
           let value = checker.getTypeOfSymbolAtLocation(prop, prop.valueDeclaration ?? source);
+          const annotation=prop.valueDeclaration?.type;
+          const primitive=annotation && ts.isTypeReferenceNode(annotation)?primitives[annotation.typeName.getText(source)]:undefined;
           if (!(prop.flags & ts.SymbolFlags.Optional)) required.push(prop.name);
           else if (value.isUnion()) {
             const values = value.types.filter(x => !(x.flags & ts.TypeFlags.Undefined));
-            properties[prop.name] = values.length === 1 ? schema(values[0]) : { anyOf: values.map(schema) };continue;
+            properties[prop.name] = primitive ?? (values.length === 1 ? schema(values[0]) : { anyOf: values.map(schema) });continue;
           }
-          properties[prop.name] = schema(value);
+          properties[prop.name] = primitive ?? schema(value);
         }
         if (checker.getIndexTypeOfType(t, ts.IndexKind.Number)) throw new Error(`Unsupported numeric index: ${checker.typeToString(t)}`);
         const index = checker.getIndexTypeOfType(t, ts.IndexKind.String);
@@ -66,5 +69,6 @@ export function compileContract(filename) {
     const member = name => checker.getTypeOfSymbolAtLocation(type.getProperty(name), prop.valueDeclaration);
     methods.set(prop.name, { input: document(member('input')), output: document(member('output')), envelope: document(member('output'), true) });
   }
+  methods.surfaces=Object.fromEntries(['AgentManifest','AgentRecord','StatusEnvelope','StopEnvelope'].map(name=>[name,document(interfaceType(name))]));
   return methods;
 }
