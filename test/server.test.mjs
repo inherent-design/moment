@@ -162,3 +162,44 @@ test('a real daemon expires leases without client activity and fences running wo
   const refused=await client.call('execution.finish',{ contextId,expectedRevision:current.revision,idempotencyKey:'stale-result',...stale,outcome:{ kind:'cancelled',evidence },usage });
   assert.equal(refused.error.code,'LEASE_STALE');
 });
+
+test('a real daemon rests without writes, resumes a saved schedule once after restart and supports long polling',async t=>{
+  const root=mkdtempSync(join(tmpdir(),'moment-wake-rpc-'));let child=await start(root);
+  t.after(async()=>{ if (child.exitCode===null && child.signalCode===null) await stop(child);rmSync(root,{ recursive:true,force:true }); });
+  const client=createClient(root),contextId=randomUUID(),incidentId=randomUUID(),evidence={ sources:[],method:'Real wake fixture',artifactDigests:[] };
+  const call=async(method,input)=>{ const result=await client.call(method,input);assert.equal(result.ok,true,JSON.stringify(result));return result.value; };
+  const write=async(method,input)=>{
+    for (let attempt=0;attempt<8;attempt++) {
+      const ctx=await call('context.get',{ contextId }),result=await client.call(method,{ contextId,expectedRevision:ctx.revision,idempotencyKey:randomUUID(),...input });
+      if (result.ok) return result.value;
+      assert.equal(result.error.code,'REVISION_CONFLICT',JSON.stringify(result));
+    }
+    assert.fail('Fresh revision did not settle within the bounded retry');
+  };
+  await call('context.create',{ id:contextId,label:'Wake lifecycle',bootstrapProfile:'owner-local',idempotencyKey:'bootstrap',limits });
+  await write('incident.create',{ id:incidentId,incident:{ purpose:'Wait for a relevant observation',completionCriteria:['One admitted wake'],status:'open',continuation:[] } });
+  const document={ type:'string' },schema={ name:'fixture.wake',version:'1',digest:digest(document) };
+  await write('schema.publish',{ schema,document });
+  await write('incident.update',{ incidentId,incident:{ purpose:'Wait for a relevant observation',completionCriteria:['One admitted wake'],status:'resting',continuation:[] },evidence });
+  const rule=await write('rule.publish',{ rule:{ id:randomUUID(),triggerEventTypes:['graph.transact.committed'],condition:{ kind:'equal',left:{ kind:'literal',value:true },right:{ kind:'literal',value:true } },operation:'incident.update',literalInput:{ contextId,expectedRevision:0,idempotencyKey:'placeholder',incidentId,incident:{ purpose:'Wait for a relevant observation',completionCriteria:['One admitted wake'],status:'open',continuation:[] },evidence },inputBindings:{},limits } });
+  const scheduleId=randomUUID();await write('schedule.put',{ schedule:{ id:scheduleId,incidentId,rule:rule.ref,wake:{ kind:'event',eventTypes:['graph.transact.committed'],selector:{ schemaNames:[schema.name],assertionStatus:'any' },mode:'each' },recurrence:'once',coalesce:false } });
+  // Wait for a stable read-only snapshot, then establish that idle time causes no writes.
+  const observer=new DatabaseSync(join(root,'runtime','store.sqlite'),{ readOnly:true });
+  const snapshot=()=>JSON.parse(observer.prepare('SELECT value FROM snapshots WHERE context_id=? ORDER BY revision DESC LIMIT 1').get(contextId).value);
+  try {
+    let previous=snapshot().context.revision;
+    for (let count=0;count<20;count++) { await new Promise(resolve=>setTimeout(resolve,20));const next=snapshot().context.revision;if (next===previous) break;previous=next; }
+    const before=snapshot();await new Promise(resolve=>setTimeout(resolve,80));assert.equal(snapshot().context.revision,before.context.revision);assert.equal(before.controlState.incidents[incidentId].value.status,'resting');
+  } finally { observer.close(); }
+  await stop(child,'SIGKILL');child=await start(root);
+  const tail=await call('events.read',{ contextId,limit:100,waitMillis:0 });
+  const waiting=call('events.read',{ contextId,after:tail.nextCursor,limit:100,waitMillis:2000 });
+  await write('graph.transact',{ changes:[{ kind:'record.put',record:{ kind:'atom',id:randomUUID(),schema,value:'Relevant observed evidence' } }] });
+  const notified=await waiting;assert.ok(notified.items.some(item=>item.type==='graph.transact.committed'));
+  let status;
+  for (let count=0;count<100;count++) { status=await call('schedule.get',{ contextId,scheduleId });if (status.state==='completed') break;await new Promise(resolve=>setTimeout(resolve,20)); }
+  assert.equal(status.state,'completed');assert.equal((await call('incident.get',{ contextId,incidentId })).value.status,'open');
+  const all=await call('events.read',{ contextId,limit:100,waitMillis:0 });assert.equal(all.items.filter(item=>item.type==='runtime.schedule.triggered').length,1);assert.equal(all.items.filter(item=>item.type==='incident.update.committed' && item.causeIds.length).length,1);
+  await stop(child,'SIGKILL');child=await start(root);
+  assert.equal((await call('schedule.get',{ contextId,scheduleId })).state,'completed');
+});

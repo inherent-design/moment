@@ -38,29 +38,46 @@ export async function serve(root,systemId) {
     } catch(error) { if (error.code!=='ENOENT') throw error; }
     const kernel=new Kernel(store,{ ownerId:auth.principalId,cursorKey:auth.cursorKey });
     let maintenanceTimer,closed=false;
+    let pumpHandle,pumping=false;const dirty=new Set();
+    const queuePump=contextId=>{
+      if (closed) return;
+      if (contextId) dirty.add(contextId);
+      if (!pumpHandle && !pumping && dirty.size) pumpHandle=setImmediate(pump);
+    };
+    const pump=()=>{
+      pumpHandle=undefined;if (closed) return;pumping=true;
+      const batch=[...dirty];dirty.clear();let failed=false;
+      for (const id of batch) try { if (kernel.scheduler.advance(id)) dirty.add(id); }
+      catch { dirty.add(id);failed=true; }
+      pumping=false;if (failed) { maintenanceFailure();return; }armMaintenance();queuePump();
+    };
+    const onCommit=({contextId,method})=>{ if (!method.startsWith('$runtime.schedule.')) queuePump(contextId); };
+    store.notifications.on('commit',onCommit);
     const maintenanceFailure=()=>{
       clearTimeout(maintenanceTimer);
       if (closed) return;
-      process.stderr.write('Moment execution maintenance failed; retrying retained deadlines.\n');
+      process.stderr.write('Moment runtime maintenance failed; retrying retained work.\n');
       maintenanceTimer=setTimeout(runMaintenance,1000);
     };
     const armMaintenance=()=>{
       clearTimeout(maintenanceTimer);
       if (closed) return;
       try {
-        const delay=kernel.executions.nextDelay();
-        if (delay!==null) maintenanceTimer=setTimeout(runMaintenance,Math.min(delay,2147483647));
+        const delays=[kernel.executions.nextDelay(),kernel.scheduler.nextDelay()].filter(value=>value!==null);
+        if (delays.length) maintenanceTimer=setTimeout(runMaintenance,Math.min(...delays,2147483647));
       } catch { maintenanceFailure(); }
     };
-    const runMaintenance=()=>{ if (closed) return;try { kernel.executions.maintainAll();armMaintenance(); } catch { maintenanceFailure(); } };
+    const runMaintenance=()=>{ if (closed) return;try { kernel.executions.maintainAll();for (const id of store.contextIds()) queuePump(id);armMaintenance(); } catch { maintenanceFailure(); } };
     kernel.executions.maintainAll();
     const sockets=new Set();
     const server=net.createServer(socket=>{
+      if (sockets.size>=256) { socket.destroy();return; }
+      const abort=new AbortController();socket.once('close',()=>abort.abort());
       sockets.add(socket);socket.on('close',()=>sockets.delete(socket));socket.on('error',()=>{});
       socket.setTimeout(10000,()=>socket.destroy());
       let buffer=Buffer.alloc(0),authenticated=false,handled=false,session;
       const error=(id,code,message)=>{ handled=true;socket.end(JSON.stringify({ jsonrpc:'2.0',id,error:{ code,message } })+'\n'); };
-      socket.on('data',bytes=>{
+      socket.on('data',async bytes=>{
         if (handled) return;
         buffer=Buffer.concat([buffer,bytes]);
         if (buffer.length>1048576+4096) { socket.destroy();return; }
@@ -82,8 +99,14 @@ export async function serve(root,systemId) {
         if (!request || typeof request!=='object' || Array.isArray(request) || request.jsonrpc!=='2.0' || typeof request.id!=='string' || !request.id.length || Buffer.byteLength(request.id)>128 || typeof request.method!=='string' || !Object.hasOwn(request,'params') || Object.keys(request).some(key=>!['jsonrpc','id','method','params'].includes(key))) { error(null,-32600,'Invalid request');return; }
         const description=kernel.call('system.describe',{ protocolVersion:'0.1' },auth.principalId).value;
         if (!description.methods.includes(request.method)) { error(request.id,-32601,'Method not found');return; }
+        handled=true;
         try {
-          const result=kernel.call(request.method,request.params,session.principalId,session.grants?.[request.params?.contextId]);
+          const grant=session.grants?.[request.params?.contextId];
+          let result=kernel.call(request.method,request.params,session.principalId,grant);
+          if (request.method==='events.read' && result.ok && request.params.waitMillis>0 && !result.value.items.length) {
+            socket.setTimeout(request.params.waitMillis+1000,()=>socket.destroy());
+            result=await kernel.events.wait(request.params,session.principalId,grant,abort.signal);
+          }
           armMaintenance();
           if (!result.ok && result.error.code==='INVALID_ARGUMENT') { error(request.id,-32602,'Invalid params');return; }
           const frame=JSON.stringify({ jsonrpc:'2.0',id:request.id,result })+'\n';
@@ -95,8 +118,9 @@ export async function serve(root,systemId) {
     await new Promise((resolve,reject)=>{ server.once('error',reject);server.listen(socketPath,resolve); });
     chmodSync(socketPath,0o600);
     armMaintenance();
+    for (const id of store.contextIds()) queuePump(id);
     return { socketPath, close:async()=>{
-      if (closed) return;closed=true;clearTimeout(maintenanceTimer);
+      if (closed) return;closed=true;clearTimeout(maintenanceTimer);clearImmediate(pumpHandle);store.notifications.off('commit',onCommit);
       for (const socket of sockets) socket.destroy();
       await new Promise(resolve=>server.close(resolve));store.releaseWriter(claim);store.close();
     } };

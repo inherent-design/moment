@@ -19,7 +19,7 @@ export function setup(t,options={}) {
   const create = { id: contextId, label: 'Kernel context', bootstrapProfile: 'owner-local', idempotencyKey: 'bootstrap', limits:options.limits ?? limits };
   assert.equal(call('context.create',create).ok,true);
   const write = (method,input,key = randomUUID()) => call(method,{ contextId, expectedRevision: store.read(contextId).context.revision, idempotencyKey: key, ...input });
-  return { call,write,contextId,ownerId,systemId,create, get store() { return store; }, reopen() { store.close(); store = new Store(filename,systemId); kernel = new Kernel(store,{ ownerId,cursorKey,clock:options.clock }); } };
+  return { call,write,contextId,ownerId,systemId,create,get kernel() { return kernel; }, get store() { return store; }, reopen() { store.close(); store = new Store(filename,systemId); kernel = new Kernel(store,{ ownerId,cursorKey,clock:options.clock }); } };
 }
 export function schema(f,document = { type: 'string' }) {
   const value = { name: `test.${randomUUID()}`,version:'1',digest:digest(document) };

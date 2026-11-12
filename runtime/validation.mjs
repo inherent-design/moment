@@ -48,6 +48,8 @@ defs.Capability=object({ id,providerId:id,name:string,version:string,inputSchema
 defs.Requirement=object({ name:string,versions:array(string),inputSchema:reference('SchemaRef'),outputSchema:reference('SchemaRef'),features:array(string),acceptableIsolation:array(isolation) });
 defs.Outcome={ anyOf:[object({ kind:{ const:'succeeded' },output:true,evidence:reference('Evidence') }),object({ kind:{ const:'failed' },code:string,detail:text,evidence:reference('Evidence') }),object({ kind:{ const:'cancelled' },evidence:reference('Evidence') }),object({ kind:{ const:'unknown' },detail:text,evidence:reference('Evidence') })] };
 defs.Reconciliation={ anyOf:[object({ kind:{ const:'observed' },outcome:reference('Outcome') }),object({ kind:{ const:'retry' },basis:enumeration('not_started','idempotent'),evidence:reference('Evidence') })] };
+defs.Wake={ anyOf:[object({ kind:{ const:'event' },eventTypes:array(string),selector:reference('Selector'),mode:enumeration('edge','each') }),object({ kind:{ const:'at' },instant }),object({ kind:{ const:'after' },eventId:id,durationMillis:integer }),object({ kind:{ const:'capacity' },resource:string,atLeast:{ ...integer,minimum:1 } })] };
+defs.Schedule=object({ id,incidentId:id,rule:reference('Ref'),wake:reference('Wake'),recurrence:enumeration('once','rearmAfterCompletion'),coalesce:{ type:'boolean' } });
 defs.Proposal=object({ id,incidentId:id,basisRevision:integer,policy:reference('Ref'),changes:array(reference('Change')),executions:array(reference('ExecutionIntent')),evidence:reference('Evidence') },{ rule:reference('Ref') });
 const read = { contextId: id };
 const readOptional = { atRevision: integer };
@@ -87,10 +89,14 @@ export const inputSchemas = {
   'execution.finish':object({ ...mutation,executionId:id,leaseId:id,fencingToken:{ ...integer,minimum:1 },outcome:reference('Outcome'),usage:reference('Usage') }),
   'execution.reconcile':object({ ...mutation,executionId:id,attempt:{ ...integer,minimum:1 },resolution:reference('Reconciliation'),usage:reference('Usage') }),
   'execution.cancel':object({ ...mutation,executionId:id,reason:string }),
+  'events.read':object({ ...read,limit:page,waitMillis:{ type:'integer',minimum:0,maximum:30000 } },{ ...readOptional,after:string }),
+  'schedule.put':object({ ...mutation,schedule:reference('Schedule') }),
+  'schedule.cancel':object({ ...mutation,scheduleId:id }),
+  'schedule.get':object({ ...read,scheduleId:id },readOptional),
 };
 const ajv = new Ajv({ strict: true, allErrors: false, ownProperties: true });
 const validators = new Map(Object.entries(inputSchemas).map(([method, schema]) => [method, ajv.compile({ ...schema, $defs: defs })]));
-const bindings = new Set(['contextId','event.ids','principalId', 'incidentId', 'action', 'resourceRefs', 'contextRevision', 'now', 'event.id', 'event.type', 'event.subjectRefs']);
+const bindings = new Set(['occurrence.id','occurrence.eventIds','schedule.id','contextId','event.ids','principalId', 'incidentId', 'action', 'resourceRefs', 'contextRevision', 'now', 'event.id', 'event.type', 'event.subjectRefs']);
 export function validateCondition(condition) {
   let count = 0;
   function visit(node, depth) {
@@ -116,7 +122,9 @@ export function validateInput(method, input) {
   if (!validators.get(method)(input)) fail('INVALID_ARGUMENT', `Invalid ${method} input`);
   if (input.selector?.relationRole && !input.selector.relatedTo) fail('INVALID_ARGUMENT', 'A relation role requires a related reference');
   if (input.view?.selector?.relationRole && !input.view.selector.relatedTo) fail('INVALID_ARGUMENT', 'A relation role requires a related reference');
-  for (const value of [input.limits?.deadline, input.policy?.limits?.deadline, input.grant?.limits?.deadline, input.grant?.expiresAt, input.rule?.limits?.deadline,input.capability?.expiresAt,input.execution?.limits?.deadline,...(input.proposal?.executions ?? []).map(item=>item.limits.deadline)]) {
+  if (input.schedule?.wake?.selector?.relationRole && !input.schedule.wake.selector.relatedTo) fail('INVALID_ARGUMENT','A relation role requires a related reference');
+  if (method==='events.read' && input.atRevision!==undefined && input.waitMillis!==0) fail('INVALID_ARGUMENT','Historical event reads cannot wait');
+  for (const value of [input.limits?.deadline, input.policy?.limits?.deadline, input.grant?.limits?.deadline, input.grant?.expiresAt, input.rule?.limits?.deadline,input.capability?.expiresAt,input.execution?.limits?.deadline,input.schedule?.wake?.instant,...(input.proposal?.executions ?? []).map(item=>item.limits.deadline)]) {
     if (value === undefined) continue;
     const normal = value.replace(/(?:\.(\d{1,3}))?Z$/, (_, fraction) => `.${(fraction ?? '').padEnd(3, '0')}Z`);
     const date = new Date(value);

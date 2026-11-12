@@ -313,6 +313,14 @@ export interface Schedule {
   coalesce: boolean;
 }
 
+export interface ScheduleStatus {
+  schedule: Stored<Schedule>;
+  state: "active" | "completed" | "cancelled";
+  pendingOccurrenceIds: Id[];
+  activeExecutionIds: Id[];
+  lastFault?: Fault;
+}
+
 export interface Event {
   id: Id;
   contextId: Id;
@@ -481,6 +489,7 @@ export interface Methods {
   "execution.cancel": { input: Mutation & { executionId: Id; reason: string }; output: Execution };
   "schedule.put": { input: Mutation & { schedule: Schedule }; output: Commit };
   "schedule.cancel": { input: Mutation & { scheduleId: Id }; output: Commit };
+  "schedule.get": { input: Read & { scheduleId: Id }; output: ScheduleStatus };
   "events.read": {
     input: Read & { after?: Cursor; limit: number; waitMillis: number };
     output: Page<Event>;
@@ -539,7 +548,7 @@ export interface DurableBatch {
   requestDigest: Digest;
   changes: Change[];
   controlChanges: { namespace: string; key: string; value: Json }[];
-  events: Omit<Event, "revision" | "sequence" | "recordedAt">[];
+  events: (Omit<Event, "revision" | "sequence" | "recordedAt"> & { visibilityRefs?: Ref[]; visibilityAlternatives?: Ref[][] })[];
   outbox: ExecutionIntent[];
   response: Json;
 }

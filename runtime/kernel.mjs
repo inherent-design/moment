@@ -8,9 +8,12 @@ import { applyGraph } from './graph.mjs';
 import { select, tokens, bindInput } from './pointers.mjs';
 import { evaluate, evaluatePolicy } from './conditions.mjs';
 import { Executions, executionMethods } from './executions.mjs';
+import { Events,mutationEvents } from './events.mjs';
+import { Scheduler } from './scheduler.mjs';
 
 const methods = ['system.describe', 'context.create', 'context.get', 'context.close', 'control.get', 'schema.publish', 'schema.get', 'incident.create', 'incident.get', 'incident.update', 'graph.transact', 'graph.query', 'policy.publish', 'policy.activate', 'policy.evaluate', 'grant.issue', 'grant.revoke','view.publish','view.read','rule.publish','reaction.evaluate','transition.propose','transition.commit','transition.get'];
 methods.push(...executionMethods);
+methods.push('events.read','schedule.put','schedule.cancel','schedule.get');
 const bootstrapActions = [...methods];
 const equal = (a,b) => canonical(a) === canonical(b);
 const ok = value => ({ ok: true, value });
@@ -25,6 +28,8 @@ export class Kernel {
     this.schemaValidators = new Map();
     this.clock=clock ?? { wall:()=>Date.now(),monotonic:()=>performance.now(),bootId:randomUUID() };
     this.executions=new Executions(this);
+    this.events=new Events(this);
+    this.scheduler=new Scheduler(this);
   }
   ref(contextId, id) { return { systemId: this.store.systemId, contextId, id }; }
   stored(contextId, value, revision, principalId, id=value.id) {
@@ -100,7 +105,7 @@ export class Kernel {
     if (!access.operator && access.chain.some(grant => !grant.actions.includes(method))) fail('FORBIDDEN', 'Action is outside delegated authority');
     if (method==='schema.publish' && !access.operator) fail('FORBIDDEN','Schema admission requires operator authority');
     if (['context.close','policy.activate'].includes(method) && !access.operator && !access.chain.every(grant=>grant.incidentIds==='all' && includesRef(grant.resourceRefs,this.ref(snapshot.context.id,snapshot.context.id)))) fail('FORBIDDEN','Operation requires context-wide delegation');
-    const incidentId=input.incidentId ?? input.execution?.incidentId ?? input.proposal?.incidentId ?? snapshot.controlState.transitions?.[input.proposalId]?.value.proposal.incidentId ?? snapshot.controlState.executions?.[input.executionId]?.value.intent.incidentId;
+    const incidentId=input.incidentId ?? input.schedule?.incidentId ?? snapshot.controlState.schedules?.[input.scheduleId]?.value.incidentId ?? input.execution?.incidentId ?? input.proposal?.incidentId ?? snapshot.controlState.transitions?.[input.proposalId]?.value.proposal.incidentId ?? snapshot.controlState.executions?.[input.executionId]?.value.intent.incidentId;
     if (incidentId && !access.canIncident(incidentId)) fail('NOT_FOUND', 'Incident is not accessible');
     const resources=input.resourceRefs ?? (input.changes ?? []).map(change=>change.kind==='record.put'?this.ref(snapshot.context.id,change.record.id):change.kind==='assertion.put'?change.assertion.record:snapshot.assertions.find(item=>item.assertion.value.id===change.assertionId)?.assertion.value.record).filter(Boolean);
     if (method!=='policy.evaluate' && resources.some(ref=>!access.canRead(ref))) fail('FORBIDDEN','Resources are outside delegated authority');
@@ -109,7 +114,7 @@ export class Kernel {
     if (decision !== 'permit') fail(decision === 'indeterminate' ? 'POLICY_INDETERMINATE' : 'FORBIDDEN', 'Current policy does not admit this operation');
     return access;
   }
-  call(method, input, principalId, boundGrant) {
+  call(method, input, principalId, boundGrant, scheduled) {
     try {
       if (!principalId) fail('UNAUTHENTICATED', 'Authenticated principal required');
       if (!methods.includes(method)) fail('INVALID_ARGUMENT', 'Method is not implemented');
@@ -134,6 +139,17 @@ export class Kernel {
       const control = (namespace, key, value) => batch.controlChanges.push({ namespace, key, value });
       switch (method) {
         case 'context.get': return ok(snapshot.context);
+        case 'events.read': return ok(this.events.read(snapshot,input,principalId,access));
+        case 'schedule.put': {
+          const { stored,state,origin }=this.scheduler.prepare(current,input.schedule,principalId,access,boundGrant);
+          control('schedules',input.schedule.id,stored);control('scheduleStates',input.schedule.id,state);control('scheduleOrigins',input.schedule.id,origin);break;
+        }
+        case 'schedule.get': return ok(this.scheduler.get(snapshot,input.scheduleId,principalId,access));
+        case 'schedule.cancel': {
+          this.scheduler.get(current,input.scheduleId,principalId,access);
+          const state=current.controlState.scheduleStates[input.scheduleId];
+          if (state.state!=='completed') control('scheduleStates',input.scheduleId,{ ...state,state:'cancelled',pending:[] });break;
+        }
         case 'policy.evaluate': {
           if (!access.operator && !sameRef(input.grant,boundGrant)) fail('FORBIDDEN','Only the bound grant may be evaluated');
           let decision='permit';
@@ -275,7 +291,7 @@ export class Kernel {
           if (!access.operator) for (const grant of access.chain) boundLimits(input.rule.limits,grant.limits);
           // Validate pointer structure and binding names at publication; actual values arrive at evaluation.
           const dummy=Object.fromEntries(Object.values(input.rule.inputBindings).map(name=>[name,null]));bindInput(input.rule.literalInput,input.rule.inputBindings,dummy);
-          for (const name of Object.values(input.rule.inputBindings)) if (!['contextId','principalId','incidentId','action','resourceRefs','contextRevision','now','event.id','event.ids','event.type','event.subjectRefs'].includes(name)) fail('INVALID_ARGUMENT','Unknown input binding');
+          for (const name of Object.values(input.rule.inputBindings)) if (!['occurrence.id','occurrence.eventIds','schedule.id','contextId','principalId','incidentId','action','resourceRefs','contextRevision','now','event.id','event.ids','event.type','event.subjectRefs'].includes(name)) fail('INVALID_ARGUMENT','Unknown input binding');
           const value=this.stored(input.contextId,input.rule,revision,principalId);control('rules',input.rule.id,value);batch.response=value;break;
         }
         case 'reaction.evaluate': return ok(this.evaluateReaction(snapshot,input,principalId,access));
@@ -317,7 +333,11 @@ export class Kernel {
         case 'graph.query': return ok(this.query(snapshot, input, principalId, access));
         default: fail('INVALID_ARGUMENT', 'Method is not implemented');
       }
-      batch.events.push({ id:commitEventId, contextId: input.contextId, type: `${method}.committed`, subjectRefs: [], causeIds: [], payload: null });
+      if (scheduled) scheduled.complete(batch,current);
+      batch.events.unshift(...mutationEvents(this,method,input,current,batch,commitEventId,scheduled?.causeIds ?? []));
+      if (batch.commitId) for (const change of batch.controlChanges) if (change.namespace==='transitions' && change.value.value.commit?.transitionId===batch.commitId) {
+        change.value.value.commit.eventIds=batch.events.map(event=>event.id);change.value.digest=digest(change.value.value);
+      }
       const committed = this.store.commit(batch, method);
       if (!committed.ok) return committed;
       return ok(batch.response.kind === 'commit-receipt' ? committed.value : batch.response);
@@ -359,16 +379,16 @@ export class Kernel {
     if (!stored || !access.canIncident(stored.value.proposal.incidentId) || (!access.operator && !ownBranch && !access.canRead(stored.ref))) fail('NOT_FOUND','Transition not found');
     return stored;
   }
-  evaluateReaction(snapshot,input,principalId,access) {
+  evaluateReaction(snapshot,input,principalId,access,extraBindings={}) {
     this.local(input.rule,input.contextId);
     const stored=snapshot.controlState.rules?.[input.rule.id];
     if (!stored || !access.canRead(input.rule)) fail('NOT_FOUND','Rule not found');
     const rule=stored.value;
-    const events=input.eventIds.map(id=>{ const row=this.store.db.prepare('SELECT value FROM events WHERE context_id=? AND event_id=? AND sequence>=0').get(input.contextId,id);if (!row) fail('NOT_FOUND','Event not found');const event=JSON.parse(row.value);if (event.revision>snapshot.context.revision || event.subjectRefs.some(ref=>!access.canRead(ref))) fail('NOT_FOUND','Event not accessible');return event; }).filter(event=>!rule.triggerEventTypes.length || rule.triggerEventTypes.includes(event.type)).sort((a,b)=>a.sequence-b.sequence);
+    const events=input.eventIds.map(id=>{ const event=this.store.event(input.contextId,id);if (!event || event.revision>snapshot.context.revision || !this.events.visible(snapshot,event,principalId,access)) fail('NOT_FOUND','Event not accessible');return event; }).filter(event=>!rule.triggerEventTypes.length || rule.triggerEventTypes.includes(event.type)).sort((a,b)=>a.sequence-b.sequence);
     const candidates=events.length?events:!input.eventIds.length && !rule.triggerEventTypes.length?[undefined]:[];
     let unknown=false;
     for (const event of candidates) {
-      const bindings={ contextId:input.contextId,principalId,incidentId:input.incidentId,action:rule.operation,resourceRefs:[],contextRevision:snapshot.context.revision,now:new Date().toISOString(),'event.ids':events.map(item=>item.id),...(event?{'event.id':event.id,'event.type':event.type,'event.subjectRefs':event.subjectRefs}:{}) };
+      const bindings={ contextId:input.contextId,principalId,incidentId:input.incidentId,action:rule.operation,resourceRefs:[],contextRevision:snapshot.context.revision,now:new Date(this.clock.wall()).toISOString(),'event.ids':events.map(item=>item.id),...(event?{'event.id':event.id,'event.type':event.type,'event.subjectRefs':event.subjectRefs}:{}),...extraBindings };
       const value=evaluate(rule.condition,{ bindings,...this.policyQueries(snapshot,access,principalId) });
       if (value==='unknown') { unknown=true;continue; }
       if (value) { const candidateInput=bindInput(rule.literalInput,rule.inputBindings,bindings);validateInput(rule.operation,candidateInput);return { eligible:true,explanation:'Condition matched; destination input validated',candidateInput }; }

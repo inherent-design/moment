@@ -5,14 +5,15 @@ import { readCredential } from './credentials.mjs';
 import { parseJson } from './wire.mjs';
 
 /** One authenticated RPC per socket; ambiguous failures preserve the original request. */
-export function request(root,method,params,{ token,credentialFile=process.env.MOMENT_CREDENTIAL_FILE,timeoutMillis=10000,id=randomUUID() }={}) {
+export function request(root,method,params,{ token,credentialFile=process.env.MOMENT_CREDENTIAL_FILE,timeoutMillis,id=randomUUID() }={}) {
   if (token===undefined) token=readCredential(credentialFile ?? join(root,'runtime','owner.json')).token;
   const original={ jsonrpc:'2.0',id,method,params };
   return new Promise((resolve,reject)=>{
     const socket=net.createConnection(join(root,'runtime','moment.sock'));
     let buffer=Buffer.alloc(0),finished=false;
     const fail=()=>{ if (finished) return;finished=true;socket.destroy();const error=new Error('RPC outcome unknown; retain exact request for retry');error.code='OUTCOME_UNKNOWN';error.request=original;reject(error); };
-    socket.setTimeout(timeoutMillis,fail);socket.on('error',fail);socket.on('end',()=>{ if (!finished) fail(); });
+    const timeout=timeoutMillis ?? (method==='events.read' && Number.isInteger(params?.waitMillis)?Math.max(10000,Math.min(31000,params.waitMillis+1000)):10000);
+    socket.setTimeout(timeout,fail);socket.on('error',fail);socket.on('end',()=>{ if (!finished) fail(); });
     socket.on('connect',()=>socket.write(`Authorization: Bearer ${token}\n${JSON.stringify(original)}\n`));
     socket.on('data',bytes=>{
       buffer=Buffer.concat([buffer,bytes]);if (buffer.length>2097152) { fail();return; }

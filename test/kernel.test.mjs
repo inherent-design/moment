@@ -16,7 +16,7 @@ test('kernel authenticates admission and stores bootstrap policy atomically with
   assert.deepEqual(f.call('context.create',f.create).value,context);
   assert.equal(f.call('context.create',{ ...f.create,id:randomUUID() }).error.code,'IDEMPOTENCY_CONFLICT');
   assert.equal(f.call('system.describe',{ protocolVersion:'0.1' }).value.methods.includes('execution.request'),true);
-  assert.equal(f.call('system.describe',{ protocolVersion:'0.1' }).value.methods.includes('schedule.put'),false);
+  assert.equal(f.call('system.describe',{ protocolVersion:'0.1' }).value.methods.includes('schedule.put'),true);
 });
 
 test('invalid input, unsupported profiles and unauthorized bootstrap leave no context',t => {

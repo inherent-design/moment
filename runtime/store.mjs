@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, chmodSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { canonical, digest, fail, resultError } from './json.mjs';
 
 /** Trusted storage port. Admission and wire validation belong to the kernel. */
@@ -12,6 +13,7 @@ export class Store {
     this.db = new DatabaseSync(filename);
     chmodSync(filename, 0o600);
     this.systemId = systemId;
+    this.notifications=new EventEmitter();this.notifications.setMaxListeners(0);
     this.db.exec('PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
     try {
       this.db.exec('BEGIN IMMEDIATE');
@@ -86,11 +88,12 @@ export class Store {
       const value = { ...context, systemId: this.systemId, revision: 1, state: 'open' };
       const snapshot = { context: value, records: [], assertions: [], controlState };
       this.db.prepare('INSERT INTO snapshots VALUES (?, ?, ?)').run(context.id, 1, canonical(snapshot));
-      const event = { id: randomUUID(), contextId: context.id, sequence: 1, revision: 1, type: 'context.created', subjectRefs: [], causeIds: [], recordedAt: new Date().toISOString(), payload: null };
+      const event = { id: randomUUID(), contextId: context.id, sequence: 1, revision: 1, type: 'context.created', subjectRefs: [{ systemId:this.systemId,contextId:context.id,id:context.id }], causeIds: [], recordedAt: new Date().toISOString(), payload: null };
       this.db.prepare('INSERT INTO events VALUES (?, ?, ?, ?)').run(context.id, 1, event.id, canonical(event));
       const commit = { transitionId: randomUUID(), contextId: context.id, previousRevision: 0, revision: 1, eventIds: [event.id] };
       this.db.prepare('INSERT INTO receipts VALUES (?, ?, ?, ?, ?, ?, ?)').run(principalId, this.systemId, 'context.create', key, requestDigest, canonical(value), canonical(commit));
       this.db.exec('COMMIT');
+      this.notify(context.id,'context.create');
       return { ok: true, value };
     } catch (error) { try { this.db.exec('ROLLBACK'); } catch {} return resultError(error); }
   }
@@ -129,12 +132,24 @@ export class Store {
       const commit = { transitionId: batch.commitId ?? randomUUID(), contextId: m.contextId, previousRevision: m.expectedRevision, revision, eventIds: events.map(event => event.id) };
       this.db.prepare('INSERT INTO receipts VALUES (?, ?, ?, ?, ?, ?, ?)').run(principalId, m.contextId, method, m.idempotencyKey, batch.requestDigest, canonical(batch.response), canonical(commit));
       this.db.exec('COMMIT');
+      this.notify(m.contextId,method);
       return { ok: true, value: commit };
     } catch (error) { try { this.db.exec('ROLLBACK'); } catch {} return resultError(error); }
   }
 
   events(contextId, after = 0, limit = 100) {
     return this.db.prepare('SELECT value FROM events WHERE context_id=? AND sequence>? ORDER BY sequence LIMIT ?').all(contextId, after, limit).map(row => JSON.parse(row.value));
+  }
+  event(contextId,id) {
+    const row=this.db.prepare('SELECT value FROM events WHERE context_id=? AND event_id=?').get(contextId,id);
+    return row?JSON.parse(row.value):undefined;
+  }
+  sequence(contextId,activityOnly=false) {
+    return this.db.prepare("SELECT COALESCE(MAX(sequence),0) AS sequence FROM events WHERE context_id=?"+(activityOnly?" AND json_extract(value,'$.type') NOT LIKE 'runtime.schedule.%'":'')).get(contextId).sequence;
+  }
+  notify(contextId,method) {
+    try { this.notifications.emit('commit',{ contextId,method }); }
+    catch { process.stderr.write('Moment commit notification failed; durable events remain available.\n'); }
   }
   outbox(contextId) {
     return this.db.prepare('SELECT value FROM outbox WHERE context_id=? ORDER BY rowid').all(contextId).map(row => JSON.parse(row.value));

@@ -206,7 +206,7 @@ export class Executions {
     }
     if (!changes.length) return;
     const mutation={ contextId,expectedRevision:snapshot.context.revision,idempotencyKey:`${k.clock.bootId}:${snapshot.context.revision}` };
-    const batch={ mutation,principalId:k.ownerId,requestDigest:digest(mutation),changes:[],controlChanges:changes,outbox:[],response:{ kind:'commit-receipt' },events:[{ id:randomUUID(),contextId,type:'execution.recovered',subjectRefs:changes.filter(item=>item.namespace==='executions').map(item=>k.ref(contextId,item.key)),causeIds:[],payload:null }] };
+    const batch={ mutation,principalId:k.ownerId,requestDigest:digest(mutation),changes:[],controlChanges:changes,outbox:[],response:{ kind:'commit-receipt' },events:changes.filter(item=>item.namespace==='executions').map(item=>({ id:randomUUID(),contextId,type:'execution.recovered',subjectRefs:[k.ref(contextId,item.key)],causeIds:[],payload:null })) };
     const committed=k.store.commit(batch,'$runtime.execution.maintenance');
     if (!committed.ok && committed.error.code!=='REVISION_CONFLICT') fail(committed.error.code,committed.error.message,committed.error.retry);
   }

@@ -12,7 +12,7 @@ The initial socket is user-only. Agents needing distinct authority require separ
 
 The implemented transport accepts one RPC per connection. Send `Authorization: Bearer <token>` and a newline before the JSON-RPC frame. The native client reads this token from the user-only `runtime/owner.json` file or an explicitly selected private credential; it never places it in RPC parameters or command arguments. Incorrect authentication closes the connection without admitting a request. `createClient(root).call(method, input)` in `runtime/client.mjs` exposes the declared `MomentClient` Result interface; `request` exposes the raw RPC envelope. The sibling type declaration binds method names to their inputs and outputs.
 
-The `owner-local` bootstrap profile binds the context to the authenticated operator and records an initial policy and installed relation schemas atomically with context creation. Policy publication, activation, evaluation, grants, semantic transitions, deterministic rule evaluation, views, capability negotiation, and the execution state machine are implemented. Permissions do not advertise capabilities: `system.describe` lists only thirty-three currently implemented methods. Wake scheduling and concrete provider dispatch remain pending. Completion requires attributable accessible source references and current admission; it does not independently judge textual completion criteria.
+The `owner-local` bootstrap profile binds the context to the authenticated operator and records an initial policy and installed relation schemas atomically with context creation. Policy publication, activation, evaluation, grants, semantic transitions, deterministic rules, views, capability negotiation, execution control, durable events, and wake scheduling are implemented. Permissions do not advertise capabilities: `system.describe` lists only thirty-seven currently implemented methods. Concrete provider dispatch remains pending. Completion requires attributable accessible source references and current admission; it does not independently judge textual completion criteria.
 
 Previously created contexts keep their saved policy. Newly installed methods require an explicit admitted policy update if that policy lacks the corresponding action; a daemon upgrade does not silently expand authority.
 
@@ -37,6 +37,10 @@ Read methods can pin `atRevision`. Omission selects the current snapshot. Pagina
 Graph and view cursors use separate scopes, authenticated encryption, random nonces, and fixed-size envelopes. A cursor from one view cannot request raw graph data or another view. Earlier cursor formats require a fresh query and return `CURSOR_EXPIRED`. View results expose a visible-content digest rather than the global snapshot revision; see [perspectives](model.md#perspectives). Raw graph reads explicitly include their snapshot revision and require separate method admission.
 
 `events.read` with a nonzero wait requires no `atRevision`; it waits for the next authorized event after the cursor, up to the bound. A fixed-revision read requires `waitMillis: 0`. Event delivery is at least once. Persist the consumer cursor only after processing; deduplicate by event ID. Current policy still governs historical reads.
+
+Event pages always return a resumption `nextCursor`, including empty pages and the current end of the stream. Each read scans at most 4,096 retained events; continue from the cursor to drain a larger backlog. Cursors bind the principal, grant chain, context, and optional historical ceiling. A long poll listens before its read, rescans on commit notifications, and rechecks current authority before returning. It retains no model process. Disconnect aborts its listener. The client timeout covers the requested wait; the service admits at most 256 simultaneous connections.
+
+Events disclose notices for authorized affected subjects. One transaction can emit separate notices for different subjects; a notice requires visibility of at least one of that subject's admitted changes, and hidden provenance is not serialized. Private visibility requirements remain inside the store. Causal references are disclosed only when their events remain accessible, within a 64-event visibility bound. Raw event sequences and snapshot revisions expose context activity to principals explicitly granted `events.read`; use views when that metadata should stay hidden. Scoped event permission does not grant record payload or evidence access.
 
 ## Operation boundaries
 
@@ -77,6 +81,7 @@ Inputs and outputs are defined once in `Methods`. This table identifies the sema
 | `execution.cancel` | Requests cancellation or cancels an undispatched execution. |
 | `schedule.put` | Installs a bounded wake condition and its immutable rule. |
 | `schedule.cancel` | Stops future trigger admission; already admitted executions need separate cancellation. |
+| `schedule.get` | Reads authorized schedule status, pending occurrence identities, and current active executions. |
 | `events.read` | Reads or long-polls authorized events after a scoped cursor. |
 | `messages.send` | Persists a bounded, attributed message in the recipient mailbox. |
 | `messages.read` | Reads the authenticated recipient's mailbox. |
@@ -100,3 +105,5 @@ Revision conflicts and stale leases are not transient success. Policy evaluation
 ## Store boundary
 
 `StorePort` is a trusted in-process interface. `Snapshot.controlState` and `DurableBatch.controlChanges` carry kernel-private versioned records; they are never accepted from untrusted wire requests. The initial implementation uses a single local writer and SQLite transactions. A commit stores state, revision, events, idempotency response, and outbox together. Blob staging precedes commit; committed artifact references remain recoverable after restart. Schema migrations, backup, and storage retention follow [storage](storage.md).
+
+Private event visibility alternatives can accompany trusted batch drafts. Public event serialization removes them. In-process commit notifications are advisory wake signals; durable event rows and scoped cursors own delivery and recovery. Losing a notification does not remove a retained event.

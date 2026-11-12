@@ -27,7 +27,7 @@ Relocation copies or moves the complete store while writers are stopped, verifie
   cache/                           regenerable bounded material
 ```
 
-Registry, context manifests, incident manifests, intent, checkpoints, and a readable intent link form the documentation bootstrap. The implemented storage backend can create its SQLite database under `runtime`; public service integration, artifact storage, and cache remain implementation work. The bootstrap files are not evidence of a running service or executed goal. Readable intent links are convenience aliases; they resolve to the incident's canonical file, preserve its identity, and must not overwrite an existing name.
+Registry, context manifests, incident manifests, intent, checkpoints, and a readable intent link form the documentation bootstrap. The implemented service uses SQLite under `runtime` for admitted state, event rows, receipts, execution outbox, and durable schedule occurrences. Artifact storage and cache remain implementation work. Bootstrap files alone are not evidence of an active runtime incident or executed goal. Readable intent links are convenience aliases; they resolve to the incident's canonical file, preserve its identity, and must not overwrite an existing name.
 
 ## Bootstrap file contract
 
