@@ -145,7 +145,7 @@ export class Store {
     return row?JSON.parse(row.value):undefined;
   }
   sequence(contextId,activityOnly=false) {
-    return this.db.prepare("SELECT COALESCE(MAX(sequence),0) AS sequence FROM events WHERE context_id=?"+(activityOnly?" AND json_extract(value,'$.type') NOT LIKE 'runtime.schedule.%'":'')).get(contextId).sequence;
+    return this.db.prepare("SELECT COALESCE(MAX(sequence),0) AS sequence FROM events WHERE context_id=?"+(activityOnly?" AND json_extract(value,'$.type') NOT LIKE 'runtime.schedule.%' AND json_extract(value,'$.type') NOT LIKE 'runtime.provider.%'":'')).get(contextId).sequence;
   }
   notify(contextId,method) {
     try { this.notifications.emit('commit',{ contextId,method }); }

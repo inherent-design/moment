@@ -77,6 +77,7 @@ export class Scheduler {
     return false;
   }
   available(snapshot,resource,access) {
+    if (Object.values(snapshot.controlState.executions ?? {}).some(item=>item.value.limitViolations?.length)) return 0;
     const envelopes=[[undefined,snapshot.context.limits],[undefined,this.k.lookup(snapshot,snapshot.context.policy).value.limits],...access.chain.map(grant=>[grant.id,grant.limits])];
     return Math.max(0,Math.min(...envelopes.map(([id,limits])=>limits[resource]-this.k.executions.totals(snapshot,id)[resource])));
   }

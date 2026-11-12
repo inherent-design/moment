@@ -1,7 +1,7 @@
 /** Compile-only usage examples; these do not execute the proposed runtime. */
 import type {
   Atom, Change, Condition, ExecutionIntent, Input, Limits, MomentClient,
-  Outcome, Policy, Ref, Request, Result, Schedule,
+  Outcome, Policy, Ref, Request, Result, Schedule, HostPort,
 } from "./index.js";
 
 const contextId = "22222222-2222-4222-8222-222222222222";
@@ -140,3 +140,6 @@ import type { ProjectedRecord } from './index.js';
 declare const projected: ProjectedRecord;
 // @ts-expect-error A projection exposes selected fields, not an implicitly complete record.
 export const hiddenProjectionPayload = projected.value;
+
+import type { BytesVerifier } from '../runtime/providers/bytes-host.mjs';
+export const nativeVerifierPort = (adapter: BytesVerifier): HostPort => adapter;

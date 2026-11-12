@@ -6,6 +6,7 @@ import { Store } from './store.mjs';
 import { Kernel } from './kernel.mjs';
 import { authenticate } from './credentials.mjs';
 import { parseJson } from './wire.mjs';
+import { VerifierRuntime } from './providers/bytes-runtime.mjs';
 
 export function credentials(root) {
   const filename=join(root,'runtime','owner.json');
@@ -47,11 +48,12 @@ export async function serve(root,systemId) {
     const pump=()=>{
       pumpHandle=undefined;if (closed) return;pumping=true;
       const batch=[...dirty];dirty.clear();let failed=false;
-      for (const id of batch) try { if (kernel.scheduler.advance(id)) dirty.add(id); }
+      for (const id of batch) try { if (kernel.scheduler.advance(id)) dirty.add(id);verifier.pump(id); }
       catch { dirty.add(id);failed=true; }
       pumping=false;if (failed) { maintenanceFailure();return; }armMaintenance();queuePump();
     };
-    const onCommit=({contextId,method})=>{ if (!method.startsWith('$runtime.schedule.')) queuePump(contextId); };
+    const verifier=new VerifierRuntime(kernel,root,{ onChange:queuePump });
+    const onCommit=({contextId,method})=>{ if (!method.startsWith('$runtime.schedule.') && !method.startsWith('$runtime.provider.')) queuePump(contextId); };
     store.notifications.on('commit',onCommit);
     const maintenanceFailure=()=>{
       clearTimeout(maintenanceTimer);
@@ -122,6 +124,7 @@ export async function serve(root,systemId) {
     return { socketPath, close:async()=>{
       if (closed) return;closed=true;clearTimeout(maintenanceTimer);clearImmediate(pumpHandle);store.notifications.off('commit',onCommit);
       for (const socket of sockets) socket.destroy();
+      await verifier.close();
       await new Promise(resolve=>server.close(resolve));store.releaseWriter(claim);store.close();
     } };
   } catch(error) {

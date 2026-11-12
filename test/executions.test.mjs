@@ -215,3 +215,10 @@ test('execution-only proposals work under a restricted grant without graph mutat
   assert.equal(delegated(f,actor,bound,'transition.commit',{ proposalId:proposal.id },true).ok,true);
   assert.equal(f.get(intent.id).value.state,'queued');assert.equal(f.store.outbox(f.contextId).length,1);assert.equal(f.store.read(f.contextId).records.length,0);
 });
+
+test('observed overruns stay truthful, preserve their outcome and block new context dispatch',t=>{
+  const f=fixture(t),q=f.request(),run=f.running(q.intent.id),observed={ ...usage,cpuMillis:limits.cpuMillis+1 };
+  const finished=f.write('execution.finish',{ ...f.leaseInput(run),outcome,usage:observed });
+  assert.equal(finished.ok,true);assert.equal(finished.value.state,'succeeded');assert.deepEqual(finished.value.limitViolations,['cpuMillis']);assert.equal(finished.value.usage.cpuMillis,observed.cpuMillis);
+  f.reopen();assert.deepEqual(f.get(q.intent.id).value.usage,observed);assert.equal(f.write('execution.request',{ execution:f.intent() }).error.code,'LIMIT_EXCEEDED');
+});

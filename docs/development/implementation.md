@@ -1,6 +1,6 @@
 # Implementation sequence and acceptance
 
-The current deliverable is a checked contract baseline. Implementation should establish one useful persistent loop before adding provider breadth. This is the single work and dependency index; reference documents own behavior, and [verification](verification.md) owns executed evidence.
+The implementation establishes one useful persistent loop before adding provider breadth. This is the single work and dependency index; reference documents own behavior, and [verification](verification.md) owns executed evidence.
 
 ## Units
 
@@ -9,7 +9,7 @@ The current deliverable is a checked contract baseline. Implementation should es
 | M0 Contracts | Typed boundaries, coherent reference docs, reusable goal, and central saved intent. | *none* | Type examples, documentation links, method coverage, final diff review. | Complete; static checks recorded in verification. |
 | M1 Store and identity | Open the central store, import bootstrap files, persist records and assertions, and recover after restart. | M0 | E1, E2, E3, E12. | Storage, discovery, bootstrap reader, kernel, authenticated socket, and typed native client implemented and tested. Saved-intent adoption through the public API remains for M4. |
 | M2 Governed reactions | Evaluate bounded policy, delegate authority, propose changes, and commit one context transition. | M1 | E4, E5, E6, E7. | Semantic transitions, immutable rules, installed relation schemas, and permission-filtered views implemented and tested alongside delegated authority. Execution-intent admission belongs to M3. |
-| M3 Scheduling and effects | Rest, wake, queue, lease, cancel, and reconcile one deterministic local test capability. | M2 | E8, E9, E10. | Capability negotiation, transactional queueing, reservations, fenced leases, cancellation, reconciliation, scoped durable events, and wake scheduling implemented. Real-daemon rest/wake, expiry, and restart cases pass. Actual verifier dispatch and retained provider receipts remain. |
+| M3 Scheduling and effects | Rest, wake, queue, lease, cancel, and reconcile one deterministic local test capability. | M2 | E8, E9, E10. | Implemented with the fixed local byte verifier. Actual measured execution, two attributed observations, rest/wake, scoped views, lost completion and receipt reconciliation, context-closure races, and restart are exercised through the real service. OS sandboxing and additional providers remain outside this evidence. |
 | M4 Native agent connection | A small client exposes assigned incident context, bounded messages, and validated result submission to an existing coding agent. | M3 | E11 and a real end-to-end interaction with a pinned client version. | Unimplemented. |
 | M5 Additional providers | Add an isolated process, VM, graphical worker, or peer only for a concrete consumer. | Relevant M1 to M4 boundaries | Real isolation, resource, recovery, and compatibility checks for that provider. | Deferred until a consumer needs it. |
 

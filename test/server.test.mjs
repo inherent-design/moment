@@ -5,29 +5,13 @@ import { mkdtempSync, rmSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { spawn } from 'node:child_process';
-import { once } from 'node:events';
 import { request, createClient } from '../runtime/client.mjs';
 import { parseJson } from '../runtime/wire.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { digest } from '../runtime/json.mjs';
+import { start,stop } from './daemon-fixture.mjs';
 
-const cli=new URL('../runtime/cli.mjs',import.meta.url);
 const limits={ concurrentExecutions:1,cpuMillis:1000,memoryBytes:1000,outputBytes:1000,modelTokens:0,apiSpendMicrounits:0,currency:'USD' };
-async function start(root) {
-  const child=spawn(process.execPath,[cli.pathname,'serve'],{ env:{ ...process.env,MOMENT_HOME:root },stdio:['ignore','pipe','pipe'] });
-  let output='',errors='';child.stderr.on('data',bytes=>errors+=bytes);
-  await new Promise((resolve,reject)=>{
-    const timeout=setTimeout(()=>{ child.kill('SIGKILL');reject(new Error('Server startup timeout: '+errors)); },5000);
-    child.once('error',error=>{ clearTimeout(timeout);reject(error); });
-    child.once('exit',code=>{ clearTimeout(timeout);reject(new Error(`Server exited ${code}: ${errors}`)); });
-    child.stdout.on('data',bytes=>{ output+=bytes;if (output.includes('\n')) { clearTimeout(timeout);resolve(); } });
-  });
-  return child;
-}
-async function stop(child,signal='SIGTERM') {
-  const exited=once(child,'exit');child.kill(signal);await exited;
-}
 
 test('real authenticated socket API persists intent across daemon kill and restart',async t=>{
   const root=mkdtempSync(join(tmpdir(),'moment-rpc-'));

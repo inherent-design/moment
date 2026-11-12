@@ -3,15 +3,18 @@ import { serve } from './server.mjs';
 import { request } from './client.mjs';
 import { issueCredential } from './credentials.mjs';
 import { parseJson } from './wire.mjs';
+import { installVerifier } from './providers/bytes-runtime.mjs';
 
 try {
   const [command,method,raw,...extra]=process.argv.slice(2);
   if (command==='--help' || command==='help' || !command) {
-    console.log('moment serve | moment call <method> <params-json> | moment describe | moment credential <principal-id> <grant-bindings-json>');
+    console.log('moment serve | moment call <method> <params-json> | moment describe | moment credential <principal-id> <grant-bindings-json> | moment verifier <context-id>');
   } else {
-    if (extra.length || !['serve','call','describe','credential'].includes(command) || (['call','credential'].includes(command) ? !method || raw===undefined : method!==undefined)) throw new Error('Invalid arguments; use moment --help');
+    if (extra.length || !['serve','call','describe','credential','verifier'].includes(command) || (['call','credential'].includes(command) ? !method || raw===undefined : command==='verifier'?!method || raw!==undefined:method!==undefined)) throw new Error('Invalid arguments; use moment --help');
     const home=openHome();
-    if (command==='credential') {
+    if (command==='verifier') {
+      console.log(JSON.stringify(await installVerifier(home.root,method),null,2));
+    } else if (command==='credential') {
       console.log(JSON.stringify({ credentialFile:issueCredential(home.root,method,parseJson(raw)) }));
     } else if (command==='serve') {
       const server=await serve(home.root,home.registry.systemId);

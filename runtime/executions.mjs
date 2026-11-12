@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { canonical, digest, fail, DomainError } from './json.mjs';
 import { sameRef, boundLimits, grantChain } from './authority.mjs';
+import { validateVerifier } from './providers/bytes-definition.mjs';
 
 export const executionMethods=['capability.advertise','capability.match','execution.request','execution.get','execution.claim','execution.heartbeat','execution.finish','execution.reconcile','execution.cancel'];
 export const terminal=state=>['succeeded','failed','cancelled'].includes(state);
@@ -71,6 +72,7 @@ export class Executions {
     if (intent.limits.concurrentExecutions!==1) fail('INVALID_ARGUMENT','One execution reserves exactly one concurrency slot');
     if (intent.limits.deadline && Date.parse(intent.limits.deadline)<=this.k.clock.wall()) fail('LIMIT_EXCEEDED','Execution deadline passed');
     if (!this.k.compiled(this.k.schema(snapshot,cap.inputSchema))(intent.input)) fail('INVALID_ARGUMENT','Execution input does not satisfy the capability schema');
+    validateVerifier(cap,this.k.ownerId,intent);
     this.capacity(snapshot,{ limits:{ ...zeroUsage(),concurrentExecutions:0 } },access.chain);
     return { cap,access };
   }
@@ -79,13 +81,18 @@ export class Executions {
     for (const [id,stored] of Object.entries(snapshot.controlState.executions ?? {})) {
       if (grantId && !snapshot.controlState.executionOrigins[id].grantIds.includes(grantId)) continue;
       const value=stored.value,active=!terminal(value.state);
-      for (const key of cumulative) result[key]+=active?value.intent.limits[key]:value.usage[key];
-      result.memoryBytes+=active?value.intent.limits.memoryBytes:0;
+      for (const key of cumulative) {
+        const sum=result[key]+(active?Math.max(value.intent.limits[key],value.usage[key]):value.usage[key]);
+        result[key]=Number.isSafeInteger(sum)?sum:Infinity;
+      }
+      const memory=result.memoryBytes+(active?Math.max(value.intent.limits.memoryBytes,value.usage.memoryBytes):0);
+      result.memoryBytes=Number.isSafeInteger(memory)?memory:Infinity;
       result.concurrentExecutions+=active?1:0;
     }
     return result;
   }
   capacity(snapshot,intent,chain) {
+    if (Object.values(snapshot.controlState.executions ?? {}).some(item=>item.value.limitViolations?.length)) fail('LIMIT_EXCEEDED','Observed resource overrun blocks further context dispatch');
     for (const [grantId,limits] of [[undefined,snapshot.context.limits],[undefined,this.k.lookup(snapshot,snapshot.context.policy).value.limits],...chain.map(grant=>[grant.id,grant.limits])]) {
       const totals=this.totals(snapshot,grantId);
       for (const key of [...cumulative,'memoryBytes','concurrentExecutions']) if (totals[key]>limits[key]-intent.limits[key]) fail('LIMIT_EXCEEDED','Aggregate execution reservation exceeds its envelope');
@@ -114,19 +121,21 @@ export class Executions {
   lease(snapshot,value,principal,input) {
     if (!value.lease || value.lease.holderId!==principal || value.lease.id!==input.leaseId || value.lease.fencingToken!==input.fencingToken || this.expired(value,snapshot.controlState.executionLeases?.[value.intent.id])) fail('LEASE_STALE','Execution lease is stale','reconcile');
   }
-  usage(value,usage,outcome) {
-    for (const key of Object.keys(usage)) if (usage[key]<value.usage[key] || usage[key]>value.intent.limits[key]) fail('LIMIT_EXCEEDED','Cumulative execution usage is outside its reservation');
+  usage(value,usage,outcome,observed=false) {
+    for (const key of Object.keys(usage)) if (usage[key]<value.usage[key] || (!observed && usage[key]>value.intent.limits[key])) fail('LIMIT_EXCEEDED','Cumulative execution usage is outside its reservation');
     const bytes=outcome?.kind==='succeeded'?Buffer.byteLength(canonical(outcome.output)):outcome?.detail?Buffer.byteLength(outcome.detail):0;
     if (usage.outputBytes<bytes) fail('INVALID_ARGUMENT','Reported output usage does not cover the outcome');
   }
   outcome(snapshot,value,outcome,usage,access) {
     this.evidence(snapshot,outcome.evidence,access);
-    this.usage(value,usage,outcome);
+    this.usage(value,usage,outcome,true);
     if (outcome.kind==='succeeded') {
       const cap=this.capability(snapshot,value.intent.capability).value;
       if (!this.k.compiled(this.k.schema(snapshot,cap.outputSchema))(outcome.output)) fail('INVALID_ARGUMENT','Outcome does not satisfy capability output schema');
     }
     value.state=outcome.kind;value.outcome=outcome;value.usage=usage;delete value.lease;
+    const violations=Object.keys(usage).filter(key=>usage[key]>value.intent.limits[key]);
+    if (violations.length) value.limitViolations=violations;
   }
   update(snapshot,method,input,principal,access) {
     const stored=this.get(snapshot,input.executionId,principal,access),value=structuredClone(stored.value);

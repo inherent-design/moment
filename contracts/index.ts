@@ -276,6 +276,7 @@ export interface Execution {
   cancellation?: { requestedBy: Id; requestedAt: Instant; reason: string };
   /** Provider-reported cumulative usage across attempts; unknown keeps its reservation. */
   usage: ExecutionUsage;
+  limitViolations?: (keyof ExecutionUsage)[];
 }
 
 export interface ExecutionUsage {
