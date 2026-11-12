@@ -1,0 +1,16 @@
+{
+  "name": "moment-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Draft boundary contracts for Moment; no runtime is shipped.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "scripts": {
+    "check": "tsc --noEmit && node scripts/check-docs.mjs",
+    "check:types": "tsc --noEmit",
+    "check:docs": "node scripts/check-docs.mjs"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}

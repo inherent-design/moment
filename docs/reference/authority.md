@@ -1,0 +1,39 @@
+# Authority and generated policy
+
+Moment derives permissions from authenticated participation, admitted relationships, explicit grants, and active policy. Agents may author and activate policies within delegated authority. Human review is a possible policy requirement, not an obligatory step for every change.
+
+## Evaluation
+
+The transport binds a request to a principal and an active grant for each admitted context. Caller parameters cannot override that identity. Operations without a grant parameter use that bound grant. Explicit grant parameters must name a grant exercisable by the authenticated caller; they do not permit impersonation. Bootstrap system operations use the host's configured bootstrap authority. `policy.evaluate` evaluates that caller's action against the supplied grant, target incident, resources, and context snapshot. A permit is explanatory evidence for that snapshot, not a reusable authorization token. Commit and effect dispatch repeat the relevant checks against current state.
+
+Effective permission requires all of the following: an authentic, unrevoked grant chain; the requested action within every applicable delegation; incident and resource inclusion; current policy permission; and available resource allowance. Containment, ancestry, model confidence, and matching capability advertisements do not independently grant access.
+
+Policies contain exact action names, permit or deny rules, a condition tree, and limits. Every applicable deny wins. At least one applicable permit is required. If any matching action's deny condition is unknown, the decision is indeterminate even if a permit succeeds. An unknown permit with no successful permit also produces indeterminate; otherwise known false conditions do not apply. Indeterminate decisions cannot authorize effects. Limits combine by the most restrictive applicable bound. A policy without a permit is a valid policy that permits no operations. `Policy.parent` records derivation and does not implicitly import additional permissions.
+
+## Bounded conditions
+
+`Condition` is a declarative evaluator input, not executable shell, JavaScript, or an LLM instruction. Maximum depth is 16, maximum total nodes is 256, and `related.maxHops` is 1 to 8. Reaching an evaluation or read bound produces unknown. These are provisional defaults, changed through versioned profiles rather than guessed during execution.
+
+`all` and `any` require at least one term. They use three-valued logic: false dominates `all`, true dominates `any`, and otherwise an unknown operand yields unknown. `not(unknown)` stays unknown. Equality compares canonical JSON values without coercion. `lessOrEqual` accepts finite numbers only; other operands are invalid. Missing bindings produce unknown. `exists` examines authorized current support at the selected snapshot, returning unknown if the evaluator cannot inspect the required scope. `related` follows admitted directed relation roles `subject` to `object` for the exact listed schemas, with bounded traversal. Bootstrap structural relations do not automatically serve as authorization edges.
+
+The evaluator supplies reserved bindings `principalId`, `incidentId`, `action`, `resourceRefs`, `contextRevision`, and `now`. Reaction evaluation additionally supplies `event.id`, `event.type`, and `event.subjectRefs` for each triggering event. Binding registration is versioned. Unregistered names are rejected when publishing a policy or rule. Agents cannot provide trusted binding values through prompt content.
+
+Authorization relationships must be written through admitted authority operations or designated assertions whose source is accepted by the current policy. A generic assertion that a principal is an administrator remains ordinary evidence unless an existing policy explicitly recognizes its authenticated source. Imported assertions never become local grants automatically.
+
+## Delegation and activation
+
+`grant.issue` checks that the issuer may delegate the requested actions, incidents, resources, expiry, and budgets. A child cannot widen any parent's envelope. A grant can name a human, process, or agent principal. Provider ownership is authenticated separately from an advertised provider ID. Revocation applies transitively to descendants and queued or future effects; in-flight effects require cancellation and outcome reconciliation rather than assumed rollback.
+
+`policy.publish` stores an immutable candidate with evidence. `policy.activate` changes the active policy reference under the current policy and bootstrap envelope, with an optimistic revision guard. The candidate cannot authorize its own activation. Autonomous activation is allowed when the caller has `policy.activate`, the policy stays within its delegation envelope, and configured verification criteria pass. Changes to the host bootstrap envelope use an authenticated operator control outside the candidate's policy language.
+
+Policies can be represented, discussed, compared, and superseded as data. Runtime activation is a separate operation. The bootstrap profile defines who may issue initial grants, admit authority schemas, activate policy, recover the store, and close contexts. Initial host-owner authorization can be broad; execution grants remain explicit subsets appropriate to each effect.
+
+## Verification and deduplication
+
+Verification returns evidence against a named criterion and exact input revision. It does not create authority. A policy may require that evidence before admitting a transition. Criteria must distinguish a schema check, a test run, a source observation, and a model judgment. Model agreement alone cannot certify external behavior.
+
+Exact identity deduplication rejects conflicting content under one ID. Exact-content deduplication can share immutable storage bytes. Semantic deduplication creates an attributable `moment.equivalent` relationship naming its criterion and version. It may consolidate a view, but it preserves independent assertions, provenance, scopes, and grants. Unknown equivalence leaves both records available.
+
+## Policy development
+
+Begin with deterministic policy sufficient for the next real consumer. Agents can propose changes using observed failures, user steering, and measured resource use. Admit each change against retained positive and negative cases. Keep consequential outcomes inspectable through policy references and supporting facts. Once activated, a new policy governs future admission; it does not rewrite historical permission receipts or imply that earlier effects never occurred.
