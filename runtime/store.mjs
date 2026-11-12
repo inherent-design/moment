@@ -1,6 +1,6 @@
 import { applyGraph } from './graph.mjs';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, chmodSync } from 'node:fs';
+import { mkdirSync, chmodSync, openSync, closeSync, lstatSync, constants } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
@@ -10,6 +10,11 @@ import { canonical, digest, fail, resultError } from './json.mjs';
 export class Store {
   constructor(filename, systemId) {
     mkdirSync(dirname(filename), { recursive: true, mode: 0o700 });
+    // SQLite otherwise publishes a default-mode file before the later chmod.
+    // Concurrent observational clients must never see a public database window.
+    const fd=openSync(filename,constants.O_CREAT|constants.O_RDWR|constants.O_NOFOLLOW,0o600);closeSync(fd);
+    const stat=lstatSync(filename);
+    if(!stat.isFile() || stat.uid!==process.getuid() || stat.mode&0o077) fail('IDENTITY_CONFLICT','Database must be a private owned regular file');
     this.db = new DatabaseSync(filename);
     chmodSync(filename, 0o600);
     this.systemId = systemId;

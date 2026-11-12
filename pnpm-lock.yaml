@@ -173,6 +173,9 @@ importers:
       typescript:
         specifier: 7.0.2
         version: 7.0.2
+      typescript-schema:
+        specifier: npm:typescript@6.0.2
+        version: typescript@6.0.2
 
 packages:
 
@@ -312,6 +315,11 @@ packages:
     resolution: {integrity: sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw==}
     engines: {node: '>=0.10.0'}
 
+  typescript@6.0.2:
+    resolution: {integrity: sha512-bGdAIrZ0wiGDo5l8c++HWtbaNCWTS4UTv7RaTH/ThVIgjkveJt83m74bBHMJkuCbslY8ixgLBVZJIOiQlQTjfQ==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
   typescript@7.0.2:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
     engines: {node: '>=16.20.0'}
@@ -393,6 +401,8 @@ snapshots:
   json-schema-traverse@1.0.0: {}
 
   require-from-string@2.0.2: {}
+
+  typescript@6.0.2: {}
 
   typescript@7.0.2:
     optionalDependencies:

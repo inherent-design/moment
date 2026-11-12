@@ -6,16 +6,19 @@
   "type": "module",
   "license": "UNLICENSED",
   "scripts": {
-    "check": "tsc --noEmit && node scripts/check-docs.mjs && pnpm test",
+    "check": "tsc --noEmit && pnpm check:bindings && node scripts/check-docs.mjs && pnpm test",
     "check:types": "tsc --noEmit",
     "check:docs": "node scripts/check-docs.mjs",
     "test": "node --test test/*.test.mjs",
     "moment": "node runtime/cli.mjs",
     "test:codex-protocol": "node scripts/codex-isolated-probe.mjs",
-    "test:codex-native": "node scripts/codex-native-check.mjs"
+    "test:codex-native": "node scripts/codex-native-check.mjs",
+    "generate:bindings": "node scripts/generate-bindings.mjs",
+    "check:bindings": "node scripts/generate-bindings.mjs --check"
   },
   "devDependencies": {
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "typescript-schema": "npm:typescript@6.0.2"
   },
   "engines": {
     "node": ">=26.13.0"

@@ -6,6 +6,9 @@ import { Store } from './store.mjs';
 import { Kernel } from './kernel.mjs';
 import { authenticate } from './credentials.mjs';
 import { parseJson } from './wire.mjs';
+import { catalogIdentity, validateBoundary } from './bindings.mjs';
+import { serviceMethods } from './operations.mjs';
+import { validateInput } from './validation.mjs';
 import { VerifierRuntime } from './providers/bytes-runtime.mjs';
 
 export function credentials(root) {
@@ -37,8 +40,8 @@ export async function serve(root,systemId) {
       });
       unlinkSync(socketPath);
     } catch(error) { if (error.code!=='ENOENT') throw error; }
-    const kernel=new Kernel(store,{ ownerId:auth.principalId,cursorKey:auth.cursorKey });
-    let maintenanceTimer,closed=false;
+    const kernel=new Kernel(store,{ ownerId:auth.principalId,cursorKey:auth.cursorKey,catalog:catalogIdentity,instanceId:claim.nonce });
+    let maintenanceTimer,closed=false,closeService,maintenanceDiagnostics=0;
     let pumpHandle,pumping=false;const dirty=new Set();
     const queuePump=contextId=>{
       if (closed) return;
@@ -58,7 +61,8 @@ export async function serve(root,systemId) {
     const maintenanceFailure=()=>{
       clearTimeout(maintenanceTimer);
       if (closed) return;
-      process.stderr.write('Moment runtime maintenance failed; retrying retained work.\n');
+      if (maintenanceDiagnostics++<128) process.stderr.write('Moment runtime maintenance failed; retrying retained work.\n');
+      else if (maintenanceDiagnostics===129) process.stderr.write('Further repeated maintenance diagnostics suppressed; inspect retained state.\n');
       maintenanceTimer=setTimeout(runMaintenance,1000);
     };
     const armMaintenance=()=>{
@@ -100,33 +104,51 @@ export async function serve(root,systemId) {
         catch { error(null,-32700,'Parse error');return; }
         if (!request || typeof request!=='object' || Array.isArray(request) || request.jsonrpc!=='2.0' || typeof request.id!=='string' || !request.id.length || Buffer.byteLength(request.id)>128 || typeof request.method!=='string' || !Object.hasOwn(request,'params') || Object.keys(request).some(key=>!['jsonrpc','id','method','params'].includes(key))) { error(null,-32600,'Invalid request');return; }
         const description=kernel.call('system.describe',{ protocolVersion:'0.1' },auth.principalId).value;
-        if (!description.methods.includes(request.method)) { error(request.id,-32601,'Method not found');return; }
+        if (![...description.methods,...serviceMethods].includes(request.method)) { error(request.id,-32601,'Method not found');return; }
         handled=true;
         try {
+          if (request.method==='service.stop') {
+            validateInput(request.method,request.params);
+            const result=session.principalId!==auth.principalId || session.grants
+              ? { ok:false,error:{ code:'FORBIDDEN',message:'Service stop requires the local owner credential',retry:'never',details:null } }
+              : request.params.expectedInstanceId!==claim.nonce
+                ? { ok:false,error:{ code:'IDENTITY_CONFLICT',message:'Service instance changed; inspect its current identity before stopping',retry:'refresh',details:null } }
+                : { ok:true,value:{ accepted:true,instanceId:claim.nonce } };
+            socket.end(JSON.stringify({ jsonrpc:'2.0',id:request.id,result })+'\n',()=>{ if(result.ok) setImmediate(()=>closeService().catch(()=>{ process.exitCode=1; })); });
+            return;
+          }
           const grant=session.grants?.[request.params?.contextId];
           let result=kernel.call(request.method,request.params,session.principalId,grant);
+          if(request.method==='system.describe' && result.ok) result.value.methods.push(...serviceMethods);
           if (request.method==='events.read' && result.ok && request.params.waitMillis>0 && !result.value.items.length) {
             socket.setTimeout(request.params.waitMillis+1000,()=>socket.destroy());
             result=await kernel.events.wait(request.params,session.principalId,grant,abort.signal);
           }
           armMaintenance();
           if (!result.ok && result.error.code==='INVALID_ARGUMENT') { error(request.id,-32602,'Invalid params');return; }
+          if (result.ok) {
+            try { validateBoundary(request.method,'output',result.value); }
+            catch { throw new Error('Implementation output does not match the installed contract'); }
+          }
           const frame=JSON.stringify({ jsonrpc:'2.0',id:request.id,result })+'\n';
           if (Buffer.byteLength(frame)>1048576) { error(request.id,-32603,'Response exceeds frame limit; use a smaller page');return; }
           handled=true;socket.end(frame);
-        } catch { error(request.id,-32603,'Internal error'); }
+        } catch(fault) { error(request.id,fault.code==='INVALID_ARGUMENT'?-32602:-32603,fault.code==='INVALID_ARGUMENT'?'Invalid params':'Internal error'); }
       });
     });
-    await new Promise((resolve,reject)=>{ server.once('error',reject);server.listen(socketPath,resolve); });
+    const previousMask=process.umask(0o177);
+    try { await new Promise((resolve,reject)=>{ server.once('error',reject);server.listen(socketPath,resolve); }); }
+    finally { process.umask(previousMask); }
     chmodSync(socketPath,0o600);
     armMaintenance();
     for (const id of store.contextIds()) queuePump(id);
-    return { socketPath, close:async()=>{
+    closeService=async()=>{
       if (closed) return;closed=true;clearTimeout(maintenanceTimer);clearImmediate(pumpHandle);store.notifications.off('commit',onCommit);
       for (const socket of sockets) socket.destroy();
       await verifier.close();
       await new Promise(resolve=>server.close(resolve));store.releaseWriter(claim);store.close();
-    } };
+    };
+    return { socketPath,close:closeService };
   } catch(error) {
     if (claim) store.releaseWriter(claim);
     store.close();

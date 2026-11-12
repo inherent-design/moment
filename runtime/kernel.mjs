@@ -12,19 +12,18 @@ import { Events,mutationEvents } from './events.mjs';
 import { Scheduler } from './scheduler.mjs';
 import { Awareness } from './awareness.mjs';
 
-const methods = ['system.describe', 'context.create', 'context.get', 'context.close', 'control.get', 'schema.publish', 'schema.get', 'incident.create', 'incident.get', 'incident.update', 'graph.transact', 'graph.query', 'policy.publish', 'policy.activate', 'policy.evaluate', 'grant.issue', 'grant.revoke','view.publish','view.read','rule.publish','reaction.evaluate','transition.propose','transition.commit','transition.get'];
-methods.push(...executionMethods);
-methods.push('events.read','schedule.put','schedule.cancel','schedule.get');
-methods.push('messages.send','messages.read','messages.ack','prompt.compose');
+import { kernelMethods as methods } from './operations.mjs';
+
 const bootstrapActions = [...methods];
 const equal = (a,b) => canonical(a) === canonical(b);
 const ok = value => ({ ok: true, value });
 
 /** In-process API. principalId must come from an authenticated transport binding. */
 export class Kernel {
-  constructor(store, { ownerId, cursorKey, clock }) {
+  constructor(store, { ownerId, cursorKey, clock, catalog, instanceId }) {
     if (!ownerId || !cursorKey || Buffer.byteLength(cursorKey) < 32) throw new Error('An operator identity and cursor encryption key are required');
     this.store = store;
+    this.catalog=catalog;this.instanceId=instanceId;
     this.ownerId = ownerId;
     this.cursorKey = cursorKey;
     this.schemaValidators = new Map();
@@ -122,7 +121,7 @@ export class Kernel {
       if (!principalId) fail('UNAUTHENTICATED', 'Authenticated principal required');
       if (!methods.includes(method)) fail('INVALID_ARGUMENT', 'Method is not implemented');
       validateInput(method, input);
-      if (method === 'system.describe') return ok({ systemId: this.store.systemId, protocolVersion: '0.1', methods: [...methods], implementationVersion: '0.1.0' });
+      if (method === 'system.describe') return ok({ systemId: this.store.systemId, protocolVersion: '0.1', methods: [...methods], implementationVersion: '0.1.0', ...(this.catalog?{catalog:this.catalog}:{}), ...(this.instanceId?{instanceId:this.instanceId}:{}) });
       if (method === 'context.create') return this.create(input, principalId);
       if (principalId!==this.ownerId && !boundGrant) fail('NOT_FOUND','Context is not accessible');
       this.executions.maintain(input.contextId);

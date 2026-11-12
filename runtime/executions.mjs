@@ -3,7 +3,8 @@ import { canonical, digest, fail, DomainError } from './json.mjs';
 import { sameRef, boundLimits, grantChain } from './authority.mjs';
 import { validateVerifier } from './providers/bytes-definition.mjs';
 
-export const executionMethods=['capability.advertise','capability.match','execution.request','execution.get','execution.claim','execution.heartbeat','execution.finish','execution.reconcile','execution.cancel'];
+import { executionMethods } from './operations.mjs';
+export { executionMethods } from './operations.mjs';
 export const terminal=state=>['succeeded','failed','cancelled'].includes(state);
 const cumulative=['cpuMillis','outputBytes','modelTokens','apiSpendMicrounits'];
 export const zeroUsage=()=>({ cpuMillis:0,memoryBytes:0,outputBytes:0,modelTokens:0,apiSpendMicrounits:0 });

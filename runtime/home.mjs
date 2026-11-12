@@ -6,6 +6,20 @@ import { fail } from './json.mjs';
 
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
 const present = path => { try { lstatSync(path); return true; } catch (error) { if (error.code === 'ENOENT') return false; throw error; } };
+/** Observational resolution: never creates an alias, directory or registry. */
+export function inspectHome({ home = homedir(), override = process.env.MOMENT_HOME } = {}) {
+  const alias=join(home,'.moment');
+  if (override==='~' || override?.startsWith('~/')) override=join(home,override.slice(2));
+  if (override!==undefined && (!override || !isAbsolute(override))) fail('INVALID_ARGUMENT','MOMENT_HOME must be absolute');
+  const selected=override ?? (present(alias)?alias:join(home,'.local/share/moment'));
+  if (!present(selected)) return { root:selected,alias };
+  if (!existsSync(selected)) fail('INVALID_ARGUMENT','Moment home link is dangling; repair it explicitly');
+  const root=realpathSync(selected);
+  if (!statSync(root).isDirectory()) fail('INVALID_ARGUMENT','Moment store must be a directory');
+  const registry=present(join(root,'registry.json'))?readVersioned(join(root,'registry.json')):undefined;
+  if (registry && (!uuid(registry.systemId) || !Array.isArray(registry.projects))) fail('INVALID_ARGUMENT','Invalid central registry');
+  return { root,alias,registry };
+}
 export function openHome({ home = homedir(), override = process.env.MOMENT_HOME } = {}) {
   const alias = join(home, '.moment');
   if (override === '~' || override?.startsWith('~/')) override = join(home, override.slice(2));
