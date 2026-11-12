@@ -9,7 +9,7 @@ Exact tested revisions, catalog/schema identities and concise selected captures 
 | Command | Observed outcome | Scope |
 | --- | --- | --- |
 | `pnpm check` | Passed: 162 execution tests, strict types and thirteen rejection examples, deterministic bindings and documentation checks. | Type declarations and thirteen rejection examples, deterministic binding drift checks, documentation checks, and ordinary execution tests. No Codex executable or credentials. |
-| `pnpm test:integration` | Passed all 13 cases. | Actual read-only Codex configuration CLI in explicit owned roots, SDK launcher, expected-old publication, interruption recovery and preservation. No inference. |
+| `pnpm test:integration` | Passed all 14 cases, including the installation follow-up. | Actual read-only Codex configuration CLI in explicit owned roots, SDK launcher, expected-old publication, interruption recovery and preservation. No inference. |
 | `node --test test/mcp.test.mjs` | Passed 8 cases. | All 15 continuity tools, three SDK protocol revisions, framing, admitted/refused results, late completion, delegated scope and revocation. |
 | `node scripts/codex-mcp-native-check.mjs --protocol-only` | Passed with Codex CLI 0.167.2. | Actual SDK launcher, 15-tool discovery and observed MCP `2025-06-18`, before authentication or inference. |
 | `node scripts/codex-mcp-native-check.mjs --credential-file <absolute-private-auth-source>` | Passed with Codex CLI 0.167.2 and model `gpt-6.1-sol`. | Real persisted parent, Moment/app-server restart, native resume, reload, one inherited child and domain readback. Uses the authorized subscription; no new paid API service. |
@@ -64,6 +64,8 @@ A malformed private authentication source was also refused before inference with
 | Input and conditions | Ajv input rejection, bounded local schema compilation, calendar and pointer constraints, three-valued logic, deny precedence, and unresolved queries that cannot grant rights through negation. | Runtime boundary components; compilation alone proves no admission or isolation. |
 
 ## Tooling and check interpretation
+
+An installation follow-up reproduced Codex configuration normalization with an existing server's nested environment table. Empty staging now generates only Moment's entry; supported CLI reads validate the combined configuration, while exact receipt-block removal preserves unrelated bytes. All 14 installer cases and `pnpm check:types`, `pnpm check:bindings`, and `pnpm check:docs` passed. The added case covers both final-newline variants, preview, apply, repeat and removal. This follow-up uses configuration-only checks and static checks; the lifecycle and inference suites are not rerun during an operation that explicitly forbids restarts. Earlier full-suite/native evidence remains scoped to its recorded revision and catalog.
 
 The optional mise `secrets` profile was parsed and its tool pins selected without decrypting credentials. No encrypted Moment secret, recipient custody, or real-key recovery has been established. SOPS/age remains optional until a concrete consumer needs it.
 

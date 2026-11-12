@@ -51,6 +51,16 @@ test('absent roots remain absent during preview and removal retires only the own
   state(await f.run('disconnect'),'applied');assert.equal(existsSync(f.target),false);assert.equal(existsSync(f.momentHome),true);
 });
 
+test('nested existing server configuration stays byte-exact when Codex would normalize full-file edits',async t=>{
+  for(const ending of ['\n','']) {
+    const f=fixture(t),before='model = "gpt-6.1-sol"\n[mcp_servers.other]\ncommand = "/usr/bin/true"\n[mcp_servers.other.env]\nEXAMPLE = "fixture"'+ending;
+    writeFileSync(f.target,before,{mode:0o600});
+    state(await f.run('connect',false),'planned');assert.equal(readFileSync(f.target,'utf8'),before);
+    state(await f.run(),'applied');assert.equal(readFileSync(f.target,'utf8').startsWith(before),true);
+    state(await f.run(),'unchanged');state(await f.run('disconnect'),'applied');assert.equal(readFileSync(f.target,'utf8'),before);
+  }
+});
+
 test('preexisting and user-edited registrations or missing ownership are preserved as conflicts',async t=>{
   const f=fixture(t);
   writeFileSync(f.target,original+'\n[mcp_servers.moment]\ncommand = "/usr/bin/false"\n');

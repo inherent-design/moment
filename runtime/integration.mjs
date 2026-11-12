@@ -67,7 +67,7 @@ function installedCodex() {
 }
 
 /** Supported Codex commands own TOML. All work here is in disposable private roots. */
-export function stageCodexConfig({before,action,launcher}) {
+export function stageCodexConfig({before,action,launcher,ownedBlock}) {
   const binary=installedCodex();
   const root=realpathSync(mkdtempSync(join(tmpdir(),'moment-config-'))),state=join(root,'codex');
   mkdirSync(state,{mode:0o700});const config=join(state,'config.toml');writeFileSync(config,before,{mode:0o600});
@@ -84,16 +84,27 @@ export function stageCodexConfig({before,action,launcher}) {
     let currentEntry,currentBlock,without=before;
     if(present) {
       currentEntry=JSON.parse(run(['mcp','get','moment','--json']));
-      run(['mcp','remove','moment']);without=readFileSync(config,'utf8');currentBlock=ownedDelta(before,without);
+      if(ownedBlock && before.indexOf(ownedBlock)>=0 && before.indexOf(ownedBlock)===before.lastIndexOf(ownedBlock)) {
+        currentBlock=ownedBlock;without=before.replace(ownedBlock,'');
+        writeFileSync(config,without,{mode:0o600});
+        if(canonical(JSON.parse(run(['mcp','list','--json'])))!==canonical(listed.filter(entry=>entry.name!=='moment'))) fail('IDENTITY_CONFLICT','Owned entry removal changed the parsed server inventory; preserve the configuration');
+      } else {
+        run(['mcp','remove','moment']);without=readFileSync(config,'utf8');currentBlock=ownedDelta(before,without);
+      }
     }
     if(action==='disconnect') return {after:without,present,currentEntry,currentBlock,version};
+    // Generate only our entry in empty staging. Codex may normalize unrelated
+    // nested tables when editing a complete configuration; never publish that.
+    writeFileSync(config,'',{mode:0o600});
     const args=['mcp','add','moment'];
     for(const [key,value] of Object.entries(launcher.env)) args.push('--env',`${key}=${value}`);
     run([...args,'--',launcher.command,...launcher.args]);
-    const after=readFileSync(config,'utf8'),entry=JSON.parse(run(['mcp','get','moment','--json']));
+    const generated=readFileSync(config,'utf8'),entry=JSON.parse(run(['mcp','get','moment','--json']));
     run(['mcp','remove','moment']);
-    if(readFileSync(config,'utf8')!==without) fail('IDENTITY_CONFLICT','Codex staging did not preserve unrelated bytes/comments; inspect before applying');
-    const entryBlock=ownedDelta(after,without);
+    if(readFileSync(config,'utf8')!=='') fail('IDENTITY_CONFLICT','Codex staging did not isolate the owned entry; inspect before applying');
+    const entryBlock=(without && !without.endsWith('\n')?'\n':'')+ownedDelta(generated,''),after=without+entryBlock;
+    writeFileSync(config,after,{mode:0o600});
+    if(canonical(JSON.parse(run(['mcp','get','moment','--json'])))!==canonical(entry) || canonical(JSON.parse(run(['mcp','list','--json'])).filter(item=>item.name!=='moment'))!==canonical(listed.filter(item=>item.name!=='moment'))) fail('IDENTITY_CONFLICT','Combined configuration changed the parsed server inventory; preserve the configuration');
     return {after,present,currentEntry,currentBlock,entry,entryBlock,version};
   } finally {rmSync(root,{recursive:true,force:true});}
 }
@@ -168,7 +179,7 @@ export function createIntegration({stage=stageCodexConfig,onPhase=async()=>{},cr
       if(receipt && (receipt.formatVersion!==1 || receipt.codexHome!==codexHome || receipt.momentHome!==momentHome || receipt.entryDigest!==bytesDigest(receipt.entryBlock))) return conflict('Owned registration receipt does not match these roots; inspect its custody');
       const launcher={command:realpathSync(process.execPath),args:[new URL('./cli.mjs',import.meta.url).pathname,'mcp'],env:{MOMENT_HOME:momentHome,...(credentialFile?{MOMENT_CREDENTIAL_FILE:canonicalRootFile(credentialFile)}:{})}};
       if(request.action==='connect' && process.version!=='v26.13.0') fail('UNSUPPORTED_VERSION','Run the pinned Node 26.13.0 runtime before generating an installation launcher');
-      const plan=await stage({before:before.bytes,action:request.action,launcher});
+      const plan=await stage({before:before.bytes,action:request.action,launcher,ownedBlock:receipt?.entryBlock});
       if(plan.present && (!receipt || receipt.entryDigest!==bytesDigest(plan.currentBlock) || receipt.configEntryDigest!==digest(plan.currentEntry))) return conflict('A preexisting or edited Moment entry is not the unchanged owned registration; preserve and inspect it');
       if(!plan.present && receipt) return conflict('Owned receipt exists but its registration is missing; inspect the external change');
       if(request.action==='disconnect' && !plan.present) return outcome(recovered?'applied':'unchanged',recovered?'Interrupted publication recovered; Moment is disconnected':'Moment is already disconnected');
