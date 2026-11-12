@@ -1,0 +1,18 @@
+[tools]
+node = "26.13.0"
+"aqua:pnpm/pnpm" = "12.18.0"
+
+[settings.upgrade]
+auto_prune = false
+
+[tasks.setup]
+description = "Install the exact dependency graph"
+run = "pnpm install --frozen-lockfile"
+
+[tasks.check]
+description = "Check contracts, documentation, and runtime tests"
+run = "pnpm check"
+
+[tasks.test]
+description = "Run runtime execution tests"
+run = "pnpm test"

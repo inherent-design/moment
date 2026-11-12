@@ -6,3 +6,11 @@ coverage/
 .env
 .env.*
 !.env.example
+mise.local.toml
+mise.*.local.toml
+.miserc.local.toml
+secrets/*
+!secrets/*.enc.json
+!secrets/*.enc.yaml
+!secrets/*.enc.yml
+*.agekey

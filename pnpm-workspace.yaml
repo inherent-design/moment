@@ -1,0 +1,6 @@
+# Single-package project; this file owns pnpm's project configuration.
+packages:
+  - '.'
+ignoreScripts: true
+verifyDepsBeforeRun: false
+saveExact: true

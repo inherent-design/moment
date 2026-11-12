@@ -8,11 +8,12 @@ Start with the [documentation map](docs/README.md), [semantic model](docs/refere
 
 ## Contract checks
 
-Use a maintained Node.js installation with npm:
+Use the pinned Node.js and pnpm versions through mise:
 
 ```sh
-npm ci --ignore-scripts
-npm run check
+mise install
+mise run setup
+mise run check
 ```
 
 These commands check declarations, positive and negative type examples, documentation links, API documentation coverage, and storage execution tests. The tests include new-process reopen, competing writers, and interruption rollback. See [verification](docs/development/verification.md) for the tested environment and limitations.

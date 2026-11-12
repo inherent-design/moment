@@ -10,6 +10,10 @@ The `0.1` contract baseline and first storage implementation were checked on Nov
 
 These tests establish the storage portion of E1, E2, E3, E6, and E12. They do not establish public API admission, OS sandboxing, power-loss durability, cancellation, or external effect reconciliation. The backend is trusted internal code; untrusted input must pass the pending kernel before reaching it.
 
+## Toolchain transition
+
+Current commands use pnpm 12.18.0 and the mise-pinned Node.js 26.13.0. `mise run setup` passed a frozen pnpm install, and `mise run check` passed the declarations, 47 local links, 44 method entries, and all eleven execution tests. Both mise TOML files parsed, and selecting the `secrets` environment loaded its optional tool pins without decrypting or importing any credentials. The pnpm lockfile replaces the former npm lockfile while preserving the existing Ajv work in progress. Earlier npm commands below describe historical checks, not current setup instructions. The optional SOPS/age profile defines future custody tooling; no encrypted Moment secret, recipient setup, or real-key decryption has been established.
+
 ## Executed checks
 
 | Command or check | Outcome | Evidence scope |
@@ -38,8 +42,8 @@ The original contract-baseline checks exercised these SHA-256 source identities.
 
 ## Check scope
 
-`npm run check:types` compiles all declarations and usage examples with strict TypeScript settings. Seven negative examples require the compiler to reject unguarded mutation, generic policy activation, invented success, forged caller identity, executable policy, unsupported replay justification, and mismatched method parameters.
+`pnpm check:types` compiles all declarations and usage examples with strict TypeScript settings. Seven negative examples require the compiler to reject unguarded mutation, generic policy activation, invented success, forged caller identity, executable policy, unsupported replay justification, and mismatched method parameters.
 
-`npm run check:docs` checks local document links, Markdown anchors when present, balanced fenced blocks, trailing whitespace, titles, and a one-to-one mapping between declared methods and protocol table entries. It does not validate external website availability or prove that prose and code have identical semantics.
+`pnpm check:docs` checks local document links, Markdown anchors when present, balanced fenced blocks, trailing whitespace, titles, and a one-to-one mapping between declared methods and protocol table entries. It does not validate external website availability or prove that prose and code have identical semantics.
 
 The acceptance scenarios in [implementation](implementation.md) remain overall completion obligations. Storage execution evidence above covers their specified storage portions. Policy evaluation, sandbox isolation, provider execution, and Codex invocation are not proven by compiling declarations or passing the storage suite.
