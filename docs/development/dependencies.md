@@ -1,6 +1,6 @@
 # Dependencies and patches
 
-The manifests and `pnpm-lock.yaml` own JavaScript versions. `packageManager` pins pnpm 12.18.0; `mise.toml` pins the matching pnpm executable and Node.js 26.13.0, which supplies the built-in SQLite binding. TypeScript remains the contract compiler. Ajv 8.20.0 is present for the kernel's in-progress JSON Schema validation; its presence alone does not establish public API validation.
+The manifests and `pnpm-lock.yaml` own JavaScript versions. `packageManager` pins pnpm 12.18.0; `mise.toml` pins the matching pnpm executable and Node.js 26.13.0, which supplies the built-in SQLite binding. TypeScript remains the contract compiler. Ajv 8.20.0 supplies the internal input validator and local JSON Schema compiler. Their execution tests cover shape rejection and schema-reference boundaries; public API admission still requires the kernel and transport integration.
 
 ## Setup and updates
 

@@ -10,6 +10,12 @@ The `0.1` contract baseline and first storage implementation were checked on Nov
 
 These tests establish the storage portion of E1, E2, E3, E6, and E12. They do not establish public API admission, OS sandboxing, power-loss durability, cancellation, or external effect reconciliation. The backend is trusted internal code; untrusted input must pass the pending kernel before reaching it.
 
+## Validation and policy execution evidence
+
+`pnpm test` now passes 22 execution tests, including the eleven storage/discovery cases above. `test/validation.test.mjs` executes Ajv validation against correct and malformed requests, rejects caller identity injection and control writes through generic graph changes, checks revision and page bounds, and refuses unknown condition bindings, excessive recursion, malformed calendar dates, and nonnumeric comparison literals. Its schema compiler cases verify local references and distinguish schema keywords from literal data while rejecting remote references and asynchronous schemas.
+
+`test/conditions.test.mjs` executes the three-valued evaluator, deny precedence, unresolved-deny behavior, noncoercing comparisons, and bounded evaluation. Query callbacks default to unknown; malformed callback results remain unknown under negation. These are internal components, not evidence of a running authenticated service or complete ReBAC enforcement. Only implemented kernel methods may eventually be advertised; a request schema alone does not make a method available.
+
 ## Toolchain transition
 
 Current commands use pnpm 12.18.0 and the mise-pinned Node.js 26.13.0. `mise run setup` passed a frozen pnpm install, and `mise run check` passed the declarations, 47 local links, 44 method entries, and all eleven execution tests. Both mise TOML files parsed, and selecting the `secrets` environment loaded its optional tool pins without decrypting or importing any credentials. The pnpm lockfile replaces the former npm lockfile while preserving the existing Ajv work in progress. Earlier npm commands below describe historical checks, not current setup instructions. The optional SOPS/age profile defines future custody tooling; no encrypted Moment secret, recipient setup, or real-key decryption has been established.
