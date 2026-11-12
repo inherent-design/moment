@@ -18,7 +18,11 @@ export function credentials(root) {
   mkdirSync(join(root,'runtime'),{ recursive:true,mode:0o700 });
   try {lstatSync(filename);} catch(error) {
     if(error.code!=='ENOENT') throw error;
-    try {if(lstatSync(join(root,'runtime/store.sqlite')).size>0) throw new Error('Owner credential is missing for retained state; restore its original custody without resetting identity');}
+    try {
+      if(lstatSync(join(root,'runtime/store.sqlite')).size>0) {
+        try {lstatSync(filename);} catch(error) {if(error.code==='ENOENT') throw new Error('Owner credential is missing for retained state; restore its original custody without resetting identity');throw error;}
+      }
+    }
     catch(error) {if(error.code!=='ENOENT') throw error;}
   }
   try { publishPrivate(filename,JSON.stringify({ formatVersion:1,principalId:randomUUID(),token:randomBytes(32).toString('hex'),cursorKey:randomBytes(32).toString('hex') })+'\n'); }

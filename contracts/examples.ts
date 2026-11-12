@@ -12,6 +12,17 @@ export function selectedContext(result: AttachmentResult): string | undefined {
 }
 const workspaceSelection: ManagedMethods["workspace.attach"]["input"] = { location: "/explicit/project" };
 export const discoveryExample: ManagedMethods["bindings.discover"]["input"] = { operationId: "incident.get", limit: 1 };
+export async function managedClientExample() {
+  const { createManaged } = await import('../runtime/managed.mjs');
+  const client = createManaged({ root: '/explicit/central/moment' });
+  const selected = await client.call('workspace.attach', { contextId: '22222222-2222-4222-8222-222222222222' });
+  if (selected.ok && selected.value.kind === 'attached') {
+    const { systemId, contextId, incidentId } = selected.value.attachment;
+    await client.call('workspace.read', { target: { systemId, contextId, ...(incidentId ? { incidentId } : {}) } });
+  }
+  // @ts-expect-error Transport authority cannot be supplied as managed routing input.
+  await client.call('workspace.read', { target: { systemId: 'system', contextId: 'context', principalId: 'forged' } });
+}
 export const futureIncidentList: Input<"incident.list"> = { contextId: "22222222-2222-4222-8222-222222222222", statuses: ["open", "resting"], limit: 10 };
 export function bindingForAdvertisement(binding: AdvertisedBinding): string { return binding.mcpName; }
 export function checkManagedNarrowing(result: AttachmentResult, declared: OperationBinding & { availability: "declared" }): void {

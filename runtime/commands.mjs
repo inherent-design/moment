@@ -4,6 +4,7 @@ import { createClient } from './client.mjs';
 import { createManaged } from './managed.mjs';
 import { discoverBindings,validateSurface } from './bindings.mjs';
 import { runMcp } from './mcp.mjs';
+import { createIntegration } from './integration.mjs';
 
 const safe=value=>String(value).replace(/[\x00-\x08\x0b-\x1f\x7f]/g,'');
 function argumentsFor(args,values=[],flags=[]) {
@@ -28,6 +29,21 @@ function reportFault(result,json) {
 /** Returns false only for legacy operator commands owned by cli.mjs. */
 export async function runManagedCommand(args) {
   const [command,...rest]=args;
+  if(['connect','disconnect'].includes(command)) {
+    const {options,positionals}=argumentsFor(rest,['--codex-home','--moment-home'],['--apply','--json']);
+    if(positionals.length) throw new Error('Use explicit --codex-home and --moment-home options');
+    const result=await createIntegration().reconcile({action:command,codexHome:options['--codex-home'],momentHome:options['--moment-home'],apply:!!options['--apply']});
+    validateSurface('IntegrationEnvelope',result);
+    if(!result.ok) reportFault(result,options['--json']);
+    else if(options['--json']) console.log(JSON.stringify(result));
+    else {
+      console.log(safe(result.value.reason));console.log(safe('Target: '+result.value.target));
+      if(result.value.state==='planned' && result.value.ownedEntry) console.log(safe(result.value.ownedEntry.text));
+      if(['conflict','recovery_required'].includes(result.value.state)) process.exitCode=1;
+    }
+    if(result.ok && ['conflict','recovery_required'].includes(result.value.state)) process.exitCode=1;
+    return true;
+  }
   if(command==='mcp') {
     const {options,positionals}=argumentsFor(rest,['--profile']);
     if(positionals.length) throw new Error('moment mcp accepts no positional arguments');
@@ -74,8 +90,8 @@ export async function runManagedCommand(args) {
     if(health.state!=='ready') {reportFault({ok:false,error:{code:'CAPABILITY_UNAVAILABLE',message:health.reason,retry:'reconcile',details:health}},json);return true;}
     const result=await service.stop(health.instanceId);
     if(!result.ok) {reportFault(result,json);return true;}
-    const until=Date.now()+10000;let observed;
-    do { observed=await service.inspect();if(observed.state==='stopped' || observed.instanceId && observed.instanceId!==health.instanceId) break;await new Promise(resolve=>setTimeout(resolve,50)); } while(Date.now()<until);
+    const until=performance.now()+10000;let observed;
+    do { observed=await service.inspect();if(observed.state==='stopped' || observed.instanceId && observed.instanceId!==health.instanceId) break;await new Promise(resolve=>setTimeout(resolve,50)); } while(performance.now()<until);
     const retired=observed.state==='stopped'||observed.instanceId&&observed.instanceId!==health.instanceId;
     const outcome={accepted:true,instanceId:health.instanceId,retired:!!retired,health:observed};
     validateSurface('StopEnvelope',{ok:true,value:outcome});

@@ -31,3 +31,9 @@ There are currently no owned dependency patches. Before adding one, record the u
 ## Release preparation
 
 Before a future release, verify repository privacy and licensing intent, check all advertised methods against implemented ones, run relevant integration and recovery checks, and review migration and rollback procedures. A contract version and a runtime release version are separate. Publishing a package, pushing commits, deploying a daemon, or spending on infrastructure requires the applicable authorization; dependency maintenance itself does not imply those actions.
+
+## Managed installer compatibility
+
+`pnpm test:integration` explicitly invokes the installed read-only Codex CLI in private staging, then exercises owned preview/apply/repeat/removal, exact unrelated-byte preservation, emitted SDK launcher, conflicts, expected-old identity, journal recovery and a killed installer. It is separate from `pnpm check`, which does not invoke Codex. The installer pins configuration qualification to CLI 0.167.2 and emits the exact Node 26.13.0 executable and checkout entry; other versions refuse until requalified. Couple updates to those tests and the isolated native MCP gate, with no primary configuration, auth cache, token-refresh or binary mutation. Ordinary setup has no account requirement.
+
+Catalog source closure includes package/lock/workspace policy, mise pins, TypeScript configuration, generator sources, declarations and runtime files. Regenerate with `pnpm generate:bindings` after changing those owners. Both checking and runtime startup refuse a stale build. SDK input-schema projection retains exact shared schema documents while kernel admission/fault presentation stays in the authenticated native boundary. Additional SDK validation limits must not replace Moment’s typed faults with unstructured results; keep strict framing and admission bounds together.

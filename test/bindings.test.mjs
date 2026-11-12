@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, mkdtempSync, writeFileSync, rmSync, cpSync, symlinkSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -56,12 +56,15 @@ test('offline discovery pages are bounded and tied to catalog, profile and selec
 test('the actual generator refuses stale sources, missing dispatch coverage and tool collisions',t=>{
   const directory=mkdtempSync(join(tmpdir(),'moment-generation-'));t.after(()=>rmSync(directory,{recursive:true,force:true}));
   const root=fileURLToPath(new URL('../',import.meta.url));
-  for(const path of ['contracts','runtime','scripts','package.json','pnpm-lock.yaml']) cpSync(join(root,path),join(directory,path),{recursive:true});
+  for(const path of ['contracts','runtime','scripts','package.json','pnpm-lock.yaml','pnpm-workspace.yaml','mise.toml','tsconfig.json']) cpSync(join(root,path),join(directory,path),{recursive:true});
   symlinkSync(join(root,'node_modules'),join(directory,'node_modules'),'dir');
   const run=()=>execFileSync(process.execPath,[join(directory,'scripts/generate-bindings.mjs'),'--check'],{encoding:'utf8',stdio:'pipe',timeout:10000});
   assert.match(run(),/Checked deterministic/);
   const directive=join(directory,'runtime/directives.mjs'),before=readFileSync(directive,'utf8');writeFileSync(directive,before+'\n');
-  assert.throws(run,/Bindings are stale/);writeFileSync(directive,before);
+  assert.throws(run,/Bindings are stale/);
+  const refused=spawnSync(process.execPath,[join(directory,'runtime/cli.mjs'),'agents'],{env:{PATH:process.env.PATH,MOMENT_HOME:join(directory,'absent-state')},encoding:'utf8',timeout:10000});
+  assert.equal(refused.status,1);assert.equal(refused.stdout,'');assert.match(refused.stderr,/Bindings are stale/);
+  writeFileSync(directive,before);
   const kernel=join(directory,'runtime/kernel.mjs'),dispatch=readFileSync(kernel,'utf8');writeFileSync(kernel,dispatch.replace("case 'graph.query'","case 'graph.missing'"));
   assert.throws(run,/dispatch\/registration mismatch/);writeFileSync(kernel,dispatch);
   const contract=join(directory,'contracts/index.ts'),source=readFileSync(contract,'utf8');

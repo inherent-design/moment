@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync, readFileSync, statSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -10,12 +10,18 @@ import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { bindingMap, exposedOperations, catalogIdentity } from '../runtime/bindings.mjs';
 import { createClient } from '../runtime/client.mjs';
-import { digest } from '../runtime/json.mjs';
+import { digest, bytesDigest } from '../runtime/json.mjs';
+import { installVerifier } from '../runtime/providers/bytes-runtime.mjs';
+import { recommendedLimits } from '../runtime/providers/bytes-definition.mjs';
 import { createService } from '../runtime/service.mjs';
+import { createManaged } from '../runtime/managed.mjs';
+import { managedMethods } from '../runtime/operations.mjs';
+import { promptSchema } from '../runtime/builtins.mjs';
+import { issueCredential } from '../runtime/credentials.mjs';
 import { start, stop, cli } from './daemon-fixture.mjs';
 import { limits, incident } from './helpers.mjs';
 
-async function connect(t,root,version='2025-11-25',profile='continuity') {
+async function connect(t,root,version='2025-11-25',profile='continuity',credentialFile) {
   const versions=[];
   class VersionTransport extends StdioClientTransport {
     async send(message) {
@@ -24,7 +30,7 @@ async function connect(t,root,version='2025-11-25',profile='continuity') {
       return super.send(message);
     }
   }
-  const transport=new VersionTransport({command:process.execPath,args:[cli.pathname,'mcp','--profile',profile],env:{PATH:process.env.PATH,MOMENT_HOME:root},stderr:'pipe',maxBufferSize:1048576});
+  const transport=new VersionTransport({command:process.execPath,args:[cli.pathname,'mcp','--profile',profile],env:{PATH:process.env.PATH,MOMENT_HOME:root,...(credentialFile?{MOMENT_CREDENTIAL_FILE:credentialFile}:{})},stderr:'pipe',maxBufferSize:1048576});
   let diagnostics='';transport.stderr.on('data',bytes=>{diagnostics=(diagnostics+bytes).slice(-8192);});
   const client=new Client({name:'moment-conformance',version:'1'},{...(version==='2026-07-28'?{versionNegotiation:{mode:{pin:version}}}:{})});
   t.after(()=>client.close());
@@ -74,6 +80,11 @@ test('actual SDK bridge shares admitted kernel results and preserves its service
   assert.equal(stale.isError,true);assert.equal(stale.structuredContent.result.error.code,'REVISION_CONFLICT');
   const invalid=await invoke('incident.create',{...mutation,unexpected:true});
   assert.equal(invalid.isError,true);assert.equal(invalid.structuredContent?.result.error.code,'INVALID_ARGUMENT',JSON.stringify(invalid));
+  assert.deepEqual(invalid.structuredContent.result,await native.call('incident.create',{...mutation,unexpected:true}));
+  const tooMany={contextId,expectedRevision:2,idempotencyKey:'too-many-changes',changes:Array.from({length:20001},()=>({}))};
+  const refused=await invoke('graph.transact',tooMany);
+  assert.deepEqual(refused.structuredContent?.result,await native.call('graph.transact',tooMany));
+  assert.equal(refused.structuredContent.result.error.code,'INVALID_ARGUMENT');
   await client.close();
   assert.equal((await native.call('context.get',{contextId})).value.revision,2);
 });
@@ -131,4 +142,110 @@ test('the first actual MCP domain call starts a shared service that survives bot
   assert.equal(attached.structuredContent.result.value.attachment.contextId,contextId);
   assert.equal((await service.inspect()).instanceId,instance);
   await second.client.close();assert.equal((await service.inspect()).state,'ready');
+});
+
+test('MCP distinguishes a successful failed-execution read from a fault and preserves real late completion after cancellation',async t=>{
+  const root=mkdtempSync(join(tmpdir(),'moment-mx-')),child=await start(root,{entrypoint:new URL('./held-provider.mjs',import.meta.url)});
+  t.after(async()=>{if(child.exitCode===null && child.signalCode===null) await stop(child,'SIGKILL');rmSync(root,{recursive:true,force:true});});
+  const {client}=await connect(t,root,'2025-06-18','operator'),native=createClient(root),contextId=randomUUID(),incidentId=randomUUID();
+  const envelope={...recommendedLimits('USD'),cpuMillis:100000,outputBytes:100000};
+  const call=async(method,input)=>{const result=await native.call(method,input);assert.equal(result.ok,true,JSON.stringify(result));return result.value;};
+  const mutate=async(method,input)=>call(method,{contextId,expectedRevision:(await call('context.get',{contextId})).revision,idempotencyKey:randomUUID(),...input});
+  await call('context.create',{id:contextId,label:'Actual MCP outcome',bootstrapProfile:'owner-local',idempotencyKey:'create',limits:envelope});
+  await mutate('incident.create',{id:incidentId,incident});const registration=await installVerifier(root,contextId),executionId=randomUUID();
+  const bytes=Buffer.from('Real completion precedes its delayed delivery');
+  await mutate('execution.request',{execution:{id:executionId,incidentId,capability:registration.capability,grant:registration.grant,input:{contentBase64:bytes.toString('base64'),expectedDigest:bytesDigest(bytes)},limits:registration.limits}});
+  const until=Date.now()+5000;
+  while(!existsSync(join(root,'before-finish.json'))) {assert.equal(child.exitCode,null);assert.ok(Date.now()<until,'Actual worker did not reach the owned delivery barrier');await new Promise(resolve=>setTimeout(resolve,20));}
+  const cancellation={contextId,expectedRevision:(await call('context.get',{contextId})).revision,idempotencyKey:'explicit-cancel',executionId,reason:'Cancel races with a real retained result'};
+  const cancelled=await client.callTool({name:'moment_execution_cancel',arguments:cancellation});assert.equal(cancelled.isError,false,JSON.stringify(cancelled));
+  assert.deepEqual(cancelled.structuredContent.result,await native.call('execution.cancel',cancellation));
+  writeFileSync(join(root,'release-finish'),'release',{mode:0o600});
+  async function terminal(id) {
+    const until=Date.now()+5000;
+    do {const value=await call('execution.get',{contextId,executionId:id});if(['succeeded','failed'].includes(value.state)) return value;await new Promise(resolve=>setTimeout(resolve,20));}while(Date.now()<until);
+    assert.fail('Retained execution did not reach its observed outcome');
+  }
+  const observed=await terminal(executionId);assert.equal(observed.state,'succeeded');assert.equal(observed.outcome.output.observedDigest,bytesDigest(bytes));
+  // Retire the first test-only barrier marker; the retained release lets the
+  // next real report return immediately. Provider receipts remain untouched.
+  rmSync(join(root,'before-finish.json'));
+  const failedId=randomUUID();
+  await mutate('execution.request',{execution:{id:failedId,incidentId,capability:registration.capability,grant:registration.grant,input:{contentBase64:bytes.toString('base64'),expectedDigest:'sha256:'+'0'.repeat(64)},limits:registration.limits}});
+  const failed=await terminal(failedId);
+  assert.equal(failed.state,'failed');
+  const read=await client.callTool({name:'moment_execution_get',arguments:{contextId,executionId:failedId}});
+  assert.equal(read.isError,false,JSON.stringify(read));assert.equal(read.structuredContent.result.ok,true);assert.equal(read.structuredContent.result.value.state,'failed');
+});
+
+test('every continuity tool executes a connected admitted workflow with native-equivalent outcomes',async t=>{
+  const root=mkdtempSync(join(tmpdir(),'moment-ma-')),child=await start(root);
+  t.after(async()=>{await stop(child);rmSync(root,{recursive:true,force:true});});
+  const {client}=await connect(t,root),native=createClient(root),managed=createManaged({root}),seen=new Set();
+  const equivalent=async(operation,input)=>{
+    const mcp=await client.callTool({name:bindingMap.get(operation).mcpName,arguments:input}),result=mcp.structuredContent?.result;
+    assert.equal(result?.ok,true,JSON.stringify(mcp));assert.equal(mcp.isError,false);assert.deepEqual(JSON.parse(mcp.content[0].text),mcp.structuredContent);
+    const other=await (managedMethods.includes(operation)?managed:native).call(operation,input);
+    if(operation==='events.read') {
+      assert.equal(typeof result.value.nextCursor,'string');assert.equal(typeof other.value.nextCursor,'string');
+      const {nextCursor:a,...first}=result.value,{nextCursor:b,...second}=other.value;assert.deepEqual(first,second);
+    } else assert.deepEqual(result,other);
+    seen.add(operation);return result.value;
+  };
+  const contextId=randomUUID(),incidentId=randomUUID(),system=(await native.call('system.describe',{protocolVersion:'0.1'})).value;
+  const ref=id=>({systemId:system.systemId,contextId,id}),context=async()=>{const result=await native.call('context.get',{contextId});assert.equal(result.ok,true);return result.value;};
+  const write=async(operation,input)=>equivalent(operation,{contextId,expectedRevision:(await context()).revision,idempotencyKey:randomUUID(),...input});
+  await equivalent('bindings.discover',{operationId:'workspace.read'});
+  await equivalent('context.create',{id:contextId,label:'Complete continuity profile',bootstrapProfile:'owner-local',idempotencyKey:'create',limits});
+  await write('incident.create',{id:incidentId,incident});
+  const document={type:'string'},schema={name:'fixture.continuity',version:'1',digest:digest(document)};
+  assert.equal((await native.call('schema.publish',{contextId,expectedRevision:(await context()).revision,idempotencyKey:'schema',schema,document})).ok,true);
+  const sourceId=randomUUID(),templateId=randomUUID(),evidence={sources:[],method:'Owner admits SDK boundary fixture',artifactDigests:[]};
+  await write('graph.transact',{changes:[
+    {kind:'record.put',record:{kind:'atom',id:sourceId,schema,value:'Observed through the actual SDK bridge'}},
+    {kind:'record.put',record:{kind:'atom',id:templateId,schema:promptSchema,value:{text:'Summarize {{source}} as quoted evidence.',sourceSlots:['source']}}},
+    ...[sourceId,templateId].map(id=>({kind:'assertion.put',assertion:{id:randomUUID(),record:ref(id),evidence}})),
+  ]});
+  await write('incident.update',{incidentId,incident:{...incident,continuation:[ref(sourceId)]},evidence:{...evidence,sources:[ref(sourceId)]}});
+  await equivalent('workspace.attach',{contextId,incidentId});
+  await equivalent('workspace.read',{target:{systemId:system.systemId,contextId,incidentId},detailRefs:[ref(sourceId)]});
+  await equivalent('graph.query',{contextId,selector:{ids:[sourceId],assertionStatus:'asserted'},limit:20});
+  const basis=await context(),proposalId=randomUUID(),reified=randomUUID();
+  await write('transition.propose',{proposal:{id:proposalId,incidentId,basisRevision:basis.revision,policy:basis.policy,changes:[{kind:'record.put',record:{kind:'atom',id:reified,schema,value:'Admitted reification'}}],executions:[],evidence:{...evidence,sources:[ref(sourceId)]}}});
+  await write('transition.commit',{proposalId});
+  const messageId=randomUUID();
+  await write('messages.send',{message:{id:messageId,incidentId,recipientId:system.principalId,kind:'notice',summary:'An admitted transition is available for review',detailRefs:[ref(sourceId)]}});
+  await equivalent('messages.read',{contextId,limit:20,includeAcknowledged:false});
+  await write('messages.ack',{messageIds:[messageId]});
+  await equivalent('prompt.compose',{contextId,incidentId,template:ref(templateId),sourceRefs:[ref(sourceId)],outputSchema:schema,maximumInputBytes:16384});
+  await equivalent('events.read',{contextId,limit:100,waitMillis:0});
+  assert.deepEqual([...seen].sort(),exposedOperations().sort());
+});
+
+test('the actual SDK bridge retains selected delegate scope, current revocation and missing-credential refusal',async t=>{
+  const root=mkdtempSync(join(tmpdir(),'moment-md-')),child=await start(root);
+  t.after(async()=>{await stop(child);rmSync(root,{recursive:true,force:true});});
+  const owner=createClient(root),contextId=randomUUID(),incidentId=randomUUID(),actor=randomUUID(),allowed=randomUUID(),hidden=randomUUID();
+  const call=async(method,input)=>{const result=await owner.call(method,input);assert.equal(result.ok,true,JSON.stringify(result));return result.value;};
+  const write=async(method,input)=>call(method,{contextId,expectedRevision:(await call('context.get',{contextId})).revision,idempotencyKey:randomUUID(),...input});
+  await call('context.create',{id:contextId,label:'Selected MCP delegation',bootstrapProfile:'owner-local',idempotencyKey:'create',limits});
+  await write('incident.create',{id:incidentId,incident});
+  const system=(await call('system.describe',{protocolVersion:'0.1'})),ref=id=>({systemId:system.systemId,contextId,id}),document={type:'string'},schema={name:'fixture.delegate',version:'1',digest:digest(document)};
+  await write('schema.publish',{schema,document});await write('graph.transact',{changes:[allowed,hidden].map(id=>({kind:'record.put',record:{kind:'atom',id,schema,value:id===allowed?'Selected detail':'Hidden detail'}}))});
+  const context=await call('context.get',{contextId}),old=await call('control.get',{contextId,ref:context.policy}),actions=['context.get','incident.get','incident.list','graph.query'];
+  const candidate=await write('policy.publish',{policy:{...old.value,id:randomUUID(),parent:context.policy,rules:[...old.value.rules,{id:'selected-mcp-actor',effect:'permit',actions,when:{kind:'equal',left:{kind:'binding',name:'principalId'},right:{kind:'literal',value:actor}}}]}});
+  await write('policy.activate',{policy:candidate.ref,evidence:{sources:[],method:'Owner admits selected MCP scope',artifactDigests:[]}});
+  const grant=await write('grant.issue',{grant:{id:randomUUID(),principalId:actor,actions,incidentIds:[incidentId],resourceRefs:[ref(allowed)],delegable:false,limits}}),credentialFile=issueCredential(root,actor,{[contextId]:grant.ref});
+  const {client}=await connect(t,root,'2025-06-18','operator',credentialFile),native=createClient(root,{credentialFile});
+  const attached=await client.callTool({name:'moment_workspace_attach',arguments:{contextId,incidentId}});
+  assert.equal(attached.structuredContent.result.value.attachment.principalId,actor);
+  const query={contextId,selector:{ids:[allowed,hidden],assertionStatus:'any'},limit:1};
+  const selected=await client.callTool({name:'moment_graph_query',arguments:query});assert.deepEqual(selected.structuredContent.result,await native.call('graph.query',query));assert.deepEqual(selected.structuredContent.result.value.items.map(item=>item.record.ref.id),[allowed]);
+  const closeInput={contextId,expectedRevision:(await call('context.get',{contextId})).revision,idempotencyKey:'denied-close',reason:'Operator profile is not an authority grant'};
+  const denied=await client.callTool({name:'moment_context_close',arguments:closeInput});assert.deepEqual(denied.structuredContent.result,await native.call('context.close',closeInput));assert.equal(denied.structuredContent.result.error.code,'FORBIDDEN');
+  await write('grant.revoke',{grant:grant.ref,reason:'Current authority revoked'});
+  const revoked=await client.callTool({name:'moment_graph_query',arguments:query});assert.deepEqual(revoked.structuredContent.result,await native.call('graph.query',query));assert.equal(revoked.structuredContent.result.error.code,'FORBIDDEN');
+  const missing=await connect(t,root,'2025-06-18','continuity',join(root,'missing.json'));
+  const refused=await missing.client.callTool({name:'moment_workspace_attach',arguments:{contextId,incidentId}});
+  assert.equal(refused.structuredContent.result.error.code,'UNAUTHENTICATED');assert.equal((await owner.call('context.get',{contextId})).ok,true);
 });

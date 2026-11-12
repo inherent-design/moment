@@ -6,9 +6,21 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { canonical, digest, fail, resultError } from './json.mjs';
 
+/** A candidate is reclaimable only after its recorded child is observed dead. */
+export function startupStatus(value) {
+  if(value===undefined) return;
+  if(!value || !Number.isSafeInteger(value.pid) || value.pid<1 || typeof value.nonce!=='string') return 'uncertain';
+  if(value.childPid!==undefined) {
+    if(!Number.isSafeInteger(value.childPid) || value.childPid<1) return 'uncertain';
+    try {process.kill(value.childPid,0);return 'starting';} catch(error) {return error.code==='ESRCH'?'stale':'uncertain';}
+  }
+  try {process.kill(value.pid,0);return 'starting';} catch {return 'uncertain';}
+}
+
 /** Trusted storage port. Admission and wire validation belong to the kernel. */
 export class Store {
-  constructor(filename, systemId) {
+  constructor(filename, systemId, { busyTimeoutMillis=5000 }={}) {
+    if(!Number.isInteger(busyTimeoutMillis) || busyTimeoutMillis<0 || busyTimeoutMillis>5000) throw new Error('Invalid SQLite busy deadline');
     mkdirSync(dirname(filename), { recursive: true, mode: 0o700 });
     // SQLite otherwise publishes a default-mode file before the later chmod.
     // Concurrent observational clients must never see a public database window.
@@ -19,8 +31,8 @@ export class Store {
     chmodSync(filename, 0o600);
     this.systemId = systemId;
     this.notifications=new EventEmitter();this.notifications.setMaxListeners(0);
-    this.db.exec('PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
     try {
+      this.db.exec(`PRAGMA busy_timeout=${busyTimeoutMillis}; PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;`);
       this.db.exec('BEGIN IMMEDIATE');
       const version = this.db.prepare('PRAGMA user_version').get().user_version;
       if (version !== 0 && version !== 1) fail('UNSUPPORTED_VERSION', `Unsupported database version ${version}`);
@@ -57,6 +69,48 @@ export class Store {
       this.db.exec('COMMIT');
       return claim;
     } catch (error) { try { this.db.exec('ROLLBACK'); } catch {} throw error; }
+  }
+  startupTransaction(change) {
+    try {
+      this.db.exec('BEGIN IMMEDIATE');
+      const row=this.db.prepare("SELECT value FROM metadata WHERE key='managedStartup'").get(),prior=row?JSON.parse(row.value):undefined;
+      const {next=prior,result}=change(prior);
+      if(next!==prior) {
+        if(next===null) this.db.prepare("DELETE FROM metadata WHERE key='managedStartup'").run();
+        else this.db.prepare("INSERT OR REPLACE INTO metadata VALUES ('managedStartup', ?)").run(canonical(next));
+      }
+      this.db.exec('COMMIT');return result;
+    } catch(error) {try{this.db.exec('ROLLBACK');}catch{}throw error;}
+  }
+  claimManagedStartup() {
+    return this.startupTransaction(prior=>{
+      const writer=this.db.prepare("SELECT value FROM metadata WHERE key='daemonClaim'").get();
+      if(writer) {
+        const value=JSON.parse(writer.value);
+        if(!Number.isSafeInteger(value.pid) || value.pid<1) fail('IDENTITY_CONFLICT','Invalid daemon ownership');
+        try {process.kill(value.pid,0);return {};} catch(error) {if(error.code!=='ESRCH') throw error;}
+      }
+      const state=startupStatus(prior);
+      if(state==='starting') return {};
+      if(state==='uncertain') fail('OUTCOME_UNKNOWN','Startup custody has insufficient evidence; preserve it for inspection','reconcile');
+      const claim={pid:process.pid,nonce:randomUUID()};return {next:claim,result:claim};
+    });
+  }
+  recordManagedCandidate(claim,pid) {
+    if(!Number.isSafeInteger(pid) || pid<1) return;
+    this.startupTransaction(prior=>{
+      if(prior?.nonce!==claim.nonce || prior.pid!==claim.pid) fail('IDENTITY_CONFLICT','Managed startup custody changed');
+      return {next:{...prior,childPid:pid}};
+    });
+  }
+  releaseManagedStartup(claim) {
+    this.startupTransaction(prior=>prior?.nonce===claim.nonce && prior.pid===claim.pid?{next:null}:{});
+  }
+  retireManagedStartup(instanceId) {
+    this.startupTransaction(prior=>{
+      const row=this.db.prepare("SELECT value FROM metadata WHERE key='daemonClaim'").get(),writer=row?JSON.parse(row.value):undefined;
+      return prior && writer?.nonce===instanceId && prior.childPid===writer.pid?{next:null}:{};
+    });
   }
   releaseWriter(claim) {
     this.db.prepare("DELETE FROM metadata WHERE key='daemonClaim' AND value=?").run(canonical(claim));

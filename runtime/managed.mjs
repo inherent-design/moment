@@ -7,6 +7,7 @@ import { readCredential } from './credentials.mjs';
 import { createService } from './service.mjs';
 import { catalog, catalogIdentity, bindingMap, discoverBindings, exposedOperations, validateBoundary } from './bindings.mjs';
 import { validateInput } from './validation.mjs';
+import { managedMethods } from './operations.mjs';
 import { canonical, fail, DomainError, resultError } from './json.mjs';
 
 const notFound=()=>fail('NOT_FOUND','Selected work is not accessible');
@@ -166,7 +167,10 @@ export function createManaged({root,credentialFile=process.env.MOMENT_CREDENTIAL
   async function call(operation,input) {
     try {
       if(!exposed.includes(operation)) fail('FORBIDDEN','Operation is not exposed in this profile; inspect moment agents');
-      validateInput(operation,input);
+      // Kernel input admission stays in the authenticated native boundary so
+      // its exact faults survive every projection. Local adapters share the
+      // generated validator rather than inventing a transport-specific shape.
+      if(managedMethods.includes(operation)) validateInput(operation,input);
       let value;
       if(operation==='bindings.discover') value=discoverBindings(input,profile);
       else {

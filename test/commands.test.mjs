@@ -30,6 +30,9 @@ test('offline agents/status/stop/help are bounded and observational with clean m
   }
   assert.equal(existsSync(root),false);
   assert.equal(summary.stdout.includes('\x1b'),false);
+  for(const command of ['connect','disconnect']) {
+    const missing=run(root,[command,'--json']);assert.equal(missing.status,1);assert.equal(JSON.parse(missing.stdout).error.code,'INVALID_ARGUMENT');assert.equal(missing.stderr,'');
+  }
 });
 
 test('human status/show report actual selected work and explicit instance stop confirms retirement',async t=>{

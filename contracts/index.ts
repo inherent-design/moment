@@ -396,6 +396,11 @@ export interface CatalogIdentity {
 }
 
 export type SurfaceOperation = Method | keyof ManagedMethods;
+export type SurfaceInput<M extends SurfaceOperation> = M extends Method ? Input<M> : M extends keyof ManagedMethods ? ManagedMethods[M]["input"] : never;
+export type SurfaceOutput<M extends SurfaceOperation> = M extends Method ? Output<M> : M extends keyof ManagedMethods ? ManagedMethods[M]["output"] : never;
+export interface ManagedClient {
+  call<M extends SurfaceOperation>(operation: M, input: SurfaceInput<M>): Promise<Result<SurfaceOutput<M>>>;
+}
 export interface DirectiveBinding {
   id: string;
   version: string;
@@ -517,10 +522,13 @@ export interface IntegrationOutcome {
   beforeDigest?: Digest;
   afterDigest?: Digest;
   ownedEntryDigest?: Digest;
+  launcher?: { command: string; args: string[]; env: { [name: string]: string } };
+  ownedEntry?: { text: string; digest: Digest };
 }
 export interface IntegrationPort {
   reconcile(request: IntegrationRequest): Promise<Result<IntegrationOutcome>>;
 }
+export type IntegrationEnvelope = Result<IntegrationOutcome>;
 
 export interface ExchangeBundle {
   id: Id;

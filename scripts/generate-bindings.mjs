@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, writeFileSync, realpathSync } from 'node:fs';
 import { relative, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compileContract } from './schema-compiler.mjs';
+import { compileContract, pruneSchema } from './schema-compiler.mjs';
 import { inputSchemas, defs } from '../runtime/input-schemas.mjs';
 import { kernelMethods, managedMethods, serviceMethods } from '../runtime/operations.mjs';
 import { canonical, bytesDigest, digest } from '../runtime/json.mjs';
@@ -50,7 +50,7 @@ export function generateBindings() {
   for (const id of serviceMethods) if (!server.includes(`request.method==='${id}'`)) throw new Error(`Missing service handler ${id}`);
   const adapter = readFileSync(join(root,'runtime/managed.mjs'),'utf8');
   for (const id of managedMethods) if (!adapter.includes(`operation==='${id}'`)) throw new Error(`Missing managed handler ${id}`);
-  const paths = ['contracts/index.ts', 'package.json', 'pnpm-lock.yaml', 'scripts/schema-compiler.mjs', 'scripts/generate-bindings.mjs'];
+  const paths = ['contracts/index.ts', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'mise.toml', 'tsconfig.json', 'scripts/schema-compiler.mjs', 'scripts/generate-bindings.mjs'];
   const walk = directory => {
     for (const entry of readdirSync(join(root, directory), { withFileTypes: true }).sort((a,b) => a.name.localeCompare(b.name, 'en'))) {
       const path = `${directory}/${entry.name}`;
@@ -72,7 +72,7 @@ export function generateBindings() {
     const operationSources=[...new Set(['contracts/index.ts','runtime/operations.mjs','runtime/input-schemas.mjs','runtime/validation.mjs','runtime/directives.mjs',owner,...(domain?[domain]:[])])].sort().map(source);
     // The checked TS shape and the existing admitted refinements both apply.
     // Keep their local-reference namespaces separate in a self-contained document.
-    const input = implemented ? { ...schemas.input, allOf: [{ $ref: '#/$defs/admitted' }], $defs: { ...schemas.input.$defs, admitted: inputSchemas[id], ...defs } } : schemas.input;
+    const input = pruneSchema(implemented ? { ...schemas.input, allOf: [{ $ref: '#/$defs/admitted' }], $defs: { ...schemas.input.$defs, admitted: inputSchemas[id], ...defs } } : schemas.input);
     const named = (kind, document) => ({ ref: { name: `moment.${id}.${kind}`, version: '1', digest: digest(document) }, document });
     return {
       id, version: '1', availability: implemented ? 'implemented' : 'declared', mode,

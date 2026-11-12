@@ -14,7 +14,8 @@
     "test:codex-protocol": "node scripts/codex-isolated-probe.mjs",
     "test:codex-native": "node scripts/codex-native-check.mjs",
     "generate:bindings": "node scripts/generate-bindings.mjs",
-    "check:bindings": "node scripts/generate-bindings.mjs --check"
+    "check:bindings": "node scripts/generate-bindings.mjs --check",
+    "test:integration": "node --test verification/integration.test.mjs"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "2.4.0",

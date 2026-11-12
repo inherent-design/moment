@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
+import { DatabaseSync } from 'node:sqlite';
 import { createService } from '../runtime/service.mjs';
 import { createClient } from '../runtime/client.mjs';
 import { catalogIdentity } from '../runtime/bindings.mjs';
@@ -33,6 +34,7 @@ test('observational status and missing delegate do not initialize an absent home
   assert.equal(existsSync(f.root),false);
   const delegate=createService({root:f.root,credentialFile:join(f.root,'missing.json')});
   assert.equal((await delegate.ensure()).error.code,'UNAUTHENTICATED');
+  assert.equal((await createService({root:f.root,credentialFile:''}).ensure()).error.code,'UNAUTHENTICATED');
   assert.equal(existsSync(f.root),false);
 });
 
@@ -42,6 +44,7 @@ test('simultaneous clients converge on one authenticated instance and exact owne
   for(const result of results) assert.equal(result.ok,true,JSON.stringify(result));
   const instance=results[0].value.instanceId;
   assert.equal(new Set(results.map(r=>r.value.instanceId)).size,1);
+  assert.equal(f.children.length,1,'Managed callers launch exactly one candidate, so no losing starter can revive a stopped service');
   assert.equal(results[0].value.catalog.digest,catalogIdentity.digest);
   const client=createClient(f.root);
   const description=await client.call('system.describe',{protocolVersion:'0.1'});
@@ -92,6 +95,39 @@ test('missing retained owner custody and excessive socket paths never trigger re
   const path=join(f.root,'runtime/owner.json'),original=readFileSync(path);unlinkSync(path);
   assert.equal((await f.service.inspect()).state,'unavailable');assert.equal((await f.service.ensure()).ok,false);assert.equal(existsSync(path),false);
   writeFileSync(path,original,{mode:0o600});assert.equal((await f.service.ensure()).ok,true);
+  const next=await f.service.inspect();await f.service.stop(next.instanceId);await retired(f.service);
+  const registry=join(f.root,'registry.json'),registered=readFileSync(registry);unlinkSync(registry);
+  assert.equal((await f.service.inspect()).state,'incompatible');assert.equal((await f.service.ensure()).ok,false);assert.equal(existsSync(registry),false);
+  writeFileSync(registry,registered,{mode:0o600});assert.equal((await f.service.ensure()).ok,true);
   const longRoot=join(f.root,'x'.repeat(110)),long=createService({root:longRoot});
   assert.equal((await long.inspect()).state,'incompatible');assert.equal(existsSync(longRoot),false);
+});
+
+test('live or uncertain startup custody and an incompatible database are preserved without another candidate',async t=>{
+  const f=fixture(t);assert.equal((await f.service.ensure()).ok,true);
+  const ready=await f.service.inspect();await f.service.stop(ready.instanceId);await retired(f.service);
+  const put=value=>{
+    const db=new DatabaseSync(join(f.root,'runtime/store.sqlite'));
+    try {if(value===undefined) db.prepare("DELETE FROM metadata WHERE key='managedStartup'").run();else db.prepare("INSERT OR REPLACE INTO metadata VALUES ('managedStartup',?)").run(JSON.stringify(value));} finally {db.close();}
+  };
+  const limited=createService({root:f.root,startupMillis:100});
+  put({pid:process.pid,nonce:randomUUID()});
+  assert.equal((await limited.inspect()).state,'starting');assert.equal((await limited.ensure()).ok,false);assert.equal(f.children.length,1);
+  put({pid:process.pid,childPid:0,nonce:randomUUID()});
+  assert.equal((await limited.inspect()).state,'uncertain');assert.equal((await limited.ensure()).ok,false);assert.equal(f.children.length,1);
+  put(undefined);
+  const db=new DatabaseSync(join(f.root,'runtime/store.sqlite'));try{db.exec('PRAGMA user_version=99');}finally{db.close();}
+  assert.equal((await f.service.inspect()).state,'incompatible');assert.equal((await f.service.ensure()).error.code,'UNSUPPORTED_VERSION');assert.equal(f.children.length,1);
+});
+
+test('a retained startup claim is reclaimed only after its recorded owned candidate actually retires',async t=>{
+  const f=fixture(t);assert.equal((await f.service.ensure()).ok,true);
+  const active=f.children[0],ready=await f.service.inspect();await f.service.stop(ready.instanceId);await retired(f.service);
+  if(active.exitCode===null && active.signalCode===null) await once(active,'exit');
+  const db=new DatabaseSync(join(f.root,'runtime/store.sqlite'));
+  try {db.prepare("INSERT OR REPLACE INTO metadata VALUES ('managedStartup',?)").run(JSON.stringify({pid:process.pid,childPid:active.pid,nonce:randomUUID()}));}finally{db.close();}
+  const observed=()=>{const db=new DatabaseSync(join(f.root,'runtime/store.sqlite'),{readOnly:true});try{return db.prepare("SELECT value FROM metadata WHERE key='managedStartup'").get()?.value;}finally{db.close();}};
+  const before=observed();assert.equal((await f.service.inspect()).state,'stopped');assert.equal(observed(),before,'Inspection is observational');
+  const restarted=await f.service.ensure();assert.equal(restarted.ok,true,JSON.stringify(restarted));assert.equal(f.children.length,2);assert.notEqual(restarted.value.instanceId,ready.instanceId);assert.equal(observed(),undefined);
+
 });

@@ -28,7 +28,7 @@ export function strictFrames() {
 
 export function buildMcpServer({root,credentialFile,profile='continuity'}={}) {
   const managed=createManaged({root,credentialFile,profile});
-  const server=new McpServer({name:'moment',version:catalogIdentity.implementationVersion},{instructions:catalog.instructions,capabilities:{tools:{}},maxToolInputElements:20000});
+  const server=new McpServer({name:'moment',version:catalogIdentity.implementationVersion},{instructions:catalog.instructions,capabilities:{tools:{}}});
   let active=0;
   for(const operation of exposedOperations(profile)) {
     const binding=bindingMap.get(operation);

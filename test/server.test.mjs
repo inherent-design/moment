@@ -9,7 +9,7 @@ import { request, createClient } from '../runtime/client.mjs';
 import { parseJson } from '../runtime/wire.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { digest } from '../runtime/json.mjs';
-import { start,stop } from './daemon-fixture.mjs';
+import { start,stop,startManaged } from './daemon-fixture.mjs';
 
 const limits={ concurrentExecutions:1,cpuMillis:1000,memoryBytes:1000,outputBytes:1000,modelTokens:0,apiSpendMicrounits:0,currency:'USD' };
 
@@ -96,7 +96,7 @@ test('separate transport credentials exercise delegated grants and immediate rev
 });
 
 test('a real daemon expires leases without client activity and fences running work after abrupt restart',async t=>{
-  const root=mkdtempSync(join(tmpdir(),'moment-execution-rpc-'));let child=await start(root);
+  const root=mkdtempSync(join(tmpdir(),'moment-execution-rpc-'));let child=await startManaged(root);
   t.after(async()=>{ if (child.exitCode===null && child.signalCode===null) await stop(child);rmSync(root,{ recursive:true,force:true }); });
   const client=createClient(root),contextId=randomUUID(),incidentId=randomUUID();
   const { principalId }=JSON.parse(readFileSync(join(root,'runtime','owner.json'),'utf8'));
@@ -140,7 +140,7 @@ test('a real daemon expires leases without client activity and fences running wo
   const usage={ cpuMillis:0,memoryBytes:0,outputBytes:0,modelTokens:0,apiSpendMicrounits:0 };
   await write('execution.reconcile',{ attempt:1,executionId:first.intent.id,resolution:{ kind:'observed',outcome:{ kind:'cancelled',evidence:{ ...evidence,sources:[{ systemId,contextId,id:proofId }] } } },usage });
   const second=await enqueue(),stale=await dispatch(second.intent.id,10000);
-  await stop(child,'SIGKILL');child=await start(root);
+  await stop(child,'SIGKILL');child=await startManaged(root);
   const recovered=await call('execution.get',{ contextId,executionId:second.intent.id });assert.equal(recovered.state,'unknown');assert.equal(recovered.attempt,1);
   const current=await call('context.get',{ contextId });
   const refused=await client.call('execution.finish',{ contextId,expectedRevision:current.revision,idempotencyKey:'stale-result',...stale,outcome:{ kind:'cancelled',evidence },usage });
@@ -148,7 +148,7 @@ test('a real daemon expires leases without client activity and fences running wo
 });
 
 test('a real daemon rests without writes, resumes a saved schedule once after restart and supports long polling',async t=>{
-  const root=mkdtempSync(join(tmpdir(),'moment-wake-rpc-'));let child=await start(root);
+  const root=mkdtempSync(join(tmpdir(),'moment-wake-rpc-'));let child=await startManaged(root);
   t.after(async()=>{ if (child.exitCode===null && child.signalCode===null) await stop(child);rmSync(root,{ recursive:true,force:true }); });
   const client=createClient(root),contextId=randomUUID(),incidentId=randomUUID(),evidence={ sources:[],method:'Real wake fixture',artifactDigests:[] };
   const call=async(method,input)=>{ const result=await client.call(method,input);assert.equal(result.ok,true,JSON.stringify(result));return result.value; };
@@ -175,7 +175,7 @@ test('a real daemon rests without writes, resumes a saved schedule once after re
     for (let count=0;count<20;count++) { await new Promise(resolve=>setTimeout(resolve,20));const next=snapshot().context.revision;if (next===previous) break;previous=next; }
     const before=snapshot();await new Promise(resolve=>setTimeout(resolve,80));assert.equal(snapshot().context.revision,before.context.revision);assert.equal(before.controlState.incidents[incidentId].value.status,'resting');
   } finally { observer.close(); }
-  await stop(child,'SIGKILL');child=await start(root);
+  await stop(child,'SIGKILL');child=await startManaged(root);
   const tail=await call('events.read',{ contextId,limit:100,waitMillis:0 });
   const waiting=call('events.read',{ contextId,after:tail.nextCursor,limit:100,waitMillis:2000 });
   await write('graph.transact',{ changes:[{ kind:'record.put',record:{ kind:'atom',id:randomUUID(),schema,value:'Relevant observed evidence' } }] });
@@ -184,6 +184,6 @@ test('a real daemon rests without writes, resumes a saved schedule once after re
   for (let count=0;count<100;count++) { status=await call('schedule.get',{ contextId,scheduleId });if (status.state==='completed') break;await new Promise(resolve=>setTimeout(resolve,20)); }
   assert.equal(status.state,'completed');assert.equal((await call('incident.get',{ contextId,incidentId })).value.status,'open');
   const all=await call('events.read',{ contextId,limit:100,waitMillis:0 });assert.equal(all.items.filter(item=>item.type==='runtime.schedule.triggered').length,1);assert.equal(all.items.filter(item=>item.type==='incident.update.committed' && item.causeIds.length).length,1);
-  await stop(child,'SIGKILL');child=await start(root);
+  await stop(child,'SIGKILL');child=await startManaged(root);
   assert.equal((await call('schedule.get',{ contextId,scheduleId })).state,'completed');
 });

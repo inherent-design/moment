@@ -22,7 +22,11 @@ export function inspectHome({ home = homedir(), override = process.env.MOMENT_HO
   if (!existsSync(selected)) fail('INVALID_ARGUMENT','Moment home link is dangling; repair it explicitly');
   const root=realpathSync(selected);
   if (!statSync(root).isDirectory()) fail('INVALID_ARGUMENT','Moment store must be a directory');
-  const registry=present(join(root,'registry.json'))?readVersioned(join(root,'registry.json')):undefined;
+  let registry=present(join(root,'registry.json'))?readVersioned(join(root,'registry.json')):undefined;
+  if(!registry && present(join(root,'runtime/store.sqlite')) && lstatSync(join(root,'runtime/store.sqlite')).size>0) {
+    if(present(join(root,'registry.json'))) registry=readVersioned(join(root,'registry.json'));
+    else fail('IDENTITY_CONFLICT','Central registry is missing for retained state; restore its original custody without resetting identity');
+  }
   if (registry && (!uuid(registry.systemId) || !Array.isArray(registry.projects))) fail('INVALID_ARGUMENT','Invalid central registry');
   return { root,alias,registry };
 }
@@ -35,10 +39,11 @@ export function openHome({ home = homedir(), override = process.env.MOMENT_HOME 
   mkdirSync(selected, { recursive: true, mode: 0o700 });
   const root = realpathSync(selected);
   if (!statSync(root).isDirectory()) fail('INVALID_ARGUMENT', 'Moment store must be a directory');
-  if (!present(alias)) symlinkSync(root, alias, 'dir');
+  if (!present(alias)) try{symlinkSync(root, alias, 'dir');}catch(error){if(error.code!=='EEXIST') throw error;}
   const warnings = realpathSync(alias) === root ? [] : ['MOMENT_HOME differs from ~/.moment; existing alias preserved'];
   const registryPath = join(root, 'registry.json');
   if (!present(registryPath)) {
+    if(present(join(root,'runtime/store.sqlite')) && statSync(join(root,'runtime/store.sqlite')).size>0 && !present(registryPath)) fail('IDENTITY_CONFLICT','Central registry is missing for retained state; restore its original custody without resetting identity');
     try { publishPrivate(registryPath, JSON.stringify({ formatVersion: 1, systemId: randomUUID(), projects: [] }, null, 2) + '\n'); }
     catch (error) { if (error.code !== 'EEXIST') throw error; }
   }

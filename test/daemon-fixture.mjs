@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { createService } from '../runtime/service.mjs';
 export const cli=new URL('../runtime/cli.mjs',import.meta.url);
 export async function start(root,{ entrypoint=cli }={}) {
   const child=spawn(process.execPath,[entrypoint.pathname,'serve'],{ env:{ ...process.env,MOMENT_HOME:root },stdio:['ignore','pipe','pipe'] });
@@ -14,4 +15,12 @@ export async function start(root,{ entrypoint=cli }={}) {
 }
 export async function stop(child,signal='SIGTERM') {
   const exited=once(child,'exit');child.kill(signal);await exited;
+}
+/** Managed lifecycle acceptance still returns the actual test-owned process handle. */
+export async function startManaged(root) {
+  let child;
+  const service=createService({root,onSpawn:owned=>{child=owned;}}),ready=await service.ensure();
+  if(!ready.ok) throw new Error('Managed fixture startup refused: '+ready.error.message);
+  if(!child) throw new Error('Managed fixture did not own a new process; preserve the existing service');
+  return child;
 }

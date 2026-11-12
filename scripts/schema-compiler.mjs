@@ -1,6 +1,24 @@
 import ts from 'typescript-schema';
 import { primitives } from '../runtime/input-schemas.mjs';
 
+/** Ship only reachable local definitions; tool selection must stay lightweight. */
+export function pruneSchema(document) {
+  if(typeof document==='boolean') return document;
+  const {$defs={},...root}=document,selected=new Map(),queue=[];
+  const visit=node=>{
+    if(!node || typeof node!=='object') return;
+    if(node.$ref!==undefined) {
+      if(typeof node.$ref!=='string' || !/^#\/\$defs\/[^/]+$/.test(node.$ref)) throw new Error('Generated schema reference must resolve locally');
+      const name=node.$ref.slice(8);
+      if(!Object.hasOwn($defs,name)) throw new Error(`Unresolved schema reference: ${node.$ref}`);
+      if(!selected.has(name)) {selected.set(name,$defs[name]);queue.push($defs[name]);}
+    }
+    for(const child of Object.values(node)) visit(child);
+  };
+  visit(root);while(queue.length) visit(queue.shift());
+  return {...root,...(selected.size?{$defs:Object.fromEntries([...selected].sort(([a],[b])=>a.localeCompare(b,'en')))}:{})};
+}
+
 /** Deliberately closed subset: unsupported types fail instead of becoming any. */
 export function compileContract(filename) {
   const program = ts.createProgram([filename], { strict: true, noEmit: true, target: ts.ScriptTarget.ESNext });
@@ -61,7 +79,7 @@ export function compileContract(filename) {
       ] };
       root = { type: 'object', properties: { operation: { type: 'string' }, catalog: schema(interfaceType('CatalogIdentity')), result }, required: ['operation', 'catalog', 'result'], additionalProperties: false };
     }
-    return typeof root==='boolean' ? root : { ...root, ...(Object.keys(defs).length ? { $defs: defs } : {}) };
+    return pruneSchema(typeof root==='boolean' ? root : { ...root, ...(Object.keys(defs).length ? { $defs: defs } : {}) });
   }
   const methods = new Map();
   for (const owner of ['Methods', 'ManagedMethods']) for (const prop of checker.getPropertiesOfType(interfaceType(owner))) {
@@ -69,6 +87,6 @@ export function compileContract(filename) {
     const member = name => checker.getTypeOfSymbolAtLocation(type.getProperty(name), prop.valueDeclaration);
     methods.set(prop.name, { input: document(member('input')), output: document(member('output')), envelope: document(member('output'), true) });
   }
-  methods.surfaces=Object.fromEntries(['AgentManifest','AgentRecord','StatusEnvelope','StopEnvelope'].map(name=>[name,document(interfaceType(name))]));
+  methods.surfaces=Object.fromEntries(['AgentManifest','AgentRecord','StatusEnvelope','StopEnvelope','IntegrationEnvelope'].map(name=>[name,document(interfaceType(name))]));
   return methods;
 }
