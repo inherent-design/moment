@@ -34,6 +34,8 @@ The first integration direction is a local client or MCP adapter for Moment, alo
 
 Keep Codex authentication within supported Codex flows. Subscription usage and separately billed API labor remain different budgets; using a daemon does not provide unlimited inference. Full-approval Codex operation is owner-reported host configuration, not evidence that a sandbox exists. Moment's narrower execution policies govern admitted Moment operations; direct host tools retain their actual host authority.
 
+Real Codex verification uses a dedicated app-server process, never the owner's primary managed daemon. A direct `codex app-server --listen stdio://` process supplies a private pipe transport. Its child environment selects a separate Codex state root, and its working directory is a disposable test workspace. Do not use the managed daemon's proxy, default control socket, shared writable configuration, or primary sessions. The installed binary can be read and executed without modification; record its actual version and qualify the installed protocol. Protocol initialization can be tested without logging in. Live inference additionally needs a supported independent authentication path that does not rotate or rewrite the primary session. [Codex environment variables](https://learn.chatgpt.com/docs/config-file/environment-variables)
+
 Saved goal text is reusable input. Creating a file does not activate a Codex goal or schedule an agent. A user can explicitly point `/goal` at the central intent file when ready. [Using goals in Codex](https://developers.openai.com/cookbook/examples/codex/using_goals_in_codex)
 
 ## Messages and awareness

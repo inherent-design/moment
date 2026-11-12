@@ -8,6 +8,12 @@ The `0.1` contract baseline and runtime were checked on November 12, 2026, using
 
 Four transport tests use real child-process daemons and Unix sockets. They verify private credential/socket permissions, rejection of an incorrect credential, preservation of a saved incident and original retry response after `SIGKILL` and restart, duplicate-key and malformed-frame rejection, typed-client calls, and refusal of a competing daemon while the first remains callable. Wire parsing rejects escaped duplicate keys, malformed separators, and excessive nesting. `pnpm moment --help` exercises the actual CLI entry point. These checks cover operator operation and local process recovery; they do not prove OS isolation, policy activation, execution-provider recovery, or completion of M2 through M4.
 
+## Isolated Codex protocol evidence
+
+`node scripts/codex-isolated-probe.mjs` passed against the installed `codex-cli 0.167.2`. The opt-in task `pnpm test:codex-protocol` runs the same probe; ordinary checks do not invoke Codex. It resolves and executes the existing binary read-only, creates a temporary state root and workspace, removes inherited Codex/OpenAI/ChatGPT environment settings from the child, and selects file credential storage. A directly spawned stdio app-server completed `initialize`, accepted `initialized`, and returned no account from `account/read` with token refresh disabled. The test then stopped its own process and removed its temporary state.
+
+The probe does not use the managed daemon proxy or primary control socket, copy primary credentials, create a turn, or invoke inference. It establishes startup and protocol isolation, not live model integration. M4 still requires a supported independent authentication path and an actual isolated agent interaction. The central goal and project instructions now require this isolation for every real Codex verification.
+
 ## Storage execution evidence
 
 `node --test test/*.test.mjs` passed eleven tests against temporary directories and actual SQLite databases. `test/store.test.mjs` exercises atomic state/event/receipt/outbox persistence, reopen in a new process after closing the original connection, exact retries, conflicting retries, full rollback on identity conflict, historical snapshots, independently withdrawn support, two competing child processes, rollback after a child receives `SIGKILL` inside a transaction, and system-scoped bootstrap retry identity. Canonical JSON tests reject nonfinite values, unsupported objects, sparse arrays, and unpaired Unicode surrogates.

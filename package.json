@@ -10,7 +10,8 @@
     "check:types": "tsc --noEmit",
     "check:docs": "node scripts/check-docs.mjs",
     "test": "node --test test/*.test.mjs",
-    "moment": "node runtime/cli.mjs"
+    "moment": "node runtime/cli.mjs",
+    "test:codex-protocol": "node scripts/codex-isolated-probe.mjs"
   },
   "devDependencies": {
     "typescript": "7.0.2"

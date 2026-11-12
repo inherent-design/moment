@@ -28,6 +28,8 @@ Run `pnpm check` after contract or documentation changes. Update [verification](
 
 Local implementation and contract maintenance may proceed autonomously within the request. External publication, pushing, deployment, spending, destructive cleanup, and changes outside delegated scope need applicable user authorization. Do not infer such permission from an example policy or a successful check. Never commit personal store contents, credentials, raw sessions, or large generated runs.
 
+For real Codex tests, launch a separate app-server process with a test-owned transport and isolated child-process state/configuration directories. Use the installed executable read-only and record its actual version. Never stop, restart, attach tests to, upgrade, reconfigure, or send test work to the owner's primary daemon, installation, threads, or agents. Do not share writable auth/session databases or token-refresh state with it. Keep protocol probes independent of inference credentials; qualify a separate supported authentication path before live inference. Retain process handles and stop only test-owned processes.
+
 ## Toolchain and shared conventions
 
 Use pnpm for package installation, scripts, and dependency changes. `packageManager` in `package.json` pins pnpm; `pnpm-lock.yaml` is the sole JavaScript dependency lockfile. Use `pnpm install --frozen-lockfile` for reproducible setup and `pnpm check` for verification. Do not create npm or Yarn lockfiles. Keep lifecycle-script execution explicit and reviewed; checks must not silently repair the dependency graph.
