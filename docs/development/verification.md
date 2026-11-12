@@ -6,7 +6,7 @@ Moment was checked on November 12, 2026, on macOS arm64 with Node.js 26.13.0, pn
 
 | Command | Observed outcome | Scope |
 | --- | --- | --- |
-| `mise run check` | Passed: strict declarations, 17 Markdown files, 54 local links, 45 method entries, and 128 execution tests. | Combined runtime and contract candidate. |
+| `pnpm check` | Passed: strict declarations, 18 Markdown files, 68 local links, 47 method entries, and 128 execution tests. | Existing runtime plus proposed managed architecture contracts; no managed feature implementation. |
 | `node --test test/events.test.mjs test/scheduler.test.mjs` | Passed all 15 cases. | Scoped events, long-poll cleanup, persisted occurrences, coalescing, feedback bounds, and execution completion. |
 | `node --test test/executions.test.mjs` | Passed all 21 cases. | Capability matching, reservations, leases, cancellation, reconciliation, proposals, and views. |
 | `node --test test/cli.test.mjs` | Passed all four cases. | Real file/stdin/inline socket calls, exact mutation replay, byte limits, invalid UTF-8, duplicate keys and refusal before admission. |
@@ -14,22 +14,22 @@ Moment was checked on November 12, 2026, on macOS arm64 with Node.js 26.13.0, pn
 | `node scripts/codex-native-check.mjs --credential-file <private-auth-source>` | Passed with installed Codex CLI 0.167.2 and model `gpt-6.1-sol`. | Two actual native tool calls, real verifier context, admitted observation, ephemeral auth and retrieval after Moment restart. |
 | `node --test test/verifier.test.mjs test/verifier-server.test.mjs` | Passed all 13 cases within the combined check. | Actual verifier CPU/RSS, permission guards, receipt publication, crash recovery, same-ID context separation, closure races, and explicit installer. |
 | `node --test test/reactions.test.mjs` | Previously passed all 15 cases. | Transitions, topology, rules, pointers, and perspectives. |
-| `pnpm check:types` | Passed, including nine required rejection examples. | Declared boundaries and native-client method typing. |
+| `pnpm check:types` | Passed, including twelve required rejection examples. | Declared boundaries and native-client method typing. |
 | `mise run setup` | Previously passed frozen installation with pnpm 12.18.0. | Exact dependency graph; lifecycle scripts disabled. |
 | `node scripts/codex-isolated-probe.mjs` | Previously passed with installed `codex-cli 0.167.2`. | Isolated stdio startup and unauthenticated protocol, without inference. |
 | `git diff --check` | Passed for the implementation candidate. | Whitespace checks only. |
 
-The combined check exercised the execution candidate following `a4b3529`. The exact committed revision and selected captures are retained in the central implementation incident checkpoint. Runtime source identities for this candidate are:
+The combined check exercised the execution candidate following `c48299d`. The exact committed revision and selected captures are retained in the central specification incident checkpoint for the managed contract candidate. Runtime source identities for this candidate are:
 
 | File | SHA-256 |
 | --- | --- |
-| `contracts/index.ts` | `6063285de026c454d638c79e82630825323225392dfdb17677c498f719756258` |
+| `contracts/index.ts` | `1d8a3289337cf1ebc6038ca715dda8f32bb8f3f518c804176287e69c4a533cea` |
+| `contracts/examples.ts` | `ff3802e5acccff26025353533dbe246c46e4f7de91c9b9116d4d0144a2b290f2` |
 | `runtime/kernel.mjs` | `4c7eb0d6cd0cc704f4c3a5890b04b150e9ac82a2640c5b192938139666552761` |
-| `runtime/awareness.mjs` | `40cd07ffe2f1408bbf6e956ed1ebd0f3d563019945207ddec044ae3b60b73d4c` |
+| `runtime/client.mjs` | `8e2bcd50652bacc5d9dbcfba51f1ab6e274521711538027074e0eee13977b79c` |
+| `runtime/server.mjs` | `13b2868385d6b23b4ee02f9bbf1fdba489864ac11b43a1c5fce4cac7221de4f6` |
 | `runtime/codex.mjs` | `c47e2387e9615c243df29c801ef18b2686dfc49a489a32218673b5ace826cc4a` |
 | `runtime/cli.mjs` | `b72ba8c8d94726c396a682545334bb99a7d5f6ca075c87f8554beaa5589f9bcb` |
-| `runtime/input.mjs` | `517ca7281b99a1177ad23a2eaede78889bfdec09b3159941c816ab288bd0d261` |
-| `scripts/codex-native-check.mjs` | `b2bc502affcc592b8cc33cd850e0ab6b70b6bb5823c1bc193a43e3a891279ebc` |
 | `test/cli.test.mjs` | `2625a9b5a4489ed623ab734eb2d884551f3fe4f0005fc9c55b4942c716a2f0b8` |
 
 ## Executed behavior
@@ -67,3 +67,17 @@ The optional mise `secrets` profile was parsed and its tool pins selected withou
 The documentation checker validates local links, anchors, fenced blocks, whitespace, titles, and method-table coverage. Its earlier temporary broken-link and method-drift probes were rejected as expected. It does not validate external website availability or semantic equivalence of prose and code. Type examples reject unguarded mutation, generic policy activation, invented success, forged identity, executable policy, unsupported retry justification, mismatched parameters, client identity injection, and implicit full-record projection access.
 
 The required [M1–M4 and E15 acceptance cases](implementation.md) have been exercised. Exchange/artifact operations, automatic support propagation and M5 additional providers remain unimplemented or deferred. The actual self-use incident complements the synthetic conformance fixtures; neither implies general workload quality. Provider recovery is demonstrated only for this fixed local verifier. Live inference is demonstrated for the explicit bounded native check. No hostile-code OS isolation, workload-quality, general cost, or performance claim follows from these checks.
+
+## Managed architecture specification qualification
+
+The managed binding/MCP/attachment/lifecycle/installer contract and two added RPC declarations are proposed. No managed runtime feature or dependency was installed in this phase. The existing daemon still advertises 41 methods; the declaration/documentation check now covers 47. Twelve compile-only rejection examples include unresolved attachment access, advertising a declared-only binding, and supplied principal identity. Those checks prove type constraints, not runtime admission.
+
+An actual test-owned daemon received a 1,048,568-byte `schema.publish` frame. Its response exceeded the output frame limit, and `createClient` reported `INTERNAL` with retry `never` and no retained request. An authorized `context.get` observed revision 2 and `schema.get` read back the exact large comment, proving the write committed despite that report. This is an observed defect assigned to U1/G4; it was not fixed by the specification pass.
+
+A separate unauthenticated Codex CLI 0.167.2 instance, with owned workspace/config/state/stdio and an owned MCP fixture, initialized MCP `2025-06-18`, discovered and called `probe_context`, and acknowledged `config/mcpServer/reload`. The generated `McpServerToolCallParams` schema required `server`, `threadId`, and `tool`. `thread/resume` on the empty thread returned `-32600` with no rollout found. No inference, credential or primary transport was used. This establishes the fixture path, not SDK conformance, persisted post-inference resume or child inheritance. Those remain G5 requirements.
+
+In another temporary `CODEX_HOME`, actual `codex mcp add`, `get --json`, and `remove` retained a fixture comment and unrelated server entry, then restored the exact original config bytes. No real user config was changed. This qualifies the staging primitive only; ownership conflicts, interruption recovery and expected-old publication still require the installer implementation.
+
+The registry reported MCP server/client 2.4.0 as available; the server declares Node >=20. The pinned SDK source exports `/stdio` and documents serving 2025-era clients. No SDK package was added or exercised as a Moment bridge. The existing TypeScript 7.0.2 import exposed version metadata only. A temporary official TypeScript 6.0.2 distribution exposed `createProgram`/`createSourceFile` and parsed the current contract without syntax diagnostics. The selected future dev alias preserves the 7.0.2 checker; actual schema generation remains U1 work.
+
+Selected probe scripts, outputs, source identities, gap map and specification acceptance audit are retained in the central specification incident `12becfbf-522e-4bef-8f9a-c5799da83f82`. Probes stopped only owned processes and removed their temporary roots. No real installation, primary daemon/config mutation, paid API service, live inference or subagent test was performed during this phase. The separate finalized upgrade goal remains a central saved input for later explicit invocation.

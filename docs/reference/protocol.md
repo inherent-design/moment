@@ -16,6 +16,8 @@ The `owner-local` bootstrap profile binds the context to the authenticated opera
 
 Previously created contexts keep their saved policy. Newly installed methods require an explicit admitted policy update if that policy lacks the corresponding action; a daemon upgrade does not silently expand authority.
 
+The [managed integration contract](managed-integration.md) adds proposed catalog/instance metadata to `system.describe`, `incident.list`, and owner-only `service.stop`. None is advertised by the current daemon. Managed bridge operations (`bindings.discover`, `workspace.attach`, `workspace.read`) are adapter boundaries with separate declarations, not alternative kernel mutation handlers. The upgrade must normalize post-dispatch internal/oversize failures as uncertain outcomes retaining the exact mutation; the current client does not yet do so for JSON-RPC `-32603`.
+
 `pnpm moment credential <principal-id> '<bindings-json>'` is a local owner operation that creates a private file under `runtime/credentials/`. Bindings map each context ID to its exact grant reference. The registry admits at most 256 files, each no larger than 16 KiB and containing at most 100 context bindings. The selected principal must differ from the bootstrap operator. Only private, user-owned regular files are accepted; symlinks are refused. The service authenticates the token, binds its principal and context grant outside request parameters, and rechecks the actual grant chain on every call. A transport credential alone cannot create authority. `MOMENT_CREDENTIAL_FILE` or the typed client's `credentialFile` option selects a credential without putting its token in command arguments.
 
 Daemon ownership is claimed in SQLite under `BEGIN IMMEDIATE`. A second live owner is refused. A dead process claim can be replaced after process-liveness inspection; a stale owned socket is removed only after a connection probe establishes that it is not serving. Ambiguous liveness leaves it intact. This supports process restart on the local host, not independent copies of the database on multiple hosts.
@@ -51,6 +53,7 @@ Inputs and outputs are defined once in `Methods`. This table identifies the sema
 | Method | Contract |
 | --- | --- |
 | `system.describe` | Negotiates exact protocol version and reports implemented methods. It does not advertise unimplemented declarations. |
+| `service.stop` | Proposed: owner-only graceful stop request for an exact service instance; acknowledgment does not prove retirement. Not currently implemented. |
 | `context.create` | Creates an open context from an installed bootstrap profile, subject to system authorization. |
 | `context.get` | Reads the context at the authorized snapshot. |
 | `control.get` | Reads an authorized policy, grant, rule, capability, schedule, or view snapshot by exact reference. |
@@ -59,6 +62,7 @@ Inputs and outputs are defined once in `Methods`. This table identifies the sema
 | `schema.get` | Retrieves an admitted schema by exact name, version, and digest. |
 | `incident.create` | Creates an open incident with purpose and completion criteria. |
 | `incident.get` | Reads its current or historical snapshot. |
+| `incident.list` | Proposed: paginates incidents after current incident-read policy and grant filtering, including historical reads. Not currently implemented. |
 | `incident.update` | Revises its intent or state with evidence under [model](model.md) lifecycle rules. |
 | `graph.query` | Returns selected semantic records and separately attributable support. |
 | `graph.transact` | Atomically admits graph changes, preserving structural invariants and protected control boundaries. |

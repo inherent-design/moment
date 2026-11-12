@@ -6,6 +6,8 @@ This repository contains a local daemon, typed client, CLI, and SQLite storage b
 
 Start with the [documentation map](docs/README.md), [semantic model](docs/reference/model.md), and [TypeScript API](contracts/index.ts). The [implementation sequence](docs/development/implementation.md) identifies bounded deliverables and their acceptance cases.
 
+The next architecture is specified in [managed integration](docs/reference/managed-integration.md): shared operation provenance, a managed MCP bridge, context attachment and human status. Those features are proposed and are not current CLI commands. Runnable specification/upgrade goals live centrally under `~/.moment/intents`; real installation remains deferred.
+
 ## Contract checks
 
 Use the pinned Node.js and pnpm versions through mise:

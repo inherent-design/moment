@@ -2,6 +2,8 @@
 
 Adapters connect Moment's governed operations to concrete execution platforms. An advertisement describes a possible capability; current evidence, permission, capacity, and provider authentication determine whether it can execute.
 
+The next architecture uses a managed MCP bridge and shared operation bindings. [Managed integration](managed-integration.md) owns that proposed surface, attachment, lifecycle, installation and CLI presentation. Existing native invocation and verifier behavior below remain implemented; the proposed MCP tools are not yet installed or advertised.
+
 ## Capability negotiation
 
 `capability.advertise` binds the advertisement to the authenticated provider. Names, explicit supported versions, schema digests, required features, and acceptable isolation kinds must match a `CapabilityRequirement`. Version strings are exact values in `0.1`, not implicit semantic-version ranges. An advertisement expires and must be refreshed by publishing a new immutable advertisement ID. Old execution intents retain their exact reference but require a still-valid compatible admission before dispatch.

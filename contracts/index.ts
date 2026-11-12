@@ -382,6 +382,118 @@ export interface PromptArtifact {
   outputSchema: SchemaRef;
   digest: Digest;
   omittedRefs: Ref[];
+  /** Proposed managed integration provenance; absent on the current renderer. */
+  catalog?: CatalogIdentity;
+}
+
+/** Proposed managed integration boundaries. These declarations do not advertise implementation. */
+export interface CatalogIdentity {
+  formatVersion: 1;
+  digest: Digest;
+  implementationVersion: string;
+  sourceDigest: Digest;
+  contractDigest: Digest;
+}
+
+export type SurfaceOperation = Method | keyof ManagedMethods;
+export interface DirectiveBinding {
+  id: string;
+  version: string;
+  digest: Digest;
+  source: { path: string; digest: Digest };
+}
+export interface OperationBinding {
+  id: SurfaceOperation;
+  version: string;
+  availability: "implemented" | "declared";
+  mode: "read" | "write" | "bootstrap" | "control";
+  inputSchema: { ref: SchemaRef; document: Json };
+  outputSchema: { ref: SchemaRef; document: Json };
+  effects: ("read-store" | "write-store" | "queue-effect" | "request-cancel" | "service-control")[];
+  retryIdentity: "none" | "context-revision-key" | "bootstrap-key" | "service-instance";
+  summary: string;
+  preconditions: string[];
+  directives: DirectiveBinding[];
+  sources: { path: string; digest: Digest }[];
+}
+export type AdvertisedBinding = OperationBinding & { availability: "implemented"; mcpName: string };
+export interface BindingPage {
+  catalog: CatalogIdentity;
+  exposedOperations: SurfaceOperation[];
+  operations: OperationBinding[];
+  nextCursor?: Cursor;
+}
+export interface WorkspaceSelection {
+  projectId?: Id;
+  location?: string;
+  contextId?: Id;
+  incidentId?: Id;
+}
+/** Routing references only. Every subsequent operation rechecks actual credential authority. */
+export interface AttachmentTarget {
+  systemId: Id;
+  contextId: Id;
+  incidentId?: Id;
+  projectId?: Id;
+}
+export interface Attachment extends AttachmentTarget {
+  principalId: Id;
+  grant?: Ref;
+  catalog: CatalogIdentity;
+}
+export type AttachmentResult =
+  | { kind: "attached"; attachment: Attachment }
+  | { kind: "needs_selection"; reason: "no_context" | "ambiguous_project" | "ambiguous_context" | "ambiguous_incident";
+      candidates: { contextId: Id; incidentId?: Id; projectId?: Id; label: string }[]; more: boolean };
+export interface ContextPacket {
+  attachment: Attachment;
+  context: Context;
+  incident?: Stored<Incident>;
+  records: { record: Stored<SemanticRecord>; support: AssertionState[] }[];
+  messages: Stored<Message>[];
+  omittedRefs: Ref[];
+  instructions: { text: string; directives: DirectiveBinding[] };
+  catalog: CatalogIdentity;
+}
+/** Adapter operations, distinct from kernel RPCs; transport identity is never an input. */
+export interface ManagedMethods {
+  "bindings.discover": { input: { operationId?: SurfaceOperation; cursor?: Cursor; limit?: number }; output: BindingPage };
+  "workspace.attach": { input: WorkspaceSelection; output: AttachmentResult };
+  "workspace.read": { input: { target: AttachmentTarget; maximumBytes?: number; limit?: number; detailRefs?: Ref[]; includeMessages?: boolean }; output: ContextPacket };
+}
+export interface ManagedEnvelope<T> {
+  operation: SurfaceOperation;
+  catalog: CatalogIdentity;
+  result: Result<T>;
+}
+export interface ServiceHealth {
+  state: "ready" | "stopped" | "starting" | "unavailable" | "incompatible" | "uncertain";
+  reason: string;
+  home: string;
+  instanceId?: Id;
+  catalog?: CatalogIdentity;
+}
+export interface ServicePort {
+  inspect(): Promise<ServiceHealth>;
+  ensure(): Promise<Result<ServiceHealth>>;
+  stop(expectedInstanceId: Id): Promise<Result<{ accepted: true; instanceId: Id }>>;
+}
+export interface IntegrationRequest {
+  action: "connect" | "disconnect";
+  codexHome: string;
+  momentHome: string;
+  apply: boolean;
+}
+export interface IntegrationOutcome {
+  state: "planned" | "applied" | "unchanged" | "conflict" | "recovery_required";
+  reason: string;
+  target: string;
+  beforeDigest?: Digest;
+  afterDigest?: Digest;
+  ownedEntryDigest?: Digest;
+}
+export interface IntegrationPort {
+  reconcile(request: IntegrationRequest): Promise<Result<IntegrationOutcome>>;
 }
 
 export interface ExchangeBundle {
@@ -420,8 +532,9 @@ export type Result<T> = { ok: true; value: T } | { ok: false; error: Fault };
 export interface Methods {
   "system.describe": {
     input: { protocolVersion: "0.1" };
-    output: { systemId: Id; protocolVersion: "0.1"; methods: string[]; implementationVersion: string };
+    output: { systemId: Id; protocolVersion: "0.1"; methods: string[]; implementationVersion: string; catalog?: CatalogIdentity; instanceId?: Id };
   };
+  "service.stop": { input: { expectedInstanceId: Id }; output: { accepted: true; instanceId: Id } };
   "context.create": {
     input: { idempotencyKey: string; id: Id; label: string; bootstrapProfile: string; limits: Limits };
     output: Context;
@@ -439,6 +552,7 @@ export interface Methods {
   "schema.get": { input: Read & { schema: SchemaRef }; output: Json };
   "incident.create": { input: Mutation & { id: Id; incident: Incident }; output: Stored<Incident> };
   "incident.get": { input: Read & { incidentId: Id }; output: Stored<Incident> };
+  "incident.list": { input: Read & { statuses?: Incident["status"][]; limit: number; cursor?: Cursor }; output: Page<Stored<Incident>> };
   "incident.update": {
     input: Mutation & { incidentId: Id; incident: Incident; evidence: Evidence };
     output: Stored<Incident>;

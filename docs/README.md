@@ -10,11 +10,12 @@ Moment's implementation target is a local kernel whose reactions can be explaine
 | Reactions, scheduling, resources, and execution recovery | [Reactions](reference/reactions.md) |
 | Callable API, errors, transport, and concurrency | [Protocol](reference/protocol.md) |
 | Hosts, agents, prompts, messaging, and other systems | [Integration](reference/integration.md) |
+| Proposed managed MCP, shared bindings, attachment, lifecycle and human commands | [Managed integration](reference/managed-integration.md) |
 | Personal store, repository identity, and retention | [Storage](reference/storage.md) |
 | Exact programmatic boundary shapes | [API declarations](../contracts/index.ts) |
 | Typed usage and rejection examples | [Contract examples](../contracts/examples.ts) |
 | Work sequence and acceptance scenarios | [Implementation](development/implementation.md) |
-| Reusable Codex goal | [Implementation goal](development/implementation-goal.md) |
+| Earlier baseline goal template (reference only) | [Implementation goal](development/implementation-goal.md) |
 | Design rationale and unsettled choices | [Decisions](development/decisions.md) |
 | Actual checks and limitations | [Verification](development/verification.md) |
 | Dependency and patch maintenance | [Dependencies](development/dependencies.md) |

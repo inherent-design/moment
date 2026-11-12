@@ -4,7 +4,27 @@ export type NativeInvocation = NativeConnection['invoke'];
 import type {
   Atom, Change, Condition, ExecutionIntent, Input, Limits, MomentClient,
   Outcome, Policy, Ref, Request, Result, Schedule, HostPort,
+  AdvertisedBinding, AttachmentResult, ManagedMethods, OperationBinding,
 } from "./index.js";
+
+export function selectedContext(result: AttachmentResult): string | undefined {
+  return result.kind === "attached" ? result.attachment.contextId : undefined;
+}
+const workspaceSelection: ManagedMethods["workspace.attach"]["input"] = { location: "/explicit/project" };
+export const discoveryExample: ManagedMethods["bindings.discover"]["input"] = { operationId: "incident.get", limit: 1 };
+export const futureIncidentList: Input<"incident.list"> = { contextId: "22222222-2222-4222-8222-222222222222", statuses: ["open", "resting"], limit: 10 };
+export function bindingForAdvertisement(binding: AdvertisedBinding): string { return binding.mcpName; }
+export function checkManagedNarrowing(result: AttachmentResult, declared: OperationBinding & { availability: "declared" }): void {
+  // @ts-expect-error An unresolved selection has no attached context until discriminated.
+  result.attachment.contextId;
+  // @ts-expect-error A declaration alone cannot be advertised as implemented.
+  bindingForAdvertisement(declared);
+}
+export const forgedSelection: ManagedMethods["workspace.attach"]["input"] = {
+  ...workspaceSelection,
+  // @ts-expect-error Transport principal identity cannot be supplied by attachment input.
+  principalId: "caller-claim",
+};
 
 const contextId = "22222222-2222-4222-8222-222222222222";
 const incidentId = "33333333-3333-4333-8333-333333333333";

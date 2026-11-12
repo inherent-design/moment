@@ -20,7 +20,7 @@ Implement a connected acceptance case before expanding the framework. Use real r
 
 Follow [documentation maintenance](docs/development/documentation.md). Keep one owner per contract. Fold completed reviews into those owners and retain only evidence necessary to reproduce a consequential claim. Keep dependency and patch procedures in [dependencies](docs/development/dependencies.md). Avoid transient narration in reference documents.
 
-Use the central store described in [storage](docs/reference/storage.md) for active intent, checkpoints, and selected captures. Do not create `.moment`, `.git/goals`, or other Moment metadata inside touched repositories. Tracked reusable templates remain in Moment's development docs. Never load all stored incidents merely to begin a task.
+Use the central store described in [storage](docs/reference/storage.md) for runnable goals, checkpoints, and selected captures. Keep new goals solely there rather than duplicating them in the repository. Do not create `.moment`, `.git/goals`, or other Moment metadata inside touched repositories. Existing tracked goal templates are reference material, not active task state. Never load all stored incidents merely to begin a task.
 
 ## Verification and operations
 
