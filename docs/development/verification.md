@@ -1,14 +1,15 @@
 # Verification
 
-Moment was checked on November 12, 2026, on macOS arm64 with Node.js 26.13.0, pnpm 12.18.0, TypeScript 7.0.2, and built-in SQLite 3.54.0. The implemented kernel exposes 41 methods: persistence and identity, operator and delegated authority, semantic transitions, deterministic rule evaluation, permission-filtered views, capability negotiation, durable execution control, scoped event delivery, and wake scheduling. The fixed local byte verifier dispatches real guarded processes and retains recoverable receipts. Durable recipient mailboxes, deterministic prompt composition, and an explicit isolated Codex connection are implemented. Central saved-intent adoption and the real E15 self-use exercise remain.
+Moment was checked on November 12, 2026, on macOS arm64 with Node.js 26.13.0, pnpm 12.18.0, TypeScript 7.0.2, and built-in SQLite 3.54.0. The implemented kernel exposes 41 methods: persistence and identity, operator and delegated authority, semantic transitions, deterministic rule evaluation, permission-filtered views, capability negotiation, durable execution control, scoped event delivery, and wake scheduling. The fixed local byte verifier dispatches real guarded processes and retains recoverable receipts. Durable recipient mailboxes, deterministic prompt composition, and an explicit isolated Codex connection are implemented. The central saved intent and a real CLI file-input improvement completed the API-mediated self-use exercise (E15).
 
 ## Current checks
 
 | Command | Observed outcome | Scope |
 | --- | --- | --- |
-| `mise run check` | Passed: strict declarations, 17 Markdown files, 54 local links, 45 method entries, and 124 execution tests. | Combined runtime and contract candidate. |
+| `mise run check` | Passed: strict declarations, 17 Markdown files, 54 local links, 45 method entries, and 128 execution tests. | Combined runtime and contract candidate. |
 | `node --test test/events.test.mjs test/scheduler.test.mjs` | Passed all 15 cases. | Scoped events, long-poll cleanup, persisted occurrences, coalescing, feedback bounds, and execution completion. |
 | `node --test test/executions.test.mjs` | Passed all 21 cases. | Capability matching, reservations, leases, cancellation, reconciliation, proposals, and views. |
+| `node --test test/cli.test.mjs` | Passed all four cases. | Real file/stdin/inline socket calls, exact mutation replay, byte limits, invalid UTF-8, duplicate keys and refusal before admission. |
 | `node --test test/awareness.test.mjs test/awareness-server.test.mjs` | Passed all nine cases within the combined check. | Durable two-party messages, acknowledgment, current detail rights, template authority, deterministic byte bounds, and real daemon restart. |
 | `node scripts/codex-native-check.mjs --credential-file <private-auth-source>` | Passed with installed Codex CLI 0.167.2 and model `gpt-6.1-sol`. | Two actual native tool calls, real verifier context, admitted observation, ephemeral auth and retrieval after Moment restart. |
 | `node --test test/verifier.test.mjs test/verifier-server.test.mjs` | Passed all 13 cases within the combined check. | Actual verifier CPU/RSS, permission guards, receipt publication, crash recovery, same-ID context separation, closure races, and explicit installer. |
@@ -18,7 +19,7 @@ Moment was checked on November 12, 2026, on macOS arm64 with Node.js 26.13.0, pn
 | `node scripts/codex-isolated-probe.mjs` | Previously passed with installed `codex-cli 0.167.2`. | Isolated stdio startup and unauthenticated protocol, without inference. |
 | `git diff --check` | Passed for the implementation candidate. | Whitespace checks only. |
 
-The combined check exercised the execution candidate following `b570ac7`. The exact committed revision and selected captures are retained in the central implementation incident checkpoint. Runtime source identities for this candidate are:
+The combined check exercised the execution candidate following `a4b3529`. The exact committed revision and selected captures are retained in the central implementation incident checkpoint. Runtime source identities for this candidate are:
 
 | File | SHA-256 |
 | --- | --- |
@@ -26,9 +27,10 @@ The combined check exercised the execution candidate following `b570ac7`. The ex
 | `runtime/kernel.mjs` | `4c7eb0d6cd0cc704f4c3a5890b04b150e9ac82a2640c5b192938139666552761` |
 | `runtime/awareness.mjs` | `40cd07ffe2f1408bbf6e956ed1ebd0f3d563019945207ddec044ae3b60b73d4c` |
 | `runtime/codex.mjs` | `c47e2387e9615c243df29c801ef18b2686dfc49a489a32218673b5ace826cc4a` |
+| `runtime/cli.mjs` | `b72ba8c8d94726c396a682545334bb99a7d5f6ca075c87f8554beaa5589f9bcb` |
+| `runtime/input.mjs` | `517ca7281b99a1177ad23a2eaede78889bfdec09b3159941c816ab288bd0d261` |
 | `scripts/codex-native-check.mjs` | `b2bc502affcc592b8cc33cd850e0ab6b70b6bb5823c1bc193a43e3a891279ebc` |
-| `test/awareness.test.mjs` | `c9910e21da6709b0f833eb31171e26d60cf6c10bbcbe8faeef0f2037b54a7636` |
-| `test/awareness-server.test.mjs` | `4755ec365f67a349fa8b4fa921bbc59a9025ef40c1f53ce4e15084e8b9585d7f` |
+| `test/cli.test.mjs` | `2625a9b5a4489ed623ab734eb2d884551f3fe4f0005fc9c55b4942c716a2f0b8` |
 
 ## Executed behavior
 
@@ -46,6 +48,7 @@ The combined check exercised the execution candidate following `b570ac7`. The ex
 | Execution control | Durable queue/outbox, provider-only claims, heartbeat before effects, fenced completion, attempt-bound reconciliation, aggregate context/ancestor reservations, cancellation/unknown races, current policy narrowing, and grant expiry. A real daemon expires leases without RPC activity, observed through read-only SQLite, and recovers running work as unknown after `SIGKILL` and restart. | E9–E10 at the kernel/transport boundary. Synthetic control fixtures are complemented by the actual provider cases below. Observed overruns retain true usage and outcome, block new dispatch, and survive restart. |
 | Fixed verifier | Actual fixed-code processes measure SHA-256, CPU and peak RSS; mismatch is a real failed outcome. Actual Node API attempts deny outside reads/writes, network, subprocesses and workers. Private receipts survive a daemon killed before finish; restart settles the unchanged attempt without dispatching again. Interrupted exclusive publication is normalized. Separate contexts with the same execution ID remain distinct. A late real result remains attributable after context closure without reopening graph writes. | Concrete E9–E10 and connected verification evidence. The process sample excludes host staging/finalization. Node guards are not hostile-code OS isolation; CPU/RSS are measured rather than hard ceilings. |
 | Messages and prompts | Two authenticated participants exchange durable summaries and replies. Acknowledgment changes mailbox delivery state without completing the incident. Historical reads, details, replies and cursors recheck scope and current rights. Template rendering is deterministic, digest-bound and byte-limited; optional omission cannot bypass authorization. Withdrawn and self-appointed instruction authority is refused. A real daemon restart retains message and prompt identity. | E11 and concise native context. Templates require admitted issuer support; no automatic prompt-selection quality claim. |
+| Actual self use | The authenticated central API retained the invoked intent’s exact text, created an improvement incident, recorded an actual failed file-input command, and admitted its proposal before code changed. A stopped/restarted owned service returned the same purpose, problem and committed plan. The implemented CLI then read that actual context and submitted actual verification through `--file`. E15 and the parent incident completed at context revision 13 with source hashes and admitted evidence. | E15 and M1 central adoption. Context `c1e207a6-4c7e-4c82-8339-cf86531860d2`; improvement `c3f1b403-af38-471d-9595-294fbbbfcf90`. Selected records and captures live in the central store, not repository metadata. No direct database edits were used. |
 | Transport | Real test-owned daemons and Unix sockets, private file permissions, incorrect authentication, malformed and duplicate-key frames, abrupt restart, competing daemon refusal, typed client calls, separate credentials, and immediate revocation. | Local authenticated API and process recovery; full-access host processes are not isolated by the socket. |
 | Input and conditions | Ajv input rejection, bounded local schema compilation, calendar and pointer constraints, three-valued logic, deny precedence, and unresolved queries that cannot grant rights through negation. | Runtime boundary components; compilation alone proves no admission or isolation. |
 
@@ -63,4 +66,4 @@ The optional mise `secrets` profile was parsed and its tool pins selected withou
 
 The documentation checker validates local links, anchors, fenced blocks, whitespace, titles, and method-table coverage. Its earlier temporary broken-link and method-drift probes were rejected as expected. It does not validate external website availability or semantic equivalence of prose and code. Type examples reject unguarded mutation, generic policy activation, invented success, forged identity, executable policy, unsupported retry justification, mismatched parameters, client identity injection, and implicit full-record projection access.
 
-The remaining completion obligations are [central intent adoption and E15](implementation.md). A synthetic fixture or a directly edited database does not satisfy the required real self-use improvement. Provider recovery is demonstrated only for this fixed local verifier. Live inference is demonstrated for the explicit bounded native check. No hostile-code OS isolation, workload-quality, general cost, or performance claim follows from these checks.
+The required [M1–M4 and E15 acceptance cases](implementation.md) have been exercised. Exchange/artifact operations, automatic support propagation and M5 additional providers remain unimplemented or deferred. The actual self-use incident complements the synthetic conformance fixtures; neither implies general workload quality. Provider recovery is demonstrated only for this fixed local verifier. Live inference is demonstrated for the explicit bounded native check. No hostile-code OS isolation, workload-quality, general cost, or performance claim follows from these checks.

@@ -31,7 +31,7 @@ Registry, context manifests, incident manifests, intent, checkpoints, and a read
 
 ## Bootstrap file contract
 
-Every JSON file has `formatVersion: 1`. Unknown versions are refused rather than silently reinterpreted. All relative paths in manifests are confined to their incident directory after symlink resolution. Write replacements through a temporary file and atomic rename; serialize writers. The future runtime must import these files explicitly before assuming ownership, retaining their original bytes and an import receipt.
+Every JSON file has `formatVersion: 1`. Unknown versions are refused rather than silently reinterpreted. All relative paths in manifests are confined to their incident directory after symlink resolution. Write replacements through a temporary file and atomic rename; serialize writers. Runtime adoption is explicit. Retain original intent bytes and source identity as attributed records, then create the incident through existing authenticated API authority. A bootstrap file cannot activate itself or grant permissions. The bootstrap reader can also retain exact manifest, intent and checkpoint bytes without activating an incident.
 
 | File | Required fields and interpretation |
 | --- | --- |

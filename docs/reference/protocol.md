@@ -20,6 +20,8 @@ Previously created contexts keep their saved policy. Newly installed methods req
 
 Daemon ownership is claimed in SQLite under `BEGIN IMMEDIATE`. A second live owner is refused. A dead process claim can be replaced after process-liveness inspection; a stale owned socket is removed only after a connection probe establishes that it is not serving. Ambiguous liveness leaves it intact. This supports process restart on the local host, not independent copies of the database on multiple hosts.
 
+The CLI accepts inline JSON or `call <method> --file <path|->`; `-` selects stdin. File/stdin reads stop above 1 MiB, reject invalid UTF-8, and use the same strict JSON parser before opening a store or sending a request. The file is command input, with no shell expansion, interpolation, implicit environment loading, or retry-key replacement. Local parsing errors and unavailable files exit nonzero without admission.
+
 ## Scalar and content rules
 
 IDs are lowercase UUIDs. Revisions, sequences, counters, sizes, and limits are nonnegative JavaScript-safe integers; fencing tokens and committed revisions start at one. Instants use RFC 3339 UTC with `Z` and up to three fractional digits for the initial runtime's millisecond clock. Digests are `sha256:` followed by 64 lowercase hexadecimal digits. Canonical JSON hashing follows RFC 8785; artifact digests hash decoded bytes. Binary artifacts use strict RFC 4648 base64 without whitespace. The maximum decoded artifact size through this API is 512 KiB; larger storage transport is deferred.
