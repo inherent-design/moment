@@ -1,6 +1,14 @@
 # Verification
 
-The `0.1` contract baseline and runtime were checked on November 12, 2026, using macOS arm64, Node.js 26.13.0, npm 11.20.0 for the original baseline, pnpm 12.18.0 for current work, TypeScript 7.0.2, and built-in SQLite 3.54.0. The operator kernel and authenticated daemon are implemented; delegation, scheduling, execution, and the complete agent workflow remain pending.
+The `0.1` contract baseline and runtime were checked on November 12, 2026, using macOS arm64, Node.js 26.13.0, npm 11.20.0 for the original baseline, pnpm 12.18.0 for current work, TypeScript 7.0.2, and built-in SQLite 3.54.0. The kernel supports operator and delegated authority over authenticated local RPC. Proposed transitions, perspectives, scheduling, execution, and the complete agent workflow remain pending.
+
+## Delegated authority execution evidence
+
+The current suite has 49 execution tests. Kernel cases exercise selected-resource reads and writes, parent attenuation, branch-specific revocation, revocation before historical reads and mutation receipt replay, autonomous narrowing of policy, refusal of wider permits or self-appointed authorization issuers, and refusal of incident-scoped context closure. Bound-principal policy evaluation returns permit or deny for requested resources without issuing a reusable token. A pure clock-observation test checks grant expiry, missing ancestors, and cycles; it does not establish remote clock accuracy.
+
+An authorization fact asserted by a delegate remains ordinary evidence until the active policy admits that source or an existing authority supports it. The tests exercise both explicit issuer admission by the operator and withdrawal of operator support. A ReBAC case follows an operator-supported `subject` to `object` relation and loses admission after support withdrawal. Other cases prevent hidden provenance from appearing through assertion selection or pagination, prevent cross-grant cursor reuse for the same principal, and reject aliases between context, control, record, and assertion identities.
+
+The real-socket delegation test creates a separate principal credential, reads through its bound grant, refuses administration outside that grant, and then refuses reads immediately after revocation. The credential factory refuses a delegate credential impersonating the operator. These cases establish the authority portions of E4 and E5 and extend E6 privacy evidence. They do not establish OS sandboxing, aggregate execution-budget accounting, E7 perspectives, or the remaining transition and scheduling requirements.
 
 ## Kernel and daemon execution evidence
 

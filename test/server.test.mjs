@@ -79,3 +79,32 @@ test('a second daemon cannot displace a live owner with a durable database claim
   await assert.rejects(start(root),/live process holds the daemon claim/);
   assert.equal((await request(root,'system.describe',{ protocolVersion:'0.1' })).result.ok,true);
 });
+
+test('separate transport credentials exercise delegated grants and immediate revocation over real sockets',async t=>{
+  const root=mkdtempSync(join(tmpdir(),'moment-delegate-'));const child=await start(root);
+  t.after(async()=>{ await stop(child);rmSync(root,{ recursive:true,force:true }); });
+  const { issueCredential }=await import('../runtime/credentials.mjs');
+  const call=async(method,params)=>{ const reply=await request(root,method,params);assert.ok(!reply.error,JSON.stringify(reply));return reply.result; };
+  const contextId=randomUUID();
+  await call('context.create',{ id:contextId,label:'Delegation',bootstrapProfile:'owner-local',idempotencyKey:'create',limits });
+  const write=async(method,input)=>{
+    const context=(await call('context.get',{ contextId })).value;
+    return call(method,{ contextId,expectedRevision:context.revision,idempotencyKey:randomUUID(),...input });
+  };
+  const context=(await call('context.get',{ contextId })).value;
+  const original=(await call('control.get',{ contextId,ref:context.policy })).value.value;
+  const policy={ ...original,id:randomUUID(),rules:[...original.rules,{ id:'delegates',effect:'permit',actions:['context.get'],when:{ kind:'equal',left:{ kind:'literal',value:true },right:{ kind:'literal',value:true } } }] };
+  const candidate=(await write('policy.publish',{ policy })).value;
+  assert.equal((await write('policy.activate',{ policy:candidate.ref,evidence:{ sources:[],method:'operator-approved',artifactDigests:[] } })).ok,true);
+  const principalId=randomUUID();
+  const grant=(await write('grant.issue',{ grant:{ id:randomUUID(),principalId,actions:['context.get'],incidentIds:'all',resourceRefs:[],delegable:false,limits } })).value;
+  const credentialFile=issueCredential(root,principalId,{ [contextId]:grant.ref });
+  const client=createClient(root,{ credentialFile });
+  assert.equal((await client.call('context.get',{ contextId })).ok,true);
+  assert.equal((await client.call('context.get',{ contextId:randomUUID() })).ok,false);
+  assert.equal((await client.call('context.close',{ contextId,expectedRevision:1,idempotencyKey:'denied',reason:'cannot-admin' })).error.code,'FORBIDDEN');
+  assert.equal((await write('grant.revoke',{ grant:grant.ref,reason:'revoked' })).ok,true);
+  assert.equal((await client.call('context.get',{ contextId })).error.code,'FORBIDDEN');
+  const owner=JSON.parse(readFileSync(join(root,'runtime','owner.json'),'utf8'));
+  assert.throws(()=>issueCredential(root,owner.principalId,{ [contextId]:grant.ref }),/separate principal/);
+});

@@ -147,6 +147,7 @@ export type Condition =
 
 export interface Policy {
   id: Id;
+  authorityIssuers?: Id[];
   parent?: Ref;
   rules: {
     id: Id;

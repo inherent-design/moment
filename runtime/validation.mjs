@@ -27,7 +27,7 @@ defs.Condition = { anyOf: [
   object({ kind: { const: 'exists' }, selector: reference('Selector') }),
   object({ kind: { const: 'related' }, from: reference('Operand'), to: reference('Operand'), schemaNames: array(string), maxHops: { type: 'integer', minimum: 1, maximum: 8 } }),
 ] };
-defs.Policy = object({ id, rules: array(object({ id: string, effect: enumeration('permit', 'deny'), actions: array(string), when: reference('Condition') })), limits: reference('Limits'), evidence: reference('Evidence') }, { parent: reference('Ref') });
+defs.Policy = object({ id, rules: array(object({ id: string, effect: enumeration('permit', 'deny'), actions: array(string), when: reference('Condition') })), limits: reference('Limits'), evidence: reference('Evidence') }, { parent: reference('Ref'), authorityIssuers: array(id) });
 defs.Grant = object({ id, principalId: id, actions: array(string), incidentIds: { anyOf: [{ const: 'all' }, array(id)] }, resourceRefs: array(reference('Ref')), delegable: { type: 'boolean' }, limits: reference('Limits') }, { parentGrant: reference('Ref'), expiresAt: instant });
 defs.Record = { anyOf: [
   object({ kind: { const: 'atom' }, id, schema: reference('SchemaRef'), value: true }),

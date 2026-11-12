@@ -2,6 +2,7 @@ import type { Input, Method, MomentClient, Output, Result } from '../contracts/i
 
 export interface ClientOptions {
   token?: string;
+  credentialFile?: string;
   timeoutMillis?: number;
   id?: string;
 }

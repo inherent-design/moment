@@ -1,16 +1,19 @@
 import { openHome } from './home.mjs';
 import { serve } from './server.mjs';
 import { request } from './client.mjs';
+import { issueCredential } from './credentials.mjs';
 import { parseJson } from './wire.mjs';
 
 try {
   const [command,method,raw,...extra]=process.argv.slice(2);
   if (command==='--help' || command==='help' || !command) {
-    console.log('moment serve | moment call <method> <params-json> | moment describe');
+    console.log('moment serve | moment call <method> <params-json> | moment describe | moment credential <principal-id> <grant-bindings-json>');
   } else {
-    if (extra.length || !['serve','call','describe'].includes(command) || (command==='call' ? !method || raw===undefined : method!==undefined)) throw new Error('Invalid arguments; use moment --help');
+    if (extra.length || !['serve','call','describe','credential'].includes(command) || (['call','credential'].includes(command) ? !method || raw===undefined : method!==undefined)) throw new Error('Invalid arguments; use moment --help');
     const home=openHome();
-    if (command==='serve') {
+    if (command==='credential') {
+      console.log(JSON.stringify({ credentialFile:issueCredential(home.root,method,parseJson(raw)) }));
+    } else if (command==='serve') {
       const server=await serve(home.root,home.registry.systemId);
       console.log(JSON.stringify({ ready:true,socketPath:server.socketPath }));
       const stop=()=>server.close().then(()=>process.exit(0)).catch(()=>process.exit(1));

@@ -1,9 +1,10 @@
 import net from 'node:net';
-import { randomUUID, randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomUUID, randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync, readFileSync, lstatSync, unlinkSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { Store } from './store.mjs';
 import { Kernel } from './kernel.mjs';
+import { authenticate } from './credentials.mjs';
 import { parseJson } from './wire.mjs';
 
 export function credentials(root) {
@@ -40,7 +41,7 @@ export async function serve(root,systemId) {
     const server=net.createServer(socket=>{
       sockets.add(socket);socket.on('close',()=>sockets.delete(socket));socket.on('error',()=>{});
       socket.setTimeout(10000,()=>socket.destroy());
-      let buffer=Buffer.alloc(0),authenticated=false,handled=false;
+      let buffer=Buffer.alloc(0),authenticated=false,handled=false,session;
       const error=(id,code,message)=>{ handled=true;socket.end(JSON.stringify({ jsonrpc:'2.0',id,error:{ code,message } })+'\n'); };
       socket.on('data',bytes=>{
         if (handled) return;
@@ -51,7 +52,8 @@ export async function serve(root,systemId) {
           if (end<0) { if (buffer.length>4096) socket.destroy();return; }
           const header=buffer.subarray(0,end).toString('utf8');buffer=buffer.subarray(end+1);
           const token=header.startsWith('Authorization: Bearer ')?header.slice(22):'';
-          if (!/^[a-f0-9]{64}$/.test(token) || !timingSafeEqual(Buffer.from(token),Buffer.from(auth.token))) { socket.destroy();return; }
+          try { session=authenticate(root,token,auth); } catch { socket.destroy();return; }
+          if (!session) { socket.destroy();return; }
           authenticated=true;
         }
         const end=buffer.indexOf(10);
@@ -64,7 +66,7 @@ export async function serve(root,systemId) {
         const description=kernel.call('system.describe',{ protocolVersion:'0.1' },auth.principalId).value;
         if (!description.methods.includes(request.method)) { error(request.id,-32601,'Method not found');return; }
         try {
-          const result=kernel.call(request.method,request.params,auth.principalId);
+          const result=kernel.call(request.method,request.params,session.principalId,session.grants?.[request.params?.contextId]);
           if (!result.ok && result.error.code==='INVALID_ARGUMENT') { error(request.id,-32602,'Invalid params');return; }
           const frame=JSON.stringify({ jsonrpc:'2.0',id:request.id,result })+'\n';
           if (Buffer.byteLength(frame)>1048576) { error(request.id,-32603,'Response exceeds frame limit; use a smaller page');return; }

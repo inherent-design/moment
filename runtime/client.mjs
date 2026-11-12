@@ -1,12 +1,12 @@
 import net from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { readCredential } from './credentials.mjs';
 import { parseJson } from './wire.mjs';
 
 /** One authenticated RPC per socket; ambiguous failures preserve the original request. */
-export function request(root,method,params,{ token,timeoutMillis=10000,id=randomUUID() }={}) {
-  if (token===undefined) token=JSON.parse(readFileSync(join(root,'runtime','owner.json'),'utf8')).token;
+export function request(root,method,params,{ token,credentialFile=process.env.MOMENT_CREDENTIAL_FILE,timeoutMillis=10000,id=randomUUID() }={}) {
+  if (token===undefined) token=readCredential(credentialFile ?? join(root,'runtime','owner.json')).token;
   const original={ jsonrpc:'2.0',id,method,params };
   return new Promise((resolve,reject)=>{
     const socket=net.createConnection(join(root,'runtime','moment.sock'));
