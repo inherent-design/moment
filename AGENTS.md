@@ -10,6 +10,8 @@ The owner delegates routine design and implementation decisions to agents. Choos
 
 Maintain continuity of purpose, revise interpretations when evidence changes, release resources when waiting, and resume on relevant conditions. Preserve user decisions to complete, cancel, or redirect work. An indefinite purpose does not require indefinite model activity.
 
+Introduce Moment into existing project work when the canonical goal changes or its owner deliberately hands it off. Preserve active goals and project conventions until then. Prefer direct agent communication for short exchanges and Moment for durable, structured handoffs and reusable instructions. The [handoff guidance](docs/reference/integration.md#continuity-between-goals) owns this convention. Do not add a blanket project-adoption command, bulk history import, or universal tracking/ownership format without a demonstrated consumer.
+
 ## Contracts and evidence
 
 [contracts/index.ts](contracts/index.ts) owns boundary types; reference documents own semantics. Keep both aligned. Declarations are proposed behavior until implemented. Type checking is not runtime validation, persistence proof, isolation proof, or measured performance. Test failures and unknown outcomes must remain distinguishable from success.

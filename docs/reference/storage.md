@@ -44,6 +44,10 @@ Every JSON file has `formatVersion: 1`. Unknown versions are refused rather than
 
 New runnable goals and their continuation state belong solely in this central layout. A later goal gets a distinct incident and readable alias; completing a specification goal does not activate the implementation goal it writes. Repository-relative references in a central goal resolve through its registered project association. Keep specifications in the repository and personal task narration outside it.
 
+Existing active goals in other project layouts remain in place until a canonical goal change or deliberate handoff. Introducing Moment does not move them, rewrite project instructions, pause agents, or synchronize their contents. At the handoff, identify the continuing goal's canonical location and retain selected source identity and unresolved state; avoid two independently editable task definitions. Retaining an old source for provenance does not keep it active. [Continuity between goals](integration.md#continuity-between-goals) owns the communication and handoff convention.
+
+Project registration and context association remain explicit central operations. A general adoption command cannot infer a project's specification, ledger, goal or ownership conventions from its directory. Do not add repository markers or impose a uniform project layout to resolve that ambiguity. Prepare only the associations and admitted schemas needed by the next actual handoff, preserving other projects and existing authority.
+
 ## Project identity
 
 A central UUID identifies each registered project. Paths are current locators. Git origins are discovery hints and may change, be absent, contain aliases, or identify several clones. A worktree belongs to a registered repository association while retaining its own locator. A branch name is not a stable project ID. Neither path ownership nor origin matching grants write authority.

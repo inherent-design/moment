@@ -65,6 +65,8 @@ A malformed private authentication source was also refused before inference with
 
 ## Tooling and check interpretation
 
+The continuity guidance following `e860c2126fda38209e74b045379948c61037f8d8` adds no runtime primitive, personal schema, enforced writer ownership or automatic adoption behavior. It records goal-boundary adoption and the preferred use of direct versus durable communication using existing APIs. `pnpm check:types`, `pnpm check:bindings`, `pnpm check:docs` and `git diff --check` passed for this documentation candidate; the full lifecycle and inference suites are not rerun under the continuing no-restart instruction. No active project goal, agent, daemon or installed MCP instruction payload is changed by this documentation update.
+
 An installation follow-up reproduced Codex configuration normalization with an existing server's nested environment table. Empty staging now generates only Moment's entry; supported CLI reads validate the combined configuration, while exact receipt-block removal preserves unrelated bytes. All 14 installer cases and `pnpm check:types`, `pnpm check:bindings`, and `pnpm check:docs` passed. The added case covers both final-newline variants, preview, apply, repeat and removal. This follow-up uses configuration-only checks and static checks; the lifecycle and inference suites are not rerun during an operation that explicitly forbids restarts. Earlier full-suite/native evidence remains scoped to its recorded revision and catalog.
 
 The optional mise `secrets` profile was parsed and its tool pins selected without decrypting credentials. No encrypted Moment secret, recipient custody, or real-key recovery has been established. SOPS/age remains optional until a concrete consumer needs it.

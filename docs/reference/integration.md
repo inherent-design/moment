@@ -2,7 +2,7 @@
 
 Adapters connect Moment's governed operations to concrete execution platforms. An advertisement describes a possible capability; current evidence, permission, capacity, and provider authentication determine whether it can execute.
 
-The managed MCP bridge and checked operation bindings provide explicit attachment, bounded context, on-demand lifecycle and selective agent discovery. [Managed integration](managed-integration.md) owns these surfaces and human commands. Explicit-root installation preview/apply/remove and actual isolated Codex MCP continuation/child use are exercised in owned temporary roots. No real installation has occurred. Existing native invocation and verifier behavior below remain implemented.
+The managed MCP bridge and checked operation bindings provide explicit attachment, bounded context, on-demand lifecycle and selective agent discovery. [Managed integration](managed-integration.md) owns these surfaces and human commands. Explicit-root installation preview/apply/remove and actual isolated Codex MCP continuation/child use are exercised in owned temporary roots. Installation and adoption of existing goals are separate operations. Existing native invocation and verifier behavior below remain implemented.
 
 ## Capability negotiation
 
@@ -64,7 +64,31 @@ The opt-in `pnpm test:codex-native --credential-file /absolute/private/auth.json
 
 Saved goal text is reusable input. Creating a file does not activate a Codex goal or schedule an agent. A user can explicitly point `/goal` at the central intent file when ready. [Using goals in Codex](https://developers.openai.com/cookbook/examples/codex/using_goals_in_codex)
 
+## Continuity between goals
+
+Introduce Moment when a canonical goal changes or the current participant deliberately hands work off. An existing active goal keeps its current definition and location until that boundary. Record a reference and exact source basis when useful; do not create a second independently editable goal. New central goals follow [storage](storage.md#bootstrap-file-contract). A handoff records what is carried forward, what is complete or superseded, and what remains uncertain without silently changing scope or completion criteria. Mere file creation, message delivery or tool availability activates no native goal.
+
+Use direct native agent communication for short questions, steering, progress notices and coordination that needs no durable record. Use Moment when information must survive the sender, be retrieved selectively, support a decision or instruction, or be reused by another session. A short consequential decision may merit persistence; a long disposable transcript may not. A direct message can name a Moment context/incident and the relevant references instead of repeating its payload. Retain a direct exchange only when its outcome becomes consequential, rather than mirroring both channels.
+
+The baseline already has the primitives needed for a handoff. The following are usage patterns, not new kernel types, required workflow phases or an automatically installed personal schema:
+
+| Handoff concern | Existing representation | Guideline |
+| --- | --- | --- |
+| Purpose and completion | Incident in its context, with optional project association | Preserve the actual objective; a repository or chat is not automatically a separate incident. |
+| Source basis | Selected records, references and evidence digests | Name the relevant repository revision, content identity or observed result. A Moment revision orders store changes; it does not identify code or prove a check. |
+| Findings and decisions | Immutable atoms with attributable assertions | Distinguish observations, interpretations and unresolved claims. Select supporting evidence; imported summaries acquire no authority automatically. |
+| Connections | Typed relations and source references | Express support, contradiction and derivation explicitly when useful. Do not infer containment, agreement or permission from mere connectivity. |
+| Continuation | Incident continuation references to selected records | Retain the consequential state, unresolved questions and next useful action, including pending effects or constraints when relevant. Preserve uncertainty instead of inventing a complete account. |
+
+Keep mutable continuation under one explicitly coordinated writer when several agents contribute to the same incident. Other participants can contribute separate observations and evidence; this is not a permanent coordinator role or a kernel-enforced ownership lease. Replacing immutable content uses a new record and an admitted continuation update. On a revision conflict, reread the changed basis before revising the candidate. A session identifier can correlate a contribution but cannot create an independent principal or grant.
+
+Infer personal handoff schemas and reusable prompt templates from an actual retrieval failure or repeated useful payload. Publish a versioned schema only when a consumer needs that validated shape, and admit instructions under current authority. Keep project-native specifications, ledgers and code in their existing owners; reference them at a known basis rather than copying them into competing canonical records. Sharing the store does not require one context for all projects or a common project workflow.
+
+An initial handoff is useful when a recipient can retrieve the purpose, locate the relevant sources, distinguish verified results from open questions, and select its next action without reconstructing the whole conversation. This is an acceptance observation for the participating work, not a claim of automatic organization, compaction interception, model dispatch or improved workload quality. A recipient reads the selected instruction under its current host instructions and permissions; persistent text cannot grant itself authority.
+
 ## Messages and awareness
+
+The default communication preference above does not remove the durable mailbox. Use it when delivery must survive disconnected participants or requires retained acknowledgment and references. A mailbox notice does not wake a native coding agent by itself, and the current shared owner credential does not provide separate mailboxes for native child labels.
 
 Messages carry a bounded summary and detail references so participants can discover relevant work without loading all histories. Initial limits are 8 KiB of UTF-8 summary text and 32 detail references. Sender identity is recorded by the service. The recipient must have a current admitted incident-read and mailbox-read grant, or be the operator under current policy. Reading a message still rechecks incident policy and access to every referenced detail. A message with inaccessible detail is withheld as a whole rather than returning altered content under its original digest. A response names the request in `inReplyTo` and has its own ID and provenance.
 
