@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
 import { createClient } from '../runtime/client.mjs';
 import { catalogIdentity,validateSurface } from '../runtime/bindings.mjs';
 import { limits,incident } from './helpers.mjs';
@@ -46,5 +47,11 @@ test('human status/show report actual selected work and explicit instance stop c
   const structured=run(root,['show',id,'--context',contextId,'--json']);assert.equal(structured.status,0,structured.stderr);assert.equal(JSON.parse(structured.stdout).value.incident.ref.id,id);
   const denied=run(root,['show',randomUUID(),'--context',contextId,'--json']);assert.equal(denied.status,1);assert.equal(JSON.parse(denied.stdout).error.code,'NOT_FOUND');assert.equal(denied.stderr,'');
   const invalid=run(root,['status','--context','invalid','--json']);assert.equal(invalid.status,1);assert.equal(JSON.parse(invalid.stdout).value.issues[0].code,'INVALID_ARGUMENT');
+  const partial=run(root,['status','--context','invalid']);assert.equal(partial.status,1);assert.match(partial.stdout,/Some work could not be inspected:/);assert.equal(partial.stderr,'');
   const stopped=run(root,['stop','--json']);assert.equal(stopped.status,0,stopped.stderr);const result=JSON.parse(stopped.stdout);validateSurface('StopEnvelope',result);assert.equal(result.value.retired,true);
+  const database=join(root,'runtime/store.sqlite'),claim={pid:process.pid,childPid:0,nonce:randomUUID()},db=new DatabaseSync(database);
+  try{db.prepare("INSERT OR REPLACE INTO metadata VALUES ('managedStartup',?)").run(JSON.stringify(claim));}finally{db.close();}
+  const uncertain=run(root,['status']);assert.equal(uncertain.status,1);assert.match(uncertain.stdout,/Moment is uncertain/);assert.equal(uncertain.stderr,'');
+  const refused=run(root,['stop']);assert.equal(refused.status,1);assert.match(refused.stdout,/Reconcile.*moment status/);assert.equal(refused.stderr,'');
+  const retained=new DatabaseSync(database,{readOnly:true});try{assert.deepEqual(JSON.parse(retained.prepare("SELECT value FROM metadata WHERE key='managedStartup'").get().value),claim);}finally{retained.close();}
 });

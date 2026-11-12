@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/client';
@@ -20,6 +20,16 @@ import { promptSchema } from '../runtime/builtins.mjs';
 import { issueCredential } from '../runtime/credentials.mjs';
 import { start, stop, cli } from './daemon-fixture.mjs';
 import { limits, incident } from './helpers.mjs';
+
+function cliResult(root,operation,input) {
+  const reply=spawnSync(process.execPath,[cli.pathname,'call',operation,'--file','-'],{env:{PATH:process.env.PATH,MOMENT_HOME:root},input:JSON.stringify(input),encoding:'utf8',timeout:15000,maxBuffer:2097152});
+  assert.equal(reply.stderr,'');const wire=JSON.parse(reply.stdout);
+  // The raw operator CLI retains the JSON-RPC envelope. Compare its explicit
+  // pre-dispatch refusal to the typed clients' domain projection.
+  if(wire.error){assert.ok([-32601,-32602].includes(wire.error.code));assert.equal(reply.status,1);return {ok:false,error:{code:'INVALID_ARGUMENT',message:wire.error.message,retry:'never',details:null}};}
+  const result=wire.result;
+  assert.equal(reply.status,result.ok?0:1);return result;
+}
 
 async function connect(t,root,version='2025-11-25',profile='continuity',credentialFile) {
   const versions=[];
@@ -53,6 +63,7 @@ test('SDK negotiates legacy and modern revisions and discovers the exact offline
     assert.ok(f.versions.includes(version),JSON.stringify(f.versions));
     const result=await f.client.callTool({name:'moment_bindings_discover',arguments:{operationId:'workspace.read'}});
     assert.equal(result.isError,false);assert.equal(result.structuredContent.result.ok,true);
+    assert.equal(result._meta['moment/protocolVersion'],version);
     assert.deepEqual(JSON.parse(result.content[0].text),result.structuredContent);
     assert.equal(existsSync(root),false);
     await f.client.close();assert.equal(f.diagnostics(),'');
@@ -76,14 +87,17 @@ test('actual SDK bridge shares admitted kernel results and preserves its service
   const description=await native.call('system.describe',{protocolVersion:'0.1'});
   const packet=await invoke('workspace.read',{target:{systemId:description.value.systemId,contextId,incidentId:id}});
   assert.equal(packet.structuredContent.result.value.incident.value.purpose,incident.purpose);
-  const stale=await invoke('incident.create',{...mutation,id:randomUUID(),idempotencyKey:'stale'});
+  const staleInput={...mutation,id:randomUUID(),idempotencyKey:'stale'},stale=await invoke('incident.create',staleInput);
   assert.equal(stale.isError,true);assert.equal(stale.structuredContent.result.error.code,'REVISION_CONFLICT');
+  assert.deepEqual(stale.structuredContent.result,cliResult(root,'incident.create',staleInput));
   const invalid=await invoke('incident.create',{...mutation,unexpected:true});
   assert.equal(invalid.isError,true);assert.equal(invalid.structuredContent?.result.error.code,'INVALID_ARGUMENT',JSON.stringify(invalid));
   assert.deepEqual(invalid.structuredContent.result,await native.call('incident.create',{...mutation,unexpected:true}));
+  assert.deepEqual(invalid.structuredContent.result,cliResult(root,'incident.create',{...mutation,unexpected:true}));
   const tooMany={contextId,expectedRevision:2,idempotencyKey:'too-many-changes',changes:Array.from({length:20001},()=>({}))};
   const refused=await invoke('graph.transact',tooMany);
   assert.deepEqual(refused.structuredContent?.result,await native.call('graph.transact',tooMany));
+  assert.deepEqual(refused.structuredContent.result,cliResult(root,'graph.transact',tooMany));
   assert.equal(refused.structuredContent.result.error.code,'INVALID_ARGUMENT');
   await client.close();
   assert.equal((await native.call('context.get',{contextId})).value.revision,2);
@@ -190,6 +204,12 @@ test('every continuity tool executes a connected admitted workflow with native-e
       assert.equal(typeof result.value.nextCursor,'string');assert.equal(typeof other.value.nextCursor,'string');
       const {nextCursor:a,...first}=result.value,{nextCursor:b,...second}=other.value;assert.deepEqual(first,second);
     } else assert.deepEqual(result,other);
+    if(!managedMethods.includes(operation)) {
+      const cli=cliResult(root,operation,input);
+      if(operation==='events.read') {
+        const {nextCursor:a,...first}=result.value,{nextCursor:b,...second}=cli.value;assert.equal(typeof b,'string');assert.deepEqual(first,second);
+      } else assert.deepEqual(result,cli);
+    }
     seen.add(operation);return result.value;
   };
   const contextId=randomUUID(),incidentId=randomUUID(),system=(await native.call('system.describe',{protocolVersion:'0.1'})).value;

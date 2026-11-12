@@ -33,7 +33,7 @@ async function fixture(t) {
     const actions=['context.get','incident.get','incident.list','graph.query','control.get','messages.read'];
     const policy=await write('policy.publish',{policy:{...old.value,id:randomUUID(),parent:context.policy,rules:[...old.value.rules,{id:'admitted-delegates',effect:'permit',actions,when:{kind:'equal',left:{kind:'literal',value:true},right:{kind:'literal',value:true}}}]}});
     await write('policy.activate',{policy:policy.ref,evidence});
-    const principalId=randomUUID(),grant=await write('grant.issue',{grant:{id:randomUUID(),principalId,actions,incidentIds,resourceRefs,delegable:false,limits,...extra}});
+    const principalId=randomUUID(),grant=await write('grant.issue',{grant:{id:randomUUID(),principalId,actions,incidentIds,resourceRefs,delegable:false,limits,...(typeof extra==='function'?extra():extra)}});
     const credentialFile=issueCredential(root,principalId,{[contextId]:grant.ref});
     return {principalId,grant,client:createClient(root,{credentialFile}),managed:createManaged({root,credentialFile}),credentialFile};
   };
@@ -155,8 +155,10 @@ test('terminal incidents remain explicit, required hidden continuation refuses b
   const explicit=await f.managed.call('workspace.attach',{contextId:f.contextId,incidentId:selected.ref.id});
   assert.equal(explicit.value.attachment.incidentId,selected.ref.id);
   assert.equal((await f.managed.call('workspace.attach',{contextId:f.contextId})).value.attachment.incidentId,undefined);
-  const d=await f.delegate('all',[],{expiresAt:new Date(Date.now()+100).toISOString()});
-  await new Promise(resolve=>setTimeout(resolve,120));
+  // Start expiry after policy preparation, then observe that issued deadline.
+  // A 100 ms deadline computed before setup could expire before grant.issue.
+  const d=await f.delegate('all',[],()=>({expiresAt:new Date(Date.now()+1000).toISOString()}));
+  await new Promise(resolve=>setTimeout(resolve,Math.max(0,Date.parse(d.grant.value.expiresAt)-Date.now()+20)));
   const expired=await d.managed.call('workspace.attach',{contextId:f.contextId});assert.equal(expired.error.code,'NOT_FOUND');
   const open=await f.createIncident(),hiddenRef={systemId:f.systemId,contextId:f.contextId,id:randomUUID()};
   await f.write('incident.update',{incidentId:open.ref.id,incident:{...open.value,continuation:[hiddenRef]},evidence});

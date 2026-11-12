@@ -2,7 +2,7 @@
 
 Adapters connect Moment's governed operations to concrete execution platforms. An advertisement describes a possible capability; current evidence, permission, capacity, and provider authentication determine whether it can execute.
 
-The managed MCP bridge and checked operation bindings provide explicit attachment, bounded context, on-demand lifecycle and selective agent discovery. [Managed integration](managed-integration.md) owns these surfaces and human commands. Explicit-root installation preview/apply/remove is implemented and tested in owned temporary roots; actual isolated Codex MCP continuation/child qualification remains pending. No real installation has occurred. Existing native invocation and verifier behavior below remain implemented.
+The managed MCP bridge and checked operation bindings provide explicit attachment, bounded context, on-demand lifecycle and selective agent discovery. [Managed integration](managed-integration.md) owns these surfaces and human commands. Explicit-root installation preview/apply/remove and actual isolated Codex MCP continuation/child use are exercised in owned temporary roots. No real installation has occurred. Existing native invocation and verifier behavior below remain implemented.
 
 ## Capability negotiation
 
@@ -52,7 +52,7 @@ Prompt selection can begin as policy over context, evidence gaps, recent outcome
 
 ## Codex boundary
 
-The first integration direction is a local client or MCP adapter for Moment, alongside native Codex usage. An opt-in isolated app-server connection exercises one explicitly assigned turn; automatically managed threads, goals and model-provider dispatch remain future work. Official app-server documentation exposes thread, turn, and goal operations; an implementation must generate or inspect the schema of the installed Codex version and qualify the exact methods it uses. Private internal agent tools are not assumed to be an external API. [Codex app server](https://learn.chatgpt.com/docs/app-server)
+The native client and managed MCP adapter run alongside native Codex usage. Opt-in isolated app-server checks exercise the original dynamic-tool connection and the actual SDK MCP path, including persistent continuation and one native child. Automatically managed model threads, goals and model-provider dispatch remain future work. Generate the installed Codex schema and qualify the exact methods used before changing the integration. Private internal agent tools are not assumed to be an external API. [Codex app server](https://learn.chatgpt.com/docs/app-server)
 
 Keep Codex authentication within supported Codex flows. Subscription usage and separately billed API labor remain different budgets; using a daemon does not provide unlimited inference. Full-approval Codex operation is owner-reported host configuration, not evidence that a sandbox exists. Moment's narrower execution policies govern admitted Moment operations; direct host tools retain their actual host authority.
 

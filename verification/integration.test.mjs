@@ -94,6 +94,13 @@ test('interrupted publication recovers the owned receipt without saving unrelate
   const port=createIntegration({onPhase:async phase=>{if(phase==='config-published') throw new Error('Injected interruption');}});
   const interrupted=await port.reconcile(f.request());assert.equal(interrupted.error.code,'OUTCOME_UNKNOWN');
   const directory=f.receiptDirectory(),pending=readFileSync(join(directory,'pending.json'),'utf8');
+  const beforePreview=readFileSync(f.target,'utf8');
+  for(const format of [[],['--json']]){
+    const preview=spawnSync(process.execPath,[cli.pathname,'connect','--codex-home',f.codexHome,'--moment-home',f.momentHome,...format],{env:{PATH:process.env.PATH},encoding:'utf8',timeout:15000});
+    assert.equal(preview.status,1);assert.equal(preview.stderr,'');
+    if(format.length)assert.equal(JSON.parse(preview.stdout).value.state,'recovery_required');else assert.match(preview.stdout,/interrupted integration needs apply.*preview has no effects/);
+    assert.equal(readFileSync(f.target,'utf8'),beforePreview);assert.equal(readFileSync(join(directory,'pending.json'),'utf8'),pending);
+  }
   assert.equal(pending.includes('PRIVATE_CONFIG_MARKER'),false);assert.equal(pending.includes('Keep this owner comment'),false);
   assert.equal(existsSync(join(directory,'receipt.json')),false);state(await f.run(),'applied');
   assert.equal(existsSync(join(directory,'pending.json')),false);state(await f.run(),'unchanged');

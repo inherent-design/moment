@@ -58,7 +58,8 @@ export function buildMcpServer({root,credentialFile,profile='continuity'}={}) {
         result={ok:false,error:{code:mutation?'OUTCOME_UNKNOWN':'LIMIT_EXCEEDED',message:mutation?'Admitted response cannot fit; reconcile the exact request before retrying':'Response exceeds the bridge bound; request a smaller page or selected detail',retry:mutation?'reconcile':'never',details}};
       }
       const value=envelope();validateBoundary(operation,'envelope',value);
-      return {content:[{type:'text',text:JSON.stringify(value)}],structuredContent:value,isError:!result.ok};
+      return {content:[{type:'text',text:JSON.stringify(value)}],structuredContent:value,isError:!result.ok,
+        _meta:{'moment/protocolVersion':server.server.getNegotiatedProtocolVersion()}};
     });
   }
   return server;

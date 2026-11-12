@@ -1,12 +1,12 @@
 # Moment
 
-Moment is a proposed local system for contextual incidents, governed reactions, and coordination between agents. It preserves the relationships, evidence, and intent needed to continue useful work across sessions, projects, and levels of detail.
+Moment is a local system for contextual incidents, governed reactions, and coordination between agents. It preserves the relationships, evidence, and intent needed to continue useful work across sessions, projects, and levels of detail.
 
 This repository contains a local daemon, typed client, CLI, and SQLite storage backend. It supports operator and grant-bound identities, contexts, schemas, incidents, graph operations, governed policy changes, semantic transitions, deterministic rules, field-selecting views, capability negotiation, execution control, durable event delivery, wake scheduling, a fixed local byte verifier, durable messages, and deterministic prompt composition. An opt-in isolated Codex connection can retrieve authorized context and submit validated observations; it does not automatically dispatch model work.
 
 Start with the [documentation map](docs/README.md), [semantic model](docs/reference/model.md), and [TypeScript API](contracts/index.ts). The [implementation sequence](docs/development/implementation.md) identifies bounded deliverables and their acceptance cases.
 
-The next architecture is specified in [managed integration](docs/reference/managed-integration.md): shared operation provenance, a managed MCP bridge, context attachment and human status. Those features are proposed and are not current CLI commands. Runnable specification/upgrade goals live centrally under `~/.moment/intents`; real installation remains deferred.
+The [managed integration](docs/reference/managed-integration.md) provides shared operation provenance, an SDK stdio MCP bridge, explicit context attachment, on-demand service startup and human commands. Actual isolated Codex parent/restart/resume/reload/child use is verified. Runnable goals live centrally under `~/.moment/intents`; real installation remains deferred.
 
 ## Contract checks
 
@@ -22,7 +22,17 @@ These commands check declarations, positive and negative type examples, document
 
 ## Local service
 
-From this checkout, run the service in one terminal:
+Inspect available operations and service health without starting a service:
+
+```sh
+pnpm moment agents
+pnpm moment agents workspace.read
+pnpm moment status
+```
+
+`pnpm moment mcp` serves the 15-tool continuity profile. Initialization/discovery is offline; its first domain call starts or connects to the shared service. Closing a bridge leaves that service and its pending work running. Native Codex owns model turns and child creation; Moment supplies admitted state, evidence and coordination. See [managed integration](docs/reference/managed-integration.md#running-the-implemented-surfaces) for attachment, credential selection and bounded context.
+
+For explicit foreground operation, run the service in one terminal:
 
 ```sh
 pnpm moment serve
@@ -49,6 +59,8 @@ The input is `{ "contentBase64": "...", "expectedDigest": "sha256:..." }`, with 
 Native agents can call the typed client or `pnpm moment call` to read an incident, compose a bounded prompt, exchange summaries, and submit schema-validated graph changes or transition proposals. `messages.ack` acknowledges delivery; it does not accept work. See [agent integration](docs/reference/integration.md#agent-adapter-and-prompts) for template admission and current detail access.
 
 The opt-in `pnpm test:codex-native --credential-file /absolute/private/auth.json` exercises the installed Codex 0.167.2 through a separate app-server, state root and workspace. It supplies only the existing unexpired access token through in-memory external authentication, has no refresh token, invokes one bounded turn, and removes its owned temporary processes and state. It requires an explicit private credential source and uses the existing subscription. Ordinary checks never invoke Codex. See [the Codex boundary](docs/reference/integration.md#codex-boundary) before using or changing it.
+
+The managed MCP qualification is `pnpm exec node scripts/codex-mcp-native-check.mjs --protocol-only`. Its explicit `--credential-file /absolute/private/auth.json` variant runs a persisted parent, restarts owned components, resumes the same native thread, reloads tools and verifies exactly one child's own inherited MCP calls and admitted observation. `pnpm test:integration` exercises the installer without inference. Both use test-owned roots; neither installs into the real Codex environment. [Verification](docs/development/verification.md) records actual scope and limitations.
 
 ## Personal store
 
