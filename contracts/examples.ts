@@ -126,3 +126,10 @@ export const unsupportedRetry: Input<"execution.reconcile"> = {
 // Method and parameter shapes must remain paired.
 // @ts-expect-error A graph transaction cannot use read-only parameters.
 export const mismatched: Request = { jsonrpc: "2.0", id: "bad", method: "graph.transact", params: { contextId } };
+
+// The implemented client exposes the same generic operation contract.
+import { createClient } from '../runtime/client.mjs';
+const connection = createClient('/compile-only-example');
+export const described = connection.call('system.describe', { protocolVersion: '0.1' });
+// @ts-expect-error The runtime client cannot accept a caller-selected identity.
+export const clientForgery = connection.call('incident.get', { contextId, incidentId, principalId: 'forged' });

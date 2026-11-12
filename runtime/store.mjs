@@ -34,6 +34,26 @@ export class Store {
     }
   }
 
+  claimWriter() {
+    const claim = { pid: process.pid, nonce: randomUUID() };
+    try {
+      this.db.exec('BEGIN IMMEDIATE');
+      const row = this.db.prepare("SELECT value FROM metadata WHERE key='daemonClaim'").get();
+      if (row) {
+        const prior = JSON.parse(row.value);
+        if (!Number.isSafeInteger(prior.pid) || prior.pid < 1) fail('IDENTITY_CONFLICT', 'Invalid daemon ownership record');
+        try { process.kill(prior.pid, 0); fail('IDENTITY_CONFLICT', 'A live process holds the daemon claim'); }
+        catch (error) { if (error.code !== 'ESRCH') throw error; }
+      }
+      this.db.prepare("INSERT OR REPLACE INTO metadata VALUES ('daemonClaim', ?)").run(canonical(claim));
+      this.db.exec('COMMIT');
+      return claim;
+    } catch (error) { try { this.db.exec('ROLLBACK'); } catch {} throw error; }
+  }
+  releaseWriter(claim) {
+    this.db.prepare("DELETE FROM metadata WHERE key='daemonClaim' AND value=?").run(canonical(claim));
+  }
+
   close() { this.db.close(); }
   integrity() { return this.db.prepare('PRAGMA integrity_check').get().integrity_check; }
 
@@ -52,14 +72,14 @@ export class Store {
     return { response: JSON.parse(row.response), commit: JSON.parse(row.commit_value) };
   }
 
-  create(context, principalId, key, requestDigest) {
+  create(context, principalId, key, requestDigest, controlState = {}) {
     try {
       this.db.exec('BEGIN IMMEDIATE');
       const prior = this.receipt(principalId, this.systemId, 'context.create', key, requestDigest);
       if (prior) { this.db.exec('COMMIT'); return { ok: true, value: prior.response }; }
       if (this.db.prepare('SELECT 1 FROM snapshots WHERE context_id=?').get(context.id)) fail('IDENTITY_CONFLICT', 'Context already exists');
       const value = { ...context, systemId: this.systemId, revision: 1, state: 'open' };
-      const snapshot = { context: value, records: [], assertions: [], controlState: {} };
+      const snapshot = { context: value, records: [], assertions: [], controlState };
       this.db.prepare('INSERT INTO snapshots VALUES (?, ?, ?)').run(context.id, 1, canonical(snapshot));
       const event = { id: randomUUID(), contextId: context.id, sequence: 1, revision: 1, type: 'context.created', subjectRefs: [], causeIds: [], recordedAt: new Date().toISOString(), payload: null };
       this.db.prepare('INSERT INTO events VALUES (?, ?, ?, ?)').run(context.id, 1, event.id, canonical(event));
@@ -111,6 +131,10 @@ export class Store {
       for (const intent of batch.outbox) {
         if (this.db.prepare('SELECT 1 FROM outbox WHERE context_id=? AND execution_id=?').get(m.contextId, intent.id)) fail('IDENTITY_CONFLICT', 'Execution identity already queued');
         this.db.prepare('INSERT INTO outbox VALUES (?, ?, ?)').run(m.contextId, intent.id, canonical(intent));
+      }
+      for (const [key, value] of Object.entries(snapshot.controlState.contextMetadata ?? {})) {
+        if (!['policy', 'state'].includes(key)) fail('INVALID_ARGUMENT', 'Unsupported context metadata change');
+        snapshot.context[key] = value;
       }
       snapshot.context.revision = revision;
       this.db.prepare('INSERT INTO snapshots VALUES (?, ?, ?)').run(m.contextId, revision, canonical(snapshot));

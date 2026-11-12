@@ -1,6 +1,12 @@
 # Verification
 
-The `0.1` contract baseline and first storage implementation were checked on November 12, 2026, using macOS arm64, Node.js 26.13.0, npm 11.20.0, TypeScript 7.0.2, and built-in SQLite 3.54.0. The public daemon, policy kernel, scheduler, and agent integration remain unimplemented.
+The `0.1` contract baseline and runtime were checked on November 12, 2026, using macOS arm64, Node.js 26.13.0, npm 11.20.0 for the original baseline, pnpm 12.18.0 for current work, TypeScript 7.0.2, and built-in SQLite 3.54.0. The operator kernel and authenticated daemon are implemented; delegation, scheduling, execution, and the complete agent workflow remain pending.
+
+## Kernel and daemon execution evidence
+
+`pnpm test` passes 34 execution tests. Eight kernel tests exercise authenticated operator admission, atomic policy bootstrap, schema identity and payload validation, incident creation and restart/retry behavior, completion evidence references, control identity protection, signed snapshot cursors, historical reads, and context closure. Malformed inputs and unauthorized principals leave no admitted state. The default owner profile does not yet admit delegated principals.
+
+Four transport tests use real child-process daemons and Unix sockets. They verify private credential/socket permissions, rejection of an incorrect credential, preservation of a saved incident and original retry response after `SIGKILL` and restart, duplicate-key and malformed-frame rejection, typed-client calls, and refusal of a competing daemon while the first remains callable. Wire parsing rejects escaped duplicate keys, malformed separators, and excessive nesting. `pnpm moment --help` exercises the actual CLI entry point. These checks cover operator operation and local process recovery; they do not prove OS isolation, policy activation, execution-provider recovery, or completion of M2 through M4.
 
 ## Storage execution evidence
 
@@ -48,7 +54,7 @@ The original contract-baseline checks exercised these SHA-256 source identities.
 
 ## Check scope
 
-`pnpm check:types` compiles all declarations and usage examples with strict TypeScript settings. Seven negative examples require the compiler to reject unguarded mutation, generic policy activation, invented success, forged caller identity, executable policy, unsupported replay justification, and mismatched method parameters.
+`pnpm check:types` compiles all declarations and usage examples with strict TypeScript settings. Eight negative examples require the compiler to reject unguarded mutation, generic policy activation, invented success, forged caller identity, executable policy, unsupported replay justification, mismatched method parameters, and identity injection through the implemented client. The runtime client's type declaration exposes the same generic method contract.
 
 `pnpm check:docs` checks local document links, Markdown anchors when present, balanced fenced blocks, trailing whitespace, titles, and a one-to-one mapping between declared methods and protocol table entries. It does not validate external website availability or prove that prose and code have identical semantics.
 

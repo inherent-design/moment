@@ -2,14 +2,15 @@
   "name": "moment-contracts",
   "version": "0.1.0",
   "private": true,
-  "description": "Draft boundary contracts for Moment; no runtime is shipped.",
+  "description": "Local coordination runtime and boundary contracts",
   "type": "module",
   "license": "UNLICENSED",
   "scripts": {
     "check": "tsc --noEmit && node scripts/check-docs.mjs && pnpm test",
     "check:types": "tsc --noEmit",
     "check:docs": "node scripts/check-docs.mjs",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "moment": "node runtime/cli.mjs"
   },
   "devDependencies": {
     "typescript": "7.0.2"

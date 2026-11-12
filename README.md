@@ -2,7 +2,7 @@
 
 Moment is a proposed local system for contextual incidents, governed reactions, and coordination between agents. It preserves the relationships, evidence, and intent needed to continue useful work across sessions, projects, and levels of detail.
 
-This repository contains API declarations, implementation contracts, and a tested SQLite storage backend with central-store discovery. The daemon, policy kernel, scheduler, and native agent connection are under implementation. The first implementation target is a small persistent reaction kernel with demonstrable recovery behavior.
+This repository contains a local daemon, typed client, CLI, and SQLite storage backend. The operator profile supports contexts, schemas, incidents, graph writes, queries, and closure. Delegated authority, reaction scheduling, execution providers, and the complete native agent workflow are under implementation.
 
 Start with the [documentation map](docs/README.md), [semantic model](docs/reference/model.md), and [TypeScript API](contracts/index.ts). The [implementation sequence](docs/development/implementation.md) identifies bounded deliverables and their acceptance cases.
 
@@ -17,6 +17,22 @@ mise run check
 ```
 
 These commands check declarations, positive and negative type examples, documentation links, API documentation coverage, and storage execution tests. The tests include new-process reopen, competing writers, and interruption rollback. See [verification](docs/development/verification.md) for the tested environment and limitations.
+
+## Local service
+
+From this checkout, run the service in one terminal:
+
+```sh
+pnpm moment serve
+```
+
+In another terminal, inspect its actual methods:
+
+```sh
+pnpm moment describe
+```
+
+`pnpm moment call <method> '<params-json>'` calls the same API through the authenticated Unix socket. The service creates an operator credential and database in the central store, with the credential and socket restricted to the current user. Stop the foreground service with Ctrl-C; committed data survives restart. The current profile is `owner-local`. Additional principals remain denied until delegation is implemented. See [protocol](docs/reference/protocol.md) for request and recovery behavior.
 
 ## Personal store
 
