@@ -10,10 +10,12 @@ import { evaluate, evaluatePolicy } from './conditions.mjs';
 import { Executions, executionMethods } from './executions.mjs';
 import { Events,mutationEvents } from './events.mjs';
 import { Scheduler } from './scheduler.mjs';
+import { Awareness } from './awareness.mjs';
 
 const methods = ['system.describe', 'context.create', 'context.get', 'context.close', 'control.get', 'schema.publish', 'schema.get', 'incident.create', 'incident.get', 'incident.update', 'graph.transact', 'graph.query', 'policy.publish', 'policy.activate', 'policy.evaluate', 'grant.issue', 'grant.revoke','view.publish','view.read','rule.publish','reaction.evaluate','transition.propose','transition.commit','transition.get'];
 methods.push(...executionMethods);
 methods.push('events.read','schedule.put','schedule.cancel','schedule.get');
+methods.push('messages.send','messages.read','messages.ack','prompt.compose');
 const bootstrapActions = [...methods];
 const equal = (a,b) => canonical(a) === canonical(b);
 const ok = value => ({ ok: true, value });
@@ -30,6 +32,7 @@ export class Kernel {
     this.executions=new Executions(this);
     this.events=new Events(this);
     this.scheduler=new Scheduler(this);
+    this.awareness=new Awareness(this);
   }
   ref(contextId, id) { return { systemId: this.store.systemId, contextId, id }; }
   stored(contextId, value, revision, principalId, id=value.id) {
@@ -105,7 +108,7 @@ export class Kernel {
     if (!access.operator && access.chain.some(grant => !grant.actions.includes(method))) fail('FORBIDDEN', 'Action is outside delegated authority');
     if (method==='schema.publish' && !access.operator) fail('FORBIDDEN','Schema admission requires operator authority');
     if (['context.close','policy.activate'].includes(method) && !access.operator && !access.chain.every(grant=>grant.incidentIds==='all' && includesRef(grant.resourceRefs,this.ref(snapshot.context.id,snapshot.context.id)))) fail('FORBIDDEN','Operation requires context-wide delegation');
-    const incidentId=input.incidentId ?? input.schedule?.incidentId ?? snapshot.controlState.schedules?.[input.scheduleId]?.value.incidentId ?? input.execution?.incidentId ?? input.proposal?.incidentId ?? snapshot.controlState.transitions?.[input.proposalId]?.value.proposal.incidentId ?? snapshot.controlState.executions?.[input.executionId]?.value.intent.incidentId;
+    const incidentId=input.incidentId ?? input.message?.incidentId ?? input.schedule?.incidentId ?? snapshot.controlState.schedules?.[input.scheduleId]?.value.incidentId ?? input.execution?.incidentId ?? input.proposal?.incidentId ?? snapshot.controlState.transitions?.[input.proposalId]?.value.proposal.incidentId ?? snapshot.controlState.executions?.[input.executionId]?.value.intent.incidentId;
     if (incidentId && !access.canIncident(incidentId)) fail('NOT_FOUND', 'Incident is not accessible');
     const resources=input.resourceRefs ?? (input.changes ?? []).map(change=>change.kind==='record.put'?this.ref(snapshot.context.id,change.record.id):change.kind==='assertion.put'?change.assertion.record:snapshot.assertions.find(item=>item.assertion.value.id===change.assertionId)?.assertion.value.record).filter(Boolean);
     if (method!=='policy.evaluate' && resources.some(ref=>!access.canRead(ref))) fail('FORBIDDEN','Resources are outside delegated authority');
@@ -139,6 +142,19 @@ export class Kernel {
       const control = (namespace, key, value) => batch.controlChanges.push({ namespace, key, value });
       switch (method) {
         case 'context.get': return ok(snapshot.context);
+        case 'messages.send': {
+          const stored=this.awareness.prepare(current,input.message,principalId,access);
+          control('messages',input.message.id,stored);break;
+        }
+        case 'messages.read': return ok(this.awareness.read(snapshot,current,input,principalId,access,boundGrant));
+        case 'messages.ack': {
+          for (const id of input.messageIds) {
+            this.awareness.message(current,id,principalId,access,boundGrant);
+            control('messageAcks',id,{ principalId,recordedAt:new Date(this.clock.wall()).toISOString() });
+          }
+          break;
+        }
+        case 'prompt.compose': return ok(this.awareness.compose(snapshot,current,input,principalId,access));
         case 'events.read': return ok(this.events.read(snapshot,input,principalId,access));
         case 'schedule.put': {
           const { stored,state,origin }=this.scheduler.prepare(current,input.schedule,principalId,access,boundGrant);
@@ -424,7 +440,7 @@ export class Kernel {
     for (const record of records) {
       if (record.id===snapshot.context.id || snapshot.assertions.some(item=>item.assertion.ref.id===record.id) || changes.some(change=>change.kind==='assertion.put' && change.assertion.id===record.id) || Object.values(snapshot.controlState).some(namespace => namespace && typeof namespace === 'object' && Object.values(namespace).some(item => item?.ref?.id === record.id))) fail('IDENTITY_CONFLICT', 'Record ID already names a control object');
       const schema = this.schema(snapshot, record.schema);
-      if (installedSchema(record.schema) && record.kind!=='relation') fail('INVALID_ARGUMENT','Installed relationship schemas require a relation record');
+      if (installedSchema(record.schema) && record.kind!==(record.schema.name==='moment.prompt-template'?'atom':'relation')) fail('INVALID_ARGUMENT','Installed schema requires its declared semantic record kind');
       if (!this.compiled(schema)(record.kind === 'atom' ? record.value : record.roles)) fail('INVALID_ARGUMENT', 'Record does not satisfy its admitted schema');
       if (record.kind === 'relation') for (const refs of Object.values(record.roles)) for (const ref of refs) {
         this.local(ref, snapshot.context.id);

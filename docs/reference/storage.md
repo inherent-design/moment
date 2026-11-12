@@ -22,12 +22,12 @@ Relocation copies or moves the complete store while writers are stopped, verifie
     intent.md                      readable purpose and completion contract
     checkpoint.json                current continuation state
     captures/                      selected attributable evidence, when needed
-  runtime/                         future database, socket, and writer ownership
+  runtime/                         database, socket, credentials, provider receipts
   artifacts/sha256/<digest>        future immutable admitted artifact bytes
   cache/                           regenerable bounded material
 ```
 
-Registry, context manifests, incident manifests, intent, checkpoints, and a readable intent link form the documentation bootstrap. The implemented service uses SQLite under `runtime` for admitted state, event rows, receipts, execution outbox, and durable schedule occurrences. Artifact storage and cache remain implementation work. Bootstrap files alone are not evidence of an active runtime incident or executed goal. Readable intent links are convenience aliases; they resolve to the incident's canonical file, preserve its identity, and must not overwrite an existing name.
+Registry, context manifests, incident manifests, intent, checkpoints, and a readable intent link form the documentation bootstrap. The implemented service uses SQLite under `runtime` for admitted state, event rows, receipts, execution outbox, durable schedule occurrences, messages, and delivery acknowledgments. Artifact storage and cache remain implementation work. Bootstrap files alone are not evidence of an active runtime incident or executed goal. Readable intent links are convenience aliases; they resolve to the incident's canonical file, preserve its identity, and must not overwrite an existing name.
 
 ## Bootstrap file contract
 

@@ -93,6 +93,10 @@ export const inputSchemas = {
   'schedule.put':object({ ...mutation,schedule:reference('Schedule') }),
   'schedule.cancel':object({ ...mutation,scheduleId:id }),
   'schedule.get':object({ ...read,scheduleId:id },readOptional),
+  'messages.send':object({ ...mutation,message:object({ id,incidentId:id,recipientId:id,kind:enumeration('notice','request','response'),summary:text,detailRefs:{ ...array(reference('Ref')),maxItems:32 } },{ inReplyTo:id,expiresAt:instant }) }),
+  'messages.read':object({ ...read,limit:page,includeAcknowledged:{ type:'boolean' } },{ ...readOptional,cursor:string }),
+  'messages.ack':object({ ...mutation,messageIds:{ ...array(id),minItems:1,maxItems:100,uniqueItems:true } }),
+  'prompt.compose':object({ ...read,incidentId:id,template:reference('Ref'),sourceRefs:{ ...array(reference('Ref')),maxItems:32 },outputSchema:reference('SchemaRef'),maximumInputBytes:{ type:'integer',minimum:1,maximum:262144 } },readOptional),
 };
 const ajv = new Ajv({ strict: true, allErrors: false, ownProperties: true });
 const validators = new Map(Object.entries(inputSchemas).map(([method, schema]) => [method, ajv.compile({ ...schema, $defs: defs })]));
@@ -124,7 +128,7 @@ export function validateInput(method, input) {
   if (input.view?.selector?.relationRole && !input.view.selector.relatedTo) fail('INVALID_ARGUMENT', 'A relation role requires a related reference');
   if (input.schedule?.wake?.selector?.relationRole && !input.schedule.wake.selector.relatedTo) fail('INVALID_ARGUMENT','A relation role requires a related reference');
   if (method==='events.read' && input.atRevision!==undefined && input.waitMillis!==0) fail('INVALID_ARGUMENT','Historical event reads cannot wait');
-  for (const value of [input.limits?.deadline, input.policy?.limits?.deadline, input.grant?.limits?.deadline, input.grant?.expiresAt, input.rule?.limits?.deadline,input.capability?.expiresAt,input.execution?.limits?.deadline,input.schedule?.wake?.instant,...(input.proposal?.executions ?? []).map(item=>item.limits.deadline)]) {
+  for (const value of [input.message?.expiresAt,input.limits?.deadline, input.policy?.limits?.deadline, input.grant?.limits?.deadline, input.grant?.expiresAt, input.rule?.limits?.deadline,input.capability?.expiresAt,input.execution?.limits?.deadline,input.schedule?.wake?.instant,...(input.proposal?.executions ?? []).map(item=>item.limits.deadline)]) {
     if (value === undefined) continue;
     const normal = value.replace(/(?:\.(\d{1,3}))?Z$/, (_, fraction) => `.${(fraction ?? '').padEnd(3, '0')}Z`);
     const date = new Date(value);

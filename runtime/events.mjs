@@ -21,6 +21,7 @@ export function mutationEvents(kernel,method,input,snapshot,batch,firstId,causeI
   for (const change of batch.controlChanges) if (change.value?.ref) add(change.value.ref);
   if (method==='grant.revoke') add(input.grant);
   if (input.scheduleId) add(snapshot.controlState.schedules?.[input.scheduleId]?.ref);
+  for (const id of input.messageIds ?? []) add(snapshot.controlState.messages?.[id]?.ref);
   if (!grouped.size) add(kernel.ref(input.contextId,input.contextId));
   return [...grouped.values()].map((item,index)=>({ id:index===0?firstId:randomUUID(),contextId:input.contextId,type:method+'.committed',subjectRefs:[item.ref],visibilityAlternatives:[...item.alternatives.values()],causeIds,payload:null }));
 }
@@ -28,6 +29,7 @@ export function mutationEvents(kernel,method,input,snapshot,batch,firstId,causeI
 export class Events {
   constructor(kernel) { this.k=kernel; }
   canRef(snapshot,ref,principal,access) {
+    if (snapshot.controlState.messages?.[ref.id] && ref.systemId===snapshot.context.systemId && ref.contextId===snapshot.context.id) return this.k.awareness.visible(snapshot,snapshot.controlState.messages[ref.id],principal,access);
     if (access.canRead(ref)) return true;
     if (ref.systemId!==snapshot.context.systemId || ref.contextId!==snapshot.context.id) return false;
     if (snapshot.controlState.incidents?.[ref.id]) return access.canIncident(ref.id);

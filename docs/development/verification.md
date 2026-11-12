@@ -1,14 +1,16 @@
 # Verification
 
-Moment was checked on November 12, 2026, on macOS arm64 with Node.js 26.13.0, pnpm 12.18.0, TypeScript 7.0.2, and built-in SQLite 3.54.0. The implemented kernel exposes 37 methods: persistence and identity, operator and delegated authority, semantic transitions, deterministic rule evaluation, permission-filtered views, capability negotiation, durable execution control, scoped event delivery, and wake scheduling. The fixed local byte verifier dispatches real guarded processes and retains recoverable receipts. Messaging, prompt composition, and the full native-agent workflow remain pending.
+Moment was checked on November 12, 2026, on macOS arm64 with Node.js 26.13.0, pnpm 12.18.0, TypeScript 7.0.2, and built-in SQLite 3.54.0. The implemented kernel exposes 41 methods: persistence and identity, operator and delegated authority, semantic transitions, deterministic rule evaluation, permission-filtered views, capability negotiation, durable execution control, scoped event delivery, and wake scheduling. The fixed local byte verifier dispatches real guarded processes and retains recoverable receipts. Durable recipient mailboxes, deterministic prompt composition, and an explicit isolated Codex connection are implemented. Central saved-intent adoption and the real E15 self-use exercise remain.
 
 ## Current checks
 
 | Command | Observed outcome | Scope |
 | --- | --- | --- |
-| `mise run check` | Passed: strict declarations, 17 Markdown files, 52 local links, 45 method entries, and 115 execution tests. | Combined runtime and contract candidate. |
+| `mise run check` | Passed: strict declarations, 17 Markdown files, 54 local links, 45 method entries, and 124 execution tests. | Combined runtime and contract candidate. |
 | `node --test test/events.test.mjs test/scheduler.test.mjs` | Passed all 15 cases. | Scoped events, long-poll cleanup, persisted occurrences, coalescing, feedback bounds, and execution completion. |
 | `node --test test/executions.test.mjs` | Passed all 21 cases. | Capability matching, reservations, leases, cancellation, reconciliation, proposals, and views. |
+| `node --test test/awareness.test.mjs test/awareness-server.test.mjs` | Passed all nine cases within the combined check. | Durable two-party messages, acknowledgment, current detail rights, template authority, deterministic byte bounds, and real daemon restart. |
+| `node scripts/codex-native-check.mjs --credential-file <private-auth-source>` | Passed with installed Codex CLI 0.167.2 and model `gpt-6.1-sol`. | Two actual native tool calls, real verifier context, admitted observation, ephemeral auth and retrieval after Moment restart. |
 | `node --test test/verifier.test.mjs test/verifier-server.test.mjs` | Passed all 13 cases within the combined check. | Actual verifier CPU/RSS, permission guards, receipt publication, crash recovery, same-ID context separation, closure races, and explicit installer. |
 | `node --test test/reactions.test.mjs` | Previously passed all 15 cases. | Transitions, topology, rules, pointers, and perspectives. |
 | `pnpm check:types` | Passed, including nine required rejection examples. | Declared boundaries and native-client method typing. |
@@ -16,18 +18,17 @@ Moment was checked on November 12, 2026, on macOS arm64 with Node.js 26.13.0, pn
 | `node scripts/codex-isolated-probe.mjs` | Previously passed with installed `codex-cli 0.167.2`. | Isolated stdio startup and unauthenticated protocol, without inference. |
 | `git diff --check` | Passed for the implementation candidate. | Whitespace checks only. |
 
-The combined check exercised the execution candidate following `09b7c11ada1b5e41d677902964cd0d0c7395e509`. The exact committed revision and selected captures are retained in the central implementation incident checkpoint. Runtime source identities for this candidate are:
+The combined check exercised the execution candidate following `b570ac7`. The exact committed revision and selected captures are retained in the central implementation incident checkpoint. Runtime source identities for this candidate are:
 
 | File | SHA-256 |
 | --- | --- |
 | `contracts/index.ts` | `6063285de026c454d638c79e82630825323225392dfdb17677c498f719756258` |
-| `runtime/kernel.mjs` | `a8d855913e427210b26f621d471b82c0b7b37d05aeaf0d40d4578c42cd38d77e` |
-| `runtime/executions.mjs` | `b179ba9b5280254c39c2fff8a2d2f3a54712b85bc292ffcf7e79f26a76edd56f` |
-| `runtime/providers/bytes-worker.mjs` | `64faf3364e02bdf9439b24c5738e657e87acc79fe54f32de8dd7d02e6a408a02` |
-| `runtime/providers/bytes-host.mjs` | `2b0b460b9128fe5bec919fece183d5c0464f67ef460b41666f7b602311d2c5fc` |
-| `runtime/providers/bytes-runtime.mjs` | `e060822df373008e7b374b7d660f2d7493122ba84ee9d8d3f06bdf6b9e37a220` |
-| `test/verifier.test.mjs` | `34325ca3cfbab91e67e7e264a370a1b88e21201c791221e47f6ae31bbb9a998a` |
-| `test/verifier-server.test.mjs` | `f8252661a80d59d5ce888368cedb2b6bbacadc2f47e807f6123235cbb0035748` |
+| `runtime/kernel.mjs` | `4c7eb0d6cd0cc704f4c3a5890b04b150e9ac82a2640c5b192938139666552761` |
+| `runtime/awareness.mjs` | `40cd07ffe2f1408bbf6e956ed1ebd0f3d563019945207ddec044ae3b60b73d4c` |
+| `runtime/codex.mjs` | `c47e2387e9615c243df29c801ef18b2686dfc49a489a32218673b5ace826cc4a` |
+| `scripts/codex-native-check.mjs` | `b2bc502affcc592b8cc33cd850e0ab6b70b6bb5823c1bc193a43e3a891279ebc` |
+| `test/awareness.test.mjs` | `c9910e21da6709b0f833eb31171e26d60cf6c10bbcbe8faeef0f2037b54a7636` |
+| `test/awareness-server.test.mjs` | `4755ec365f67a349fa8b4fa921bbc59a9025ef40c1f53ce4e15084e8b9585d7f` |
 
 ## Executed behavior
 
@@ -44,6 +45,7 @@ The combined check exercised the execution candidate following `09b7c11ada1b5e41
 | Events and wakes | Mixed-transaction notices preserve visible record discovery without disclosing hidden support. Cursors survive restart and reject other grant/query scopes. Long polls release listeners and recheck revocation. Persisted occurrences commit with their operation, survive restart, coalesce with source IDs, retain overflow cursors, avoid causal feedback, and wait for admitted execution completion before rearming. A real daemon stays idle without writes, survives abrupt restart, receives an event through a long poll, and admits one saved wake. | E8 and native event transport. The connected verifier case also completes an actual guarded worker from a saved event wake; no model-generated work is claimed. |
 | Execution control | Durable queue/outbox, provider-only claims, heartbeat before effects, fenced completion, attempt-bound reconciliation, aggregate context/ancestor reservations, cancellation/unknown races, current policy narrowing, and grant expiry. A real daemon expires leases without RPC activity, observed through read-only SQLite, and recovers running work as unknown after `SIGKILL` and restart. | E9–E10 at the kernel/transport boundary. Synthetic control fixtures are complemented by the actual provider cases below. Observed overruns retain true usage and outcome, block new dispatch, and survive restart. |
 | Fixed verifier | Actual fixed-code processes measure SHA-256, CPU and peak RSS; mismatch is a real failed outcome. Actual Node API attempts deny outside reads/writes, network, subprocesses and workers. Private receipts survive a daemon killed before finish; restart settles the unchanged attempt without dispatching again. Interrupted exclusive publication is normalized. Separate contexts with the same execution ID remain distinct. A late real result remains attributable after context closure without reopening graph writes. | Concrete E9–E10 and connected verification evidence. The process sample excludes host staging/finalization. Node guards are not hostile-code OS isolation; CPU/RSS are measured rather than hard ceilings. |
+| Messages and prompts | Two authenticated participants exchange durable summaries and replies. Acknowledgment changes mailbox delivery state without completing the incident. Historical reads, details, replies and cursors recheck scope and current rights. Template rendering is deterministic, digest-bound and byte-limited; optional omission cannot bypass authorization. Withdrawn and self-appointed instruction authority is refused. A real daemon restart retains message and prompt identity. | E11 and concise native context. Templates require admitted issuer support; no automatic prompt-selection quality claim. |
 | Transport | Real test-owned daemons and Unix sockets, private file permissions, incorrect authentication, malformed and duplicate-key frames, abrupt restart, competing daemon refusal, typed client calls, separate credentials, and immediate revocation. | Local authenticated API and process recovery; full-access host processes are not isolated by the socket. |
 | Input and conditions | Ajv input rejection, bounded local schema compilation, calendar and pointer constraints, three-valued logic, deny precedence, and unresolved queries that cannot grant rights through negation. | Runtime boundary components; compilation alone proves no admission or isolation. |
 
@@ -51,7 +53,9 @@ The combined check exercised the execution candidate following `09b7c11ada1b5e41
 
 The opt-in probe resolves the installed executable read-only and directly spawns `codex app-server --listen stdio://`. It creates temporary workspace, configuration, and state roots; removes inherited Codex/OpenAI/ChatGPT environment settings from the child; and selects file credential storage. `initialize`, `initialized`, and `account/read` with token refresh disabled completed, returning no account. The probe stops only its own process and removes its own temporary files. Ordinary checks do not invoke Codex.
 
-The probe never uses the primary control socket or managed daemon proxy, copies credentials, shares writable session/refresh state, creates a turn, or invokes inference. It establishes protocol isolation. M4 still requires a separately qualified supported authentication path and a real isolated native-agent interaction. The existing primary daemon, installation, threads, and agents remain outside test ownership.
+The probe never uses the primary control socket or managed daemon proxy, copies credentials, shares writable session/refresh state, creates a turn, or invokes inference. It establishes protocol isolation. The separately executed native check supplies only the current unexpired access-token/account pair through documented external-token login, with ephemeral credential storage. It supplies no refresh token and rejects refresh requests. The installed schema labels this unstable/internal; current official documentation describes an experimental host-managed flow. This qualification is pinned to the actual tested version, not assumed portable. The existing primary daemon, installation, threads, and agents remain outside test ownership.
+
+The actual native turn called `moment_context`, received the authorized prompt containing an actual verifier receipt, called `moment_observe`, and returned schema-valid JSON. Moment admitted the observation under a separate restricted credential and retained it through an abrupt Moment daemon restart. The final checked turn used two tools and model `gpt-6.1-sol`. Selected output and protocol digests are retained centrally; no credential or raw protocol capture is retained. Subscription inference remains outside the fixed verifier’s zero-model reservation; this check does not measure model cost or establish a general model-execution provider.
 
 ## Tooling and check interpretation
 
@@ -59,4 +63,4 @@ The optional mise `secrets` profile was parsed and its tool pins selected withou
 
 The documentation checker validates local links, anchors, fenced blocks, whitespace, titles, and method-table coverage. Its earlier temporary broken-link and method-drift probes were rejected as expected. It does not validate external website availability or semantic equivalence of prose and code. Type examples reject unguarded mutation, generic policy activation, invented success, forged identity, executable policy, unsupported retry justification, mismatched parameters, client identity injection, and implicit full-record projection access.
 
-The remaining completion obligations are [M4 and E15](implementation.md). A synthetic fixture or a directly edited database does not satisfy the required real self-use improvement. Provider recovery is demonstrated only for this fixed local verifier. No hostile-code OS isolation, live inference, workload-quality, general cost, or performance claim follows from these checks.
+The remaining completion obligations are [central intent adoption and E15](implementation.md). A synthetic fixture or a directly edited database does not satisfy the required real self-use improvement. Provider recovery is demonstrated only for this fixed local verifier. Live inference is demonstrated for the explicit bounded native check. No hostile-code OS isolation, workload-quality, general cost, or performance claim follows from these checks.

@@ -12,11 +12,13 @@ const definitions={
   'moment.during':{ inner:cardinality(),outer:cardinality() },
   'moment.derivedFrom':{ result:cardinality(),source:cardinality(1,1000) },
 };
+export const promptDocument={ type:'object',properties:{ text:{ type:'string',maxLength:65536 },sourceSlots:{ type:'array',items:{ type:'string',pattern:'^[A-Za-z][A-Za-z0-9_]{0,63}$' },uniqueItems:true,maxItems:32 },optionalSlots:{ type:'array',items:{ type:'string',pattern:'^[A-Za-z][A-Za-z0-9_]{0,63}$' },uniqueItems:true,maxItems:32 } },required:['text','sourceSlots'],additionalProperties:false };
+export const promptSchema={ name:'moment.prompt-template',version:'1',digest:digest(promptDocument) };
 export const builtinSchemas=Object.entries(definitions).map(([name,properties])=>{
   const temporal=['moment.precedes','moment.during'].includes(name);
   const document={ type:'object',properties:{ ...properties,...(temporal?{ frame:cardinality() }:{}) },required:Object.keys(properties),additionalProperties:false };
   return { schema:{ name,version:'1',digest:digest(document) },document };
-});
+}).concat([{ schema:promptSchema,document:promptDocument }]);
 export function installedSchema(schema) { return builtinSchemas.some(item=>item.schema.name===schema.name && item.schema.version===schema.version && item.schema.digest===schema.digest); }
 
 export function validateTopology(snapshot) {

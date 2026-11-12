@@ -1,3 +1,5 @@
+import type { NativeConnection } from '../runtime/codex.mjs';
+export type NativeInvocation = NativeConnection['invoke'];
 /** Compile-only usage examples; these do not execute the proposed runtime. */
 import type {
   Atom, Change, Condition, ExecutionIntent, Input, Limits, MomentClient,
