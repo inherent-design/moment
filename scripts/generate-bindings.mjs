@@ -5,32 +5,32 @@ import { compileContract, pruneSchema } from './schema-compiler.mjs';
 import { inputSchemas, defs } from '../runtime/input-schemas.mjs';
 import { kernelMethods, managedMethods, serviceMethods } from '../runtime/operations.mjs';
 import { canonical, bytesDigest, digest } from '../runtime/json.mjs';
-import { instructions } from '../runtime/directives.mjs';
+import { instructions, continuityDirectiveVersion } from '../runtime/directives.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 export const outputPath = join(root, 'runtime/generated/bindings.json');
 const source = path => ({ path, digest: bytesDigest(readFileSync(join(root, path))) });
 const summaries = {
   'system.describe': 'Inspect protocol, implemented methods and service identity.',
-  'context.create': 'Create a governed context with an owner-local bootstrap policy.',
+  'context.create': 'Create an owner-local governed context when work needs a new policy/resource boundary; preserve existing project conventions.',
   'context.get': 'Read the selected context and its current revision.',
   'context.close': 'Close a context and stop admission of new work.',
-  'incident.create': 'Retain a meaningful purpose, completion criteria and continuation.',
+  'incident.create': 'Retain a meaningful purpose, completion criteria and continuation. Introduce existing work at its goal change or deliberate handoff.',
   'incident.get': 'Read one admitted incident at a selected revision.',
   'incident.list': 'List admitted incidents, filtering before pagination.',
-  'incident.update': 'Revise purpose, state or continuation with attributable evidence.',
+  'incident.update': 'Revise purpose, state or continuation references with evidence; coordinate updates to a shared continuation with its current writer.',
   'graph.query': 'Retrieve selected records with their independent support.',
-  'graph.transact': 'Commit records or support changes at one observed revision.',
+  'graph.transact': 'Commit schema-valid immutable records or attributable support changes at an observed revision. Changed record content requires a new ID.',
   'transition.propose': 'Retain a checked proposal without applying its changes.',
   'transition.commit': 'Apply an admitted proposal after checking its current basis.',
-  'messages.send': 'Send an attributed summary to an admitted recipient.',
-  'messages.read': 'Read the selected principal’s currently accessible messages.',
-  'messages.ack': 'Acknowledge receipt; acknowledgment is not task acceptance.',
-  'events.read': 'Read admitted events, optionally waiting for relevant changes.',
-  'prompt.compose': 'Compose bounded instructions and quoted evidence under current authority.',
+  'messages.send': 'Persist a durable mailbox summary and detail references for an admitted principal. Prefer native agent communication for brief live coordination; delivery does not wake or create an agent.',
+  'messages.read': 'Read the authenticated principal’s accessible durable mailbox. Native agent labels sharing one credential share its mailbox.',
+  'messages.ack': 'Acknowledge durable message receipt; acknowledgment does not accept work, activate a goal or grant authority.',
+  'events.read': 'Read admitted events, optionally waiting for relevant changes. Event delivery does not dispatch native agents or invoke a model.',
+  'prompt.compose': 'Render an existing admitted template with authorized evidence into a bounded prompt. Rendering neither invokes a model nor creates a workflow.',
   'bindings.discover': 'Discover installed operations, exact schemas and recovery guidance.',
-  'workspace.attach': 'Select central work without creating work or granting authority.',
-  'workspace.read': 'Retrieve bounded authorized purpose, evidence and continuation.',
+  'workspace.attach': 'Select existing central work using explicit selectors or validated associations; preserve active goals. Attachment creates no work or authority.',
+  'workspace.read': 'Retrieve bounded authorized purpose, evidence and continuation. Read selected references instead of whole histories.',
   'service.stop': 'Request graceful retirement of the exact current service instance.',
 };
 
@@ -60,7 +60,7 @@ export function generateBindings() {
   };
   walk('runtime');
   const sources = [...new Set(paths)].sort().map(source);
-  const directive = { id: 'moment.continuity', version: '1', digest: bytesDigest(instructions), source: source('runtime/directives.mjs') };
+  const directive = { id: 'moment.continuity', version: continuityDirectiveVersion, digest: bytesDigest(instructions), source: source('runtime/directives.mjs') };
   const names = new Set();
   const operations = [...methods].sort(([a], [b]) => a.localeCompare(b, 'en')).map(([id, schemas]) => {
     const name = `moment_${id.replaceAll('.', '_')}`;

@@ -8,7 +8,7 @@ import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { bindingMap, exposedOperations, catalogIdentity } from '../runtime/bindings.mjs';
+import { bindingMap, exposedOperations, catalogIdentity, catalog } from '../runtime/bindings.mjs';
 import { createClient } from '../runtime/client.mjs';
 import { digest, bytesDigest } from '../runtime/json.mjs';
 import { installVerifier } from '../runtime/providers/bytes-runtime.mjs';
@@ -52,6 +52,7 @@ test('SDK negotiates legacy and modern revisions and discovers the exact offline
   const parent=mkdtempSync(join(tmpdir(),'moment-mcp-offline-'));t.after(()=>rmSync(parent,{recursive:true,force:true}));
   for(const version of ['2025-06-18','2025-11-25','2026-07-28']) {
     const root=join(parent,version),f=await connect(t,root,version);
+    assert.equal(f.client.getInstructions(),catalog.instructions);
     const listing=await f.client.listTools();
     assert.deepEqual(listing.tools.map(tool=>tool.name).sort(),exposedOperations().map(id=>bindingMap.get(id).mcpName).sort());
     for(const tool of listing.tools) {
@@ -59,6 +60,7 @@ test('SDK negotiates legacy and modern revisions and discovers the exact offline
       assert.deepEqual(tool.inputSchema,binding.inputSchema.document);
       assert.deepEqual(tool.outputSchema,binding.envelopeSchema);
       assert.equal(tool._meta['moment/catalog'],catalogIdentity.digest);
+      assert.equal(tool.description,[binding.summary,...binding.preconditions].join(' '));
     }
     assert.ok(f.versions.includes(version),JSON.stringify(f.versions));
     const result=await f.client.callTool({name:'moment_bindings_discover',arguments:{operationId:'workspace.read'}});
