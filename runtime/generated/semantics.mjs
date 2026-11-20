@@ -3096,6 +3096,52 @@ function $control_projection_room_1(_count_0) {
   return $control_projection_room(_count_0);
 }
 
+function $reaction_source(_present_0, _revision_0, _current_0) {
+  return $Bool_pick($$Bool_and(_present_0, $$accounting_le(_revision_0, _current_0)), {$: "ReactionNeedsVisibility"}, {$: "ReactionSourceMissing"});
+}
+
+function $reaction_event(_visible_0, _kind_0, _types_0) {
+  const _x_0 = $$List_is_empty(_types_0);
+  const _x_1 = $$collections_contains(_types_0, _kind_0);
+  return $Bool_pick(_visible_0, $$Bool_pick((_x_0 || _x_1), {$: "ReactionEventUse"}, {$: "ReactionEventSkip"}), {$: "ReactionEventHidden"});
+}
+
+function $reaction_mode(_events_0, _requested_0, _types_0) {
+  return $Bool_pick($$Bool_not((_events_0 === 0)), {$: "ReactionEvents"}, $$Bool_pick($$Bool_and((_requested_0 === 0), (_types_0 === 0)), {$: "ReactionOnce"}, {$: "ReactionNone"}));
+}
+
+function $reaction_begin() {
+  return {$: "ReactionPending", "unresolved": false};
+}
+
+function $reaction_observe(_progress_0, _value_0) {
+  if (_progress_0.$ === "ReactionMatched") {
+    return {$: "ReactionMatched"};
+  } else {
+    const _unresolved_0 = _progress_0["unresolved"];
+    if (_value_0.$ === "Yes") {
+      return {$: "ReactionMatched"};
+    } else if (_value_0.$ === "No") {
+      return {$: "ReactionPending", "unresolved": _unresolved_0};
+    } else {
+      return {$: "ReactionPending", "unresolved": true};
+    }
+  }
+}
+
+function $reaction_finish(_progress_0) {
+  if (_progress_0.$ === "ReactionMatched") {
+    return {$: "ReactionEligible"};
+  } else {
+    const _unresolved_0 = _progress_0["unresolved"];
+    return $Bool_pick(_unresolved_0, {$: "ReactionIndeterminate"}, {$: "ReactionIneligible"});
+  }
+}
+
+function $resource_compare(_left_0, _right_0) {
+  return $Bool_pick($$accounting_equal(_left_0, _right_0), {$: "EQ"}, $$Bool_pick($$accounting_le(_left_0, _right_0), {$: "LT"}, {$: "GT"}));
+}
+
 function $Bool_not(_b_0) {
   if (!_b_0) {
     return true;
@@ -3800,4 +3846,11 @@ const $$Char_is_eq = $Char_is_eq;export default {
   "control_bindings": run_lib((a0) => run_loop($control_bindings(a0)), 1),
   "control_bound": run_lib((a0,a1,a2,a3,a4) => run_loop($control_bound(a0,a1,a2,str_in(a3),str_in(a4))), 5),
   "control_projection_room": run_lib((a0) => run_loop($control_projection_room_1(a0)), 1),
+  "reaction_source": run_lib((a0,a1,a2) => run_loop($reaction_source(a0,a1,a2)), 3),
+  "reaction_event": run_lib((a0,a1,a2) => run_loop($reaction_event(a0,str_in(a1),a2)), 3),
+  "reaction_mode": run_lib((a0,a1,a2) => run_loop($reaction_mode(a0,a1,a2)), 3),
+  "reaction_begin": run_lib(() => run_loop($reaction_begin()), 0),
+  "reaction_observe": run_lib((a0,a1) => run_loop($reaction_observe(a0,a1)), 2),
+  "reaction_finish": run_lib((a0) => run_loop($reaction_finish(a0)), 1),
+  "resource_compare": run_lib((a0,a1) => run_loop($resource_compare(a0,a1)), 2),
 };

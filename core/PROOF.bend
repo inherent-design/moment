@@ -289,3 +289,30 @@ def Laws.matching_user_schema_is_usable():
 
 def Laws.unknown_rule_binding_is_refused():
   {==}
+
+def Laws.future_reaction_source_is_unavailable():
+  {==}
+
+def Laws.invisible_reaction_event_is_not_a_trigger(kind, types):
+  {==}
+
+def Laws.eventless_reaction_is_usable():
+  {==}
+
+def Laws.missing_named_event_is_not_eventless():
+  {==}
+
+def Laws.matched_reaction_preserves_its_result(value):
+  {==}
+
+def Laws.false_does_not_resolve_unknown_reaction():
+  {==}
+
+def Laws.positive_reaction_can_resolve_unknown():
+  {==}
+
+def Laws.empty_reaction_has_no_candidate():
+  {==}
+
+def Laws.high_sequence_order_stays_exact():
+  {==}

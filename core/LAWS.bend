@@ -337,3 +337,33 @@ law matching_user_schema_is_usable:
 
 law unknown_rule_binding_is_refused:
   {Core.control_bindings(Con{"arbitrary", Nil{}}) == False{} : Bool}
+
+law future_reaction_source_is_unavailable:
+  {Core.reaction_source(True{}, Budget.BudgetCount{0, 2}, Budget.BudgetCount{0, 1}) == Core.ReactionSourceMissing{} : Core.ReactionSource}
+
+law invisible_reaction_event_is_not_a_trigger:
+  for kind: String
+  for types: +List<String>
+  {Core.reaction_event(False{}, kind, types) == Core.ReactionEventHidden{} : Core.ReactionEvent}
+
+law eventless_reaction_is_usable:
+  {Core.reaction_mode(0, 0, 0) == Core.ReactionOnce{} : Core.ReactionMode}
+
+law missing_named_event_is_not_eventless:
+  {Core.reaction_mode(0, 1, 0) == Core.ReactionNone{} : Core.ReactionMode}
+
+law matched_reaction_preserves_its_result:
+  for value: Core.Truth
+  {Core.reaction_observe(Core.ReactionMatched{}, value) == Core.ReactionMatched{} : Core.ReactionProgress}
+
+law false_does_not_resolve_unknown_reaction:
+  {Core.reaction_observe(Core.ReactionPending{True{}}, Core.No{}) == Core.ReactionPending{True{}} : Core.ReactionProgress}
+
+law positive_reaction_can_resolve_unknown:
+  {Core.reaction_observe(Core.ReactionPending{True{}}, Core.Yes{}) == Core.ReactionMatched{} : Core.ReactionProgress}
+
+law empty_reaction_has_no_candidate:
+  {Core.reaction_finish(Core.reaction_begin()) == Core.ReactionIneligible{} : Core.ReactionEnd}
+
+law high_sequence_order_stays_exact:
+  {Core.resource_compare(Budget.BudgetCount{1, 0}, Budget.BudgetCount{0, 4294967295}) == GT{} : Cmp}

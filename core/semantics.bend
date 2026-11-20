@@ -822,3 +822,61 @@ def control_bound(operator: Bool, submitted_present: Bool, bound_present: Bool, 
 
 def control_projection_room(count: U32) -> Bool:
   Control.projection_room(count)
+
+type ReactionSource is Data:
+  ReactionSourceMissing{}
+  ReactionNeedsVisibility{}
+
+def reaction_source(present: Bool, revision: Budget.Count, current: Budget.Count) -> ReactionSource:
+  Bool.pick(ReactionSource, Bool.and(present, Budget.le(revision, current)), ReactionNeedsVisibility{}, ReactionSourceMissing{})
+
+type ReactionEvent is Data:
+  ReactionEventHidden{}
+  ReactionEventSkip{}
+  ReactionEventUse{}
+
+def reaction_event(visible: Bool, kind: String, +types: +List<String>) -> ReactionEvent:
+  Bool.pick(ReactionEvent, visible,
+    Bool.pick(ReactionEvent, Bool.or(List.is_empty(&2, String, types), Text.contains(types, kind)), ReactionEventUse{}, ReactionEventSkip{}), ReactionEventHidden{})
+
+type ReactionMode is Data:
+  ReactionEvents{}
+  ReactionOnce{}
+  ReactionNone{}
+
+def reaction_mode(events: U32, requested: U32, types: U32) -> ReactionMode:
+  Bool.pick(ReactionMode, Bool.not(U32.is_zero(events)), ReactionEvents{},
+    Bool.pick(ReactionMode, Bool.and(U32.is_zero(requested), U32.is_zero(types)), ReactionOnce{}, ReactionNone{}))
+
+type ReactionProgress is Data:
+  ReactionPending{unresolved: Bool}
+  ReactionMatched{}
+
+def reaction_begin() -> ReactionProgress:
+  ReactionPending{False{}}
+
+def reaction_observe(progress: ReactionProgress, value: Truth) -> ReactionProgress:
+  match progress value:
+    case ReactionMatched{} _:
+      ReactionMatched{}
+    case ReactionPending{unresolved} Yes{}:
+      ReactionMatched{}
+    case ReactionPending{unresolved} No{}:
+      ReactionPending{unresolved}
+    case ReactionPending{unresolved} Unknown{}:
+      ReactionPending{True{}}
+
+type ReactionEnd is Data:
+  ReactionEligible{}
+  ReactionIndeterminate{}
+  ReactionIneligible{}
+
+def reaction_finish(progress: ReactionProgress) -> ReactionEnd:
+  match progress:
+    case ReactionMatched{}:
+      ReactionEligible{}
+    case ReactionPending{unresolved}:
+      Bool.pick(ReactionEnd, unresolved, ReactionIndeterminate{}, ReactionIneligible{})
+
+def resource_compare(+left: Budget.Count, +right: Budget.Count) -> Cmp:
+  Bool.pick(Cmp, Budget.equal(left, right), EQ{}, Bool.pick(Cmp, Budget.le(left, right), LT{}, GT{}))

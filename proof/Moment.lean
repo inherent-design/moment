@@ -927,6 +927,48 @@ theorem ctl_reserved_schema_requires_installed (name submitted actual : String) 
     ctlSchema name false submitted actual false "" = "SchemaReserved" := by simp [ctlSchema,h]
 theorem ctl_unchanged_schema_is_usable (digest : String) : ctlSchema "user.test" false digest digest true digest = "SchemaAllowed" := by simp [ctlSchema]
 
+def reactSource (present : Bool) (revision current : Nat) : String :=
+  if !present || revision > current then "ReactionSourceMissing" else "ReactionNeedsVisibility"
+def reactEvent (visible : Bool) (kind : String) (types : List String) : String :=
+  if !visible then "ReactionEventHidden"
+  else if types.isEmpty || types.contains kind then "ReactionEventUse" else "ReactionEventSkip"
+def reactMode (events requested types : Nat) : String :=
+  if events > 0 then "ReactionEvents" else if requested == 0 && types == 0 then "ReactionOnce" else "ReactionNone"
+inductive ReactionProgress | pending (unresolved : Bool) | matched deriving DecidableEq, Repr
+def reactObserve : ReactionProgress → Truth → ReactionProgress
+  | .matched, _ => .matched
+  | .pending _, .yes => .matched
+  | .pending unknown, .no => .pending unknown
+  | .pending _, .unknown => .pending true
+def reactFinish : ReactionProgress → String
+  | .matched => "ReactionEligible"
+  | .pending true => "ReactionIndeterminate"
+  | .pending false => "ReactionIneligible"
+def reactCompare (left right : Nat) : Int := if left < right then -1 else if left == right then 0 else 1
+
+theorem react_future_source_unavailable (present : Bool) (revision current : Nat) (h : revision > current) :
+    reactSource present revision current = "ReactionSourceMissing" := by simp [reactSource,h]
+theorem react_hidden_event_is_not_trigger (kind : String) (types : List String) :
+    reactEvent false kind types = "ReactionEventHidden" := rfl
+theorem react_eventless_is_usable : reactMode 0 0 0 = "ReactionOnce" := rfl
+theorem react_named_event_is_not_eventless : reactMode 0 1 0 = "ReactionNone" := rfl
+theorem react_match_absorbs_trace (remaining : List Truth) : remaining.foldl reactObserve .matched = .matched := by
+  induction remaining with
+  | nil => rfl
+  | cons head tail ih => simpa [List.foldl,reactObserve] using ih
+theorem react_unknown_survives_false : reactObserve (.pending true) .no = .pending true := rfl
+theorem react_positive_resolves_unknown : reactFinish (reactObserve (.pending true) .yes) = "ReactionEligible" := rfl
+theorem react_compare_reflexive (n : Nat) : reactCompare n n = 0 := by simp [reactCompare]
+
+#print axioms react_future_source_unavailable
+#print axioms react_hidden_event_is_not_trigger
+#print axioms react_eventless_is_usable
+#print axioms react_named_event_is_not_eventless
+#print axioms react_match_absorbs_trace
+#print axioms react_unknown_survives_false
+#print axioms react_positive_resolves_unknown
+#print axioms react_compare_reflexive
+
 #print axioms ctl_root_is_usable
 #print axioms ctl_projection_bound
 #print axioms ctl_support_descendant_is_hidden
@@ -1683,3 +1725,23 @@ def main : IO Unit := do
       for bound in [false,true] do
         for same in [false,true] do
           IO.println s!"case|controlBound|{operator}|{submitted}|{bound}|{same}|{Moment.ctlBound operator submitted bound "g" (if same then "g" else "other")}"
+
+  for present in [false,true] do
+    for revision in budgetValues do
+      for current in budgetValues do
+        IO.println s!"case|reactionSource|{present}|{revision}|{current}|{Moment.reactSource present revision current}"
+  for visible in [false,true] do
+    for kind in ["wanted","other"] do
+      for (types,index) in [[],["wanted"],["other"]].zipIdx do
+        IO.println s!"case|reactionEvent|{visible}|{kind}|{index}|{Moment.reactEvent visible kind types}"
+  for events in [0,1,1000] do
+    for requested in [0,1,1000] do
+      for types in [0,1,1000] do
+        IO.println s!"case|reactionMode|{events}|{requested}|{types}|{Moment.reactMode events requested types}"
+  for size in List.range 5 do
+    for code in List.range (3^size) do
+      let observations := fromCode values size code
+      IO.println s!"case|reactionTrace|{size}|{code}|{Moment.reactFinish (observations.foldl Moment.reactObserve (.pending false))}"
+  for left in budgetValues do
+    for right in budgetValues do
+      IO.println s!"case|resourceCompare|{left}|{right}|{Moment.reactCompare left right}"

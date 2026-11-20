@@ -426,16 +426,24 @@ export class Kernel {
     const stored=snapshot.controlState.rules?.[input.rule.id];
     if (!stored || !access.canRead(input.rule)) fail('NOT_FOUND','Rule not found');
     const rule=stored.value;
-    const events=input.eventIds.map(id=>{ const event=this.store.event(input.contextId,id);if (!event || event.revision>snapshot.context.revision || !this.events.visible(snapshot,event,principalId,access)) fail('NOT_FOUND','Event not accessible');return event; }).filter(event=>!rule.triggerEventTypes.length || rule.triggerEventTypes.includes(event.type)).sort((a,b)=>a.sequence-b.sequence);
-    const candidates=events.length?events:!input.eventIds.length && !rule.triggerEventTypes.length?[undefined]:[];
-    let unknown=false;
+    const events=[];
+    for(const id of input.eventIds) {
+      const event=this.store.event(input.contextId,id);
+      if(core.reactionSource(event,snapshot.context.revision)==='ReactionSourceMissing')fail('NOT_FOUND','Event not accessible');
+      const selected=core.reactionEvent(this.events.visible(snapshot,event,principalId,access),event.type,rule.triggerEventTypes);
+      if(selected==='ReactionEventHidden')fail('NOT_FOUND','Event not accessible');
+      if(selected==='ReactionEventUse')events.push(event);
+    }
+    events.sort((a,b)=>core.resourceCompare(a.sequence,b.sequence));
+    const mode=core.reactionMode(events.length,input.eventIds.length,rule.triggerEventTypes.length),candidates=mode==='ReactionEvents'?events:mode==='ReactionOnce'?[undefined]:[];
+    let progress=core.reactionBegin();
     for (const event of candidates) {
       const bindings={ contextId:input.contextId,principalId,incidentId:input.incidentId,action:rule.operation,resourceRefs:[],contextRevision:snapshot.context.revision,now:new Date(this.clock.wall()).toISOString(),'event.ids':events.map(item=>item.id),...(event?{'event.id':event.id,'event.type':event.type,'event.subjectRefs':event.subjectRefs}:{}),...extraBindings };
       const value=evaluate(rule.condition,{ bindings,...this.policyQueries(snapshot,access,principalId) });
-      if (value==='unknown') { unknown=true;continue; }
-      if (value) { const candidateInput=bindInput(rule.literalInput,rule.inputBindings,bindings);validateInput(rule.operation,candidateInput);return { eligible:true,explanation:'Condition matched; destination input validated',candidateInput }; }
+      progress=core.reactionObserve(progress,value);
+      if (progress.$==='ReactionMatched') { const candidateInput=bindInput(rule.literalInput,rule.inputBindings,bindings);validateInput(rule.operation,candidateInput);return { eligible:true,explanation:'Condition matched; destination input validated',candidateInput }; }
     }
-    if (unknown) fail('POLICY_INDETERMINATE','Reaction condition is unresolved');
+    if (core.reactionFinish(progress)==='ReactionIndeterminate') fail('POLICY_INDETERMINATE','Reaction condition is unresolved');
     return { eligible:false,explanation:'No triggering condition matched' };
   }
   create(input, principalId) {

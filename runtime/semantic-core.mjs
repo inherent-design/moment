@@ -395,3 +395,15 @@ export const schemaAdmission=(schema,installed,actual,old)=>controlTag(Core.cont
 export const ruleBindings=names=>coreBoolean(Core.control_bindings(codecTexts(names)));
 export const boundGrantSelected=(operator,submitted,bound)=>coreBoolean(Core.control_bound(!!operator,!!submitted,!!bound,submitted?resourceKey(submitted):'',bound?resourceKey(bound):''));
 export const textContains=(values,value)=>coreBoolean(Core.text_contains(codecTexts(values),codecText(value)));
+
+export const reactionSource=(event,revision)=>controlTag(Core.reaction_source(!!event,count(event?.revision??0),count(revision)),['ReactionSourceMissing','ReactionNeedsVisibility']);
+export const reactionEvent=(visible,kind,types)=>controlTag(Core.reaction_event(!!visible,codecText(kind),codecTexts(types)),['ReactionEventHidden','ReactionEventSkip','ReactionEventUse']);
+export const reactionMode=(events,requested,types)=>controlTag(Core.reaction_mode(size(events),size(requested),size(types)),['ReactionEvents','ReactionOnce','ReactionNone']);
+export const reactionBegin=()=>Core.reaction_begin();
+const reactionProgress=value=>{controlTag(value,['ReactionPending','ReactionMatched']);if(value.$==='ReactionPending'&&typeof value.unresolved!=='boolean')fail('INVALID_ARGUMENT','Invalid reaction observation state');return value;};
+export function reactionObserve(progress,value) {
+ if(![true,false,'unknown'].includes(value))fail('INVALID_ARGUMENT','Reaction observation requires a three-valued condition result');
+ return reactionProgress(Core.reaction_observe(reactionProgress(progress),truth(value)));
+}
+export const reactionFinish=progress=>controlTag(Core.reaction_finish(reactionProgress(progress)),['ReactionEligible','ReactionIndeterminate','ReactionIneligible']);
+export function resourceCompare(left,right) {const result=Core.resource_compare(count(left),count(right));controlTag(result,['LT','EQ','GT']);return {LT:-1,EQ:0,GT:1}[result.$];}

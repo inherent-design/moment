@@ -8,11 +8,11 @@
   "sources": [
     {
       "path": "core/LAWS.bend",
-      "digest": "sha256:0bdcebd5d1a047aa55063e66671954560c5ef0233b320bc35ee1299e1074f5e2"
+      "digest": "sha256:971e698636d99a5d499b0feaa3b1f5dd9e6c931c6a1d73f3d8a183db9ad07211"
     },
     {
       "path": "core/PROOF.bend",
-      "digest": "sha256:bc7c761d0128cf606413e2c1e22fb7c73e38e7d8e4a8c0301a7aa1c99d1238b2"
+      "digest": "sha256:80daa9c0257b99820ab3521d24b97a6d6b8282012bab70d8529dc1338ba3a574"
     },
     {
       "path": "core/accounting.bend",
@@ -44,7 +44,7 @@
     },
     {
       "path": "core/semantics.bend",
-      "digest": "sha256:c26c94b4a37131b9dab8f7ac6fb21b42d7cdc408a01dfaaed87857fb668b13bb"
+      "digest": "sha256:a4c3afb0c9df6d3079779265aac16923bfc2e894e8e4a4a993cec96abf72abf2"
     },
     {
       "path": "core/topology.bend",
@@ -52,7 +52,7 @@
     },
     {
       "path": "proof/Moment.lean",
-      "digest": "sha256:4ea1089c070545678b8816c3beaab6711175ad02d2eaeae6f55152b4bf12dd41"
+      "digest": "sha256:6af852f13181516dd1cdeb126a754240abb78c4b4ea51ea5d4b5b0a6be19e1a1"
     },
     {
       "path": "runtime/json.mjs",
@@ -64,7 +64,7 @@
     },
     {
       "path": "runtime/semantic-core.mjs",
-      "digest": "sha256:8f066e60b25eb6fc2c4229677a5c75f5180ec91b83e81206f6461d0e2ecb4e40"
+      "digest": "sha256:4db7f75dbd729a64fce283901a2569f3572a87b8d40543da1a75baa54c12d191"
     },
     {
       "path": "runtime/semantic-manifest.mjs",
@@ -76,7 +76,7 @@
     },
     {
       "path": "scripts/core-correspondence.mjs",
-      "digest": "sha256:dc80989e9705be6a8fb6a662e4928072b6b7d6acf758363017923104aad3e63d"
+      "digest": "sha256:1ac09a44768b328022527ec016032929507814af9af9a62a27ef8892c650a208"
     },
     {
       "path": "scripts/core-tools.mjs",
@@ -97,7 +97,7 @@
   ],
   "output": {
     "path": "runtime/generated/semantics.mjs",
-    "digest": "sha256:4e8a875bc6f55146ca1592cdc3fdebc4fecd8f21963c38a139c2895c9f5687ad"
+    "digest": "sha256:b6dd8fa953bf5a0884dcedbb8ce2ef1b57f673fedc631e8c2c973c142c358e84"
   },
   "claim": "Compiled executable core; proof verdict and native correspondence are separately qualified evidence"
 }
