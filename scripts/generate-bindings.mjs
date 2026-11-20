@@ -51,7 +51,7 @@ const summaries = {
 };
 
 export function generateBindings() {
-  verifySemanticBuild(root);
+  const semanticBuild=verifySemanticBuild(root);
   const methods = compileContract(join(root, 'contracts/index.ts'));
   const registered = new Set([...kernelMethods, ...managedMethods, ...serviceMethods]);
   if (registered.size !== kernelMethods.length + managedMethods.length + serviceMethods.length) throw new Error('Duplicate handler registration');
@@ -76,8 +76,7 @@ export function generateBindings() {
     }
   };
   walk('runtime');
-  for(const directory of ['core','proof'])for(const name of readdirSync(join(root,directory)).sort())if(/\.(bend|lean)$/.test(name))paths.push(directory+'/'+name);
-  paths.push('toolchain.json','scripts/core-tools.mjs','scripts/build-core.mjs','scripts/core-correspondence.mjs','runtime/generated/semantics.mjs','runtime/generated/semantics.json');
+  paths.push(...semanticBuild.sources.map(source=>source.path),'runtime/generated/semantics.mjs','runtime/generated/semantics.json');
   const sources = [...new Set(paths)].sort().map(source);
   const directive = { id: 'moment.continuity', version: continuityDirectiveVersion, digest: bytesDigest(instructions), source: source('runtime/directives.mjs') };
   const names = new Set();

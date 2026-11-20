@@ -29,7 +29,7 @@ function git(cwd, args) {
   try { return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 }).trim(); }
   catch { return undefined; }
 }
-export function inspectProject(location) {
+function inspectProject(location) {
   const path = canonicalPath(location);
   const worktree = git(path, ['rev-parse', '--show-toplevel']);
   if (!worktree) return { path, kind: 'directory', origins: [] };

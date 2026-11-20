@@ -28,6 +28,7 @@ Moment's implementation target is a local kernel whose reactions can be explaine
 | Actual checks and limitations | [Verification](development/verification.md) |
 | Public package qualification and release | [Releasing](development/releasing.md) |
 | Dependency and patch maintenance | [Dependencies](development/dependencies.md) |
+| Contribution and private vulnerability reporting | [Contributing](../CONTRIBUTING.md), [security](../SECURITY.md) |
 | Documentation ownership and cleanup | [Documentation maintenance](development/documentation.md) |
 | Research precedents and applicability | [Research](research.md) |
 

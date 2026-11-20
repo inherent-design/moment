@@ -9,7 +9,7 @@ import {renderMemoryPrompt,memorySelection} from './session-memory.mjs';
 import {parseJson} from './wire.mjs';
 
 import {observeCodexVersion,assertCodexThread,codexApiError,codexApiContractDigest} from './codex-api.mjs';
-export const memoryNativeSchema={type:'object',properties:{kind:{type:'string',enum:['unchanged','replace']},entries:{type:'array',maxItems:32,items:{type:'object',properties:{sourceId:{type:'string'},weight:{type:'number',minimum:0,maximum:1},generality:{type:['number','null'],minimum:0,maximum:1},note:{type:['string','null'],maxLength:2048}},required:['sourceId','weight','generality','note'],additionalProperties:false}},explanation:{type:'string',minLength:1,maxLength:512,pattern:'\\S'}},required:['kind','entries','explanation'],additionalProperties:false};
+const memoryNativeSchema={type:'object',properties:{kind:{type:'string',enum:['unchanged','replace']},entries:{type:'array',maxItems:32,items:{type:'object',properties:{sourceId:{type:'string'},weight:{type:'number',minimum:0,maximum:1},generality:{type:['number','null'],minimum:0,maximum:1},note:{type:['string','null'],maxLength:2048}},required:['sourceId','weight','generality','note'],additionalProperties:false}},explanation:{type:'string',minLength:1,maxLength:512,pattern:'\\S'}},required:['kind','entries','explanation'],additionalProperties:false};
 const validNative=new Ajv({strict:true,ownProperties:true}).compile(memoryNativeSchema);
 function decodeNativeOutput(text) {
   const value=parseJson(text);if(!validNative(value) || value.kind==='unchanged' && value.entries.length)throw Error('Invalid native structured output');

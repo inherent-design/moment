@@ -9,5 +9,5 @@
     "noUncheckedIndexedAccess": true,
     "skipLibCheck": false
   },
-  "include": ["contracts/**/*.ts"]
+  "include": ["contracts/**/*.ts", "runtime/**/*.d.mts"]
 }

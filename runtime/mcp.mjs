@@ -9,7 +9,7 @@ import { inspectHome } from './home.mjs';
 import { retainRequest } from './retry-material.mjs';
 
 /** Framing only. The SDK owns negotiation, protocol validation and dispatch. */
-export function strictFrames() {
+function strictFrames() {
   let buffer=Buffer.alloc(0);
   return new Transform({transform(chunk,encoding,callback) {
     try {
@@ -26,7 +26,7 @@ export function strictFrames() {
   },flush(callback) {callback(buffer.length?new Error('Incomplete MCP frame'):undefined);} });
 }
 
-export function buildMcpServer({root,credentialFile,profile='continuity'}={}) {
+function buildMcpServer({root,credentialFile,profile='continuity'}={}) {
   const managed=createManaged({root,credentialFile,profile});
   const server=new McpServer({name:'moment',version:catalogIdentity.implementationVersion},{instructions:catalog.instructions,capabilities:{tools:{}}});
   let active=0;

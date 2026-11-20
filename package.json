@@ -5,7 +5,7 @@
   "type": "module",
   "license": "Apache-2.0",
   "scripts": {
-    "check": "tsc --noEmit && pnpm check:core && pnpm check:bindings && node scripts/check-docs.mjs && pnpm test",
+    "check": "pnpm check:quick && pnpm test",
     "check:types": "tsc --noEmit",
     "check:docs": "node scripts/check-docs.mjs",
     "test": "node scripts/test.mjs",
@@ -20,10 +20,19 @@
     "build:core": "node scripts/build-core.mjs build",
     "check:core": "node scripts/build-core.mjs check",
     "test:proof": "node scripts/build-core.mjs prove",
-    "setup:formal": "node scripts/setup-formal.mjs"
+    "setup:formal": "node scripts/setup-formal.mjs",
+    "check:unused": "knip --no-progress",
+    "check:quick": "pnpm check:types && pnpm check:core && pnpm check:bindings && pnpm check:docs && pnpm check:unused",
+    "test:codex-mcp:protocol": "node scripts/codex-mcp-native-check.mjs --protocol-only",
+    "test:codex-mcp": "node scripts/codex-mcp-native-check.mjs",
+    "check:renovate": "pnpm --ignore-scripts dlx --package renovate@44.256.1 renovate-config-validator --strict renovate.json",
+    "security:scan": "node scripts/check-security.mjs",
+    "check:ci": "actionlint -shellcheck=",
+    "check:release": "node scripts/publish-package.mjs --check"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "2.4.0",
+    "knip": "6.46.1",
     "typescript": "7.0.2",
     "typescript-schema": "npm:typescript@6.0.2"
   },
@@ -80,6 +89,9 @@
     "scripts/core-tools.mjs",
     "scripts/build-core.mjs",
     "scripts/core-correspondence.mjs",
-    "scripts/setup-formal.mjs"
+    "scripts/setup-formal.mjs",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "scripts/formal-install.mjs"
   ]
 }

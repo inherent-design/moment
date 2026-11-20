@@ -6,7 +6,7 @@ import {sealCursor,openCursor} from './cursors.mjs';
 import {select,tokens} from './pointers.mjs';
 
 export const guidanceProfile='moment-guidance/1';
-export const within=(root,path)=>path===root || path.startsWith(root+sep);
+const within=(root,path)=>path===root || path.startsWith(root+sep);
 const identity=hash=>{const v=hash.slice(7,39);return `${v.slice(0,8)}-${v.slice(8,12)}-${v.slice(12,16)}-${v.slice(16,20)}-${v.slice(20)}`;};
 const utf8=bytes=>{try{return new TextDecoder('utf8',{fatal:true}).decode(bytes);}catch{fail('INVALID_ARGUMENT','Selected source is not valid UTF-8');}};
 

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "runtime/memory-hook.mjs",
+    "runtime/managed-service.mjs",
+    "runtime/providers/bytes-worker.mjs",
+    "test/**/*.test.mjs",
+    "contracts/examples.ts",
+    "contracts/memory.examples.ts",
+    "contracts/evolution.examples.ts",
+    // Separate proposed API owner, intentionally outside installed dispatch.
+    "contracts/evolution.ts",
+    // Opt-in owned-native/empirical consumers, invoked explicitly with private inputs.
+    "verification/memory-continuation.mjs",
+    "verification/memory-native-recovery.mjs",
+    "verification/memory-lifecycle.mjs",
+    "verification/memory-lifecycle-resume.mjs",
+    "verification/memory-lifecycle-tui.mjs"
+  ],
+  // TypeScript owns companion .d.mts consistency; Knip follows executable imports.
+  "project": ["runtime/**/*.mjs", "contracts/**/*.ts", "scripts/**/*.mjs", "test/**/*.mjs", "verification/**/*.mjs"],
+  // Explicitly versioned pnpm dlx consumer; it is not a runtime dependency.
+  "ignoreBinaries": ["renovate-config-validator", "trivy", "actionlint"]
+}

@@ -44,7 +44,7 @@ export function exposedOperations(profile = 'continuity') {
   const ids = profile === 'operator' ? implemented : continuityProfile;
   return ids.filter(id => bindingMap.get(id)?.availability === 'implemented' && !internalOperations.includes(id));
 }
-export function publicBinding(binding) {
+function publicBinding(binding) {
   const { mcpName, envelopeSchema, ...record } = binding;return record;
 }
 export function discoverBindings({ operationId, limit = 20, cursor } = {}, profile = 'continuity') {

@@ -1,0 +1,7 @@
+# Optional scanner profile. Ordinary setup/checks need no database download.
+[tools]
+"aqua:aquasecurity/trivy" = "0.76.2"
+"aqua:rhysd/actionlint" = "1.7.12"
+
+[settings.upgrade]
+auto_prune = false

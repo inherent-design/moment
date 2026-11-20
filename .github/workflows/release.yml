@@ -9,7 +9,12 @@ concurrency:
   group: npm-release-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  qualify:
+    uses: ./.github/workflows/checks.yml
+    permissions:
+      contents: read
   publish:
+    needs: qualify
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -32,11 +37,15 @@ jobs:
         run: |
           node --input-type=module -e "import p from './package.json' with {type:'json'}; if((process.env.GITHUB_REF_TYPE === 'tag' && process.env.GITHUB_REF_NAME !== 'v'+p.version) || p.name !== '@inherent.design/moment' || p.license !== 'Apache-2.0' || p.private) throw Error('Release tag or public identity disagrees')"
       - run: pnpm install --frozen-lockfile
-      - run: pnpm check
-      - run: pnpm check:package
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: qualified-package-${{ github.sha }}
+          path: dist
+      - name: Verify the exact qualified artifact without rebuilding it
+        run: node scripts/publish-package.mjs --check
       - name: Publish the qualified tarball
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         # npm can accept an upload before scanning makes it installable.
-        run: pnpm publish dist/inherent.design-moment-*.tgz --access public --tag preview --provenance --no-git-checks --ignore-scripts --skip-manifest-obfuscation --publish-wait-timeout 900000 --json
+        run: node scripts/publish-package.mjs --publish

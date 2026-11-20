@@ -7,7 +7,7 @@ export { inputSchemas } from './input-schemas.mjs';
 const ajv = new Ajv({ strict: true, allErrors: false, ownProperties: true });
 const validators = new Map(generated.operations.filter(o => o.availability==='implemented').map(o => [o.id, ajv.compile(o.inputSchema.document)]));
 const bindings = new Set(['occurrence.id','occurrence.eventIds','schedule.id','contextId','event.ids','principalId', 'incidentId', 'action', 'resourceRefs', 'contextRevision', 'now', 'event.id', 'event.type', 'event.subjectRefs']);
-export function validateCondition(condition) {
+function validateCondition(condition) {
   let count = 0;
   function visit(node, depth) {
     if (++count > 256 || depth > 16) fail('LIMIT_EXCEEDED', 'Condition exceeds node or depth bound');

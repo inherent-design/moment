@@ -2,8 +2,7 @@ import {execFileSync} from 'node:child_process';
 import {compileDocument} from './validation.mjs';
 import {digest,DomainError} from './json.mjs';
 
-/** Evidence baseline only. Admission depends on the used API, never this label. */
-export const codexVerifiedBaseline='codex-cli 0.169.0';
+/** Observe version as evidence; admission depends on the consumed API. */
 export function observeCodexVersion(binary,{cwd,env}={}) {
   try {
     const version=execFileSync(binary,['--version'],{cwd,env,encoding:'utf8',timeout:10000,maxBuffer:4096,stdio:['ignore','pipe','ignore']}).trim();
@@ -14,7 +13,7 @@ const text={type:'string',minLength:1};
 const object=(properties,required=Object.keys(properties))=>({type:'object',properties,required});
 const identified=object({id:text});
 // Validate only consumed fields. Additive fields and unrelated notifications pass.
-export const codexResponseSchemas={
+const codexResponseSchemas={
   initialize:object({userAgent:text}),
   'account/read':object({account:{anyOf:[{type:'null'},object({type:text})]}}),
   'account/login/start':object({type:text}),

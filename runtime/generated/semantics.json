@@ -24,7 +24,7 @@
     },
     {
       "path": "runtime/semantic-manifest.mjs",
-      "digest": "sha256:b08952b7dfd38fb122a48ceca38f5e159761295813b2055ddd88189011337328"
+      "digest": "sha256:d46e8b447dee3eac5d16a7b98f483be1af7dad535400aac07443d681dba4960b"
     },
     {
       "path": "scripts/build-core.mjs",
@@ -37,6 +37,14 @@
     {
       "path": "scripts/core-tools.mjs",
       "digest": "sha256:d0ebfc976294f325fe05f4afb9327d74ac08d7228a83fd11cdd4ae2c579a777d"
+    },
+    {
+      "path": "scripts/formal-install.mjs",
+      "digest": "sha256:27fe3f48a32c5be03d4113ef21c4d3c7da51210ef928080159de213374c3acaf"
+    },
+    {
+      "path": "scripts/setup-formal.mjs",
+      "digest": "sha256:1cece995ba5c7e7294d294a729986da7f616501a9c05b79d8381e2f460482051"
     },
     {
       "path": "toolchain.json",

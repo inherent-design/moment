@@ -10,7 +10,7 @@ description = "Install the exact dependency graph"
 run = "pnpm install --frozen-lockfile"
 
 [tasks.check]
-description = "Check contracts, documentation, and runtime tests"
+description = "Check types, source coherence, unused code, docs and runtime"
 run = "pnpm check"
 
 [tasks.test]
@@ -28,3 +28,15 @@ run = "pnpm build:core"
 [tasks."test:proof"]
 description = "Check Bend verdict and scoped Lean proofs"
 run = "pnpm test:proof"
+
+[tasks."check:quick"]
+description = "Static/source checks without the runtime or proof suites"
+run = "pnpm check:quick"
+
+[tasks."check:ci"]
+description = "Validate workflows with the optional security tool profile"
+run = "pnpm check:ci"
+
+[tasks."security:scan"]
+description = "Scan source and production/development dependency inventory"
+run = "pnpm security:scan"

@@ -1,24 +1,49 @@
 # Public package releases
 
-Moment is published as `@inherent.design/moment` under Apache-2.0 from `inherent-design/moment`. Preview versions use the `preview` dist-tag. Publishing a package does not install it into Codex, enroll sessions or migrate the personal store.
+Moment publishes `@inherent.design/moment` under Apache-2.0 from `inherent-design/moment`. Preview releases use the `preview` dist-tag. Publication does not install MCP, enroll sessions, activate goals or migrate a personal store. Apply current user authorization at publication and rollout boundaries.
 
-Use the pinned Node and pnpm versions through mise. Keep package metadata, dependency lock, executable CLI and source catalog aligned. Regenerate bindings after changing any catalog source. The runtime validates the exact packaged source bytes, including `package.json`; use `pnpm pack --skip-manifest-obfuscation` and preserve the manifest's packed formatting, including its lack of a final newline. Package managers omit the root lockfile, so generation retains its exact bytes in `runtime/generated/source-lock.yaml`; the runtime uses that copy only when the root file is absent. An existing changed checkout lockfile still refuses startup. Never disable validation to make an archive start.
+## Qualify source and exact bytes
 
-Before release, run:
+Use the pinned Node/pnpm toolchain and frozen graph. Review the complete source diff, package inventory, private-data boundary and applicable migration/recovery evidence. Covered semantic changes require a rebuilt core, separate proof verdict/audit/correspondence and refreshed bindings. Ordinary checks perform no inference.
 
 ```sh
 pnpm install --frozen-lockfile
+pnpm build:core
+pnpm test:proof
 pnpm generate:bindings
 pnpm check
+pnpm test:integration
+pnpm test:codex-protocol
+pnpm test:codex-mcp:protocol
 pnpm check:package
+pnpm check:release
+mise -E security exec -- pnpm check:ci
+pnpm check:renovate
+mise -E security exec -- pnpm security:scan
 ```
 
-The package check packs the candidate into ignored `dist/`, checks every catalog source in the extracted archive, and installs the exact tarball with production dependencies in a test-owned recipient. It exercises executable/offline discovery, the authenticated local service and typed client, MCP discovery/calls and a separate TypeScript consumer. Its state, primary home/alias and processes are isolated from the personal store and primary Codex. `pnpm test` likewise owns a suite home whose alias remains valid across disposable fixtures; invoke it rather than directly running the complete suite against the real user home. No inference credentials are required. It records tarball identity and qualification in `dist/package-verification.json`.
+Formal and optional security tools must be installed explicitly before their checks. Native protocol/installer checks use an installed read-only Codex binary and owned state. Live inference is separate and necessary only for an unqualified affected provider/profile boundary. See [verification](verification.md) for coverage and limitations. New sources and unresolved failures require affected revalidation; a source pin alone is no proof result.
 
-Review the final source diff and archive inventory. Exclude personal state, credentials, sessions, raw runs and unrelated files. Commit the qualified source, publish it to the intended repository and create a matching immutable `v<package-version>` tag. Manual dispatch on a branch qualifies that source without publishing; use it before creating a release tag. The tag-triggered release workflow repeats the required checks on a fresh runner, then publishes its qualified tarball using the organization publisher. Credentials are available only at the publishing step. The broader CI, security and dependency-maintenance evolution remains owned by the separate repository-polish intent.
+The package checker creates `dist/`, verifies every catalog source, installs the exact archive into a fresh production-only recipient and exercises CLI/offline discovery, shared service, MCP/client calls, retirement and an independent typed consumer. It records identity, platform, catalog, inventory and results in `dist/package-verification.json`. Suite and recipient HOME/CODEX_HOME remain isolated from the owner. Offline discovery must create no service state.
 
-The publisher requires npm authentication and may require maintainer two-factor approval according to the actual npm account/package policy. A refused or uncertain publication must be reconciled against registry state before retrying. Staged publishing, if used explicitly, retains the same qualified tarball and still requires maintainer approval; staging is not public release completion. Keep the exact request, version, archive digest and observed registry outcome. Never paste a token or recovery secret into a goal, capture or issue.
+The runtime verifies exact source bytes. Use `pnpm pack --skip-manifest-obfuscation` and preserve the manifest's packed formatting, including no final newline. Generation retains the otherwise omitted root lock in `runtime/generated/source-lock.yaml`; fallback is permitted only when the root lock is absent. A changed existing lock still refuses. Never disable integrity checks to make packaging pass.
 
-After publishing, verify the registry's version, `preview` tag and `dist.integrity` against the qualified archive, then perform an independent registry installation. A successful local pack or workflow upload is not enough. Keep release evidence attributable to the source revision and actual platform; Unix service checks do not establish Windows support or qualify the optional Darwin clone adapter on Linux.
+## CI and publication
 
-Updating an installed checkout, daemon or MCP bridge is a separate controlled operation. Inspect the current source/catalog, in-flight work and custody; retain recovery evidence, then reload only the affected Moment components and verify readback. Do not restart the owner's Codex/TUIs, replace peer goals or restore an older database over newer writes. Existing integrations keep their selected installation until explicitly changed.
+`checks.yml` owns fresh Linux/macOS runtime/package/native qualification, Linux formal rebuild/proofs and security/dependency checks. PR jobs have read-only repository permissions and no publication credentials. `security.yml` also runs independently on its schedule. Quick checks are diagnostic subsets; workflow validation does not establish runner success.
+
+The release workflow calls that complete qualification once, then downloads its exact Linux-qualified archive and receipt. `scripts/publish-package.mjs --check` binds package name/version/license, catalog, inventory count, SHA-256, SHA-512 and byte length. It refuses stale or substituted inputs and never rebuilds the artifact. Source tags must be immutable and equal `v<package-version>`.
+
+A manual branch dispatch qualifies without publishing. After actual required checks pass and publication is authorized, publish source and create the matching tag. Only the publisher job has OIDC provenance permission; npm authentication is passed only at its publishing step. Fork/ordinary PR jobs never receive publishing credentials. A normal update or green dependency PR grants no publication authority.
+
+Npm can accept an upload before its scanning makes the version installable. The publisher waits up to 15 minutes. On refusal or uncertainty, retain exact version, digest and observed outcome, then reconcile registry state before retrying. Never republish an already accepted version merely because availability is pending. A stage or GitHub prerelease is not a completed public npm release. If actual account policy requires maintainer approval, retain the concrete qualified artifact and required action without implying publication succeeded.
+
+Verify the public version/dist-tag and registry integrity against the qualified artifact, then perform an independent registry installation. Keep provenance and workflow receipts attributable to the actual source/platform. macOS/Linux service checks imply no Windows support; optional Darwin cloning has separate evidence. No credential, personal store, session or large private capture belongs in a public artifact or workflow output.
+
+## Local rollout
+
+Inspect current source/catalog and in-flight Moment work. Retain exact preconditions, recovery evidence, credentials and uncertain requests. Preview any actual store-format conversion and rehearse its all-history readback/recovery on an isolated copy. Pure source changes do not require reinitializing data or inventing a new format.
+
+Install the qualified artifact/selected checkout, reconcile only the owned MCP configuration and cut over Moment with matching source/catalog identity. Test work remains in owned processes; production reload is a separately authorized operator action. Preserve peer goals and active work. Never restore an old database over newer admitted writes.
+
+Use the supported configuration/MCP refresh where qualified and verify actual loaded catalogs plus selected domain reads in the intended threads. Reload acknowledgments alone prove no tool availability or hook execution. Hook definitions/trust and enrollment are independent. Restart only the necessary authorized components; do not restart primary Codex/TUIs merely for tests or edit peer goals. Retain the final installation and live-read receipts separately from public publication evidence.

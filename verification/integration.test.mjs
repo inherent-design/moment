@@ -8,7 +8,7 @@ import { spawn,spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { createIntegration,stageCodexConfig } from '../runtime/integration.mjs';
-import { catalogIdentity } from '../runtime/bindings.mjs';
+import { catalogIdentity,exposedOperations } from '../runtime/bindings.mjs';
 import {observeCodexVersion} from '../runtime/codex-api.mjs';
 import { bytesDigest,digest } from '../runtime/json.mjs';
 import { validateSurface } from '../runtime/bindings.mjs';
@@ -42,7 +42,7 @@ test('supported CLI preview/apply/repeat/remove preserves unrelated bytes and ex
   const mcp=new Client({name:'moment-emitted-launcher',version:'1'});
   try {
     await mcp.connect(new StdioClientTransport({...receipt.launcher,env:{PATH:process.env.PATH,...receipt.launcher.env},stderr:'pipe'}));
-    const tools=(await mcp.listTools()).tools;assert.equal(tools.length,16);assert.ok(tools.some(tool=>tool.name==='moment_memory_read'));assert.ok(tools.every(tool=>tool._meta['moment/catalog']===receipt.launcher.env.MOMENT_CATALOG_REVISION));assert.equal(existsSync(join(f.momentHome,'runtime')),false);
+    const tools=(await mcp.listTools()).tools;assert.deepEqual(tools.map(tool=>tool.name).sort(),exposedOperations('continuity').map(id=>'moment_'+id.replaceAll('.','_')).sort());assert.ok(tools.some(tool=>tool.name==='moment_memory_read'));assert.ok(tools.every(tool=>tool._meta['moment/catalog']===receipt.launcher.env.MOMENT_CATALOG_REVISION));assert.equal(existsSync(join(f.momentHome,'runtime')),false);
   } finally {await mcp.close();}
   const disconnected=await f.run('disconnect');state(disconnected,'applied');assert.equal(readFileSync(f.target,'utf8'),original);
   state(await f.run('disconnect'),'unchanged');

@@ -1,0 +1,37 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+  "configMigration": true,
+  "timezone": "America/Los_Angeles",
+  "schedule": ["before 9am on monday"],
+  "automerge": false,
+  "prConcurrentLimit": 3,
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {"enabled": true, "labels": ["security"], "schedule": ["at any time"]},
+  "lockFileMaintenance": {"enabled": true},
+  "packageRules": [
+    {
+      "description": "The MCP client and server negotiate one consumed SDK surface",
+      "matchPackageNames": ["@modelcontextprotocol/client", "@modelcontextprotocol/server", "@modelcontextprotocol/core"],
+      "groupName": "MCP protocol"
+    },
+    {
+      "description": "Keep the schema compiler alias on the qualified legacy compiler API",
+      "matchPackageNames": ["typescript"],
+      "matchDepNames": ["typescript-schema"],
+      "allowedVersions": "<7"
+    },
+    {
+      "description": "The scanner's aqua name resolves to upstream release tags",
+      "matchManagers": ["mise"],
+      "matchPackageNames": ["aquasecurity/trivy"],
+      "overrideDatasource": "git-tags",
+      "overridePackageName": "https://github.com/aquasecurity/trivy.git"
+    },
+    {
+      "description": "Coordinate pinned Node and pnpm across package, mise and workflows",
+      "matchPackageNames": ["node", "pnpm", "pnpm/pnpm"],
+      "groupName": "Node and pnpm toolchain"
+    }
+  ]
+}

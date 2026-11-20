@@ -1,0 +1,80 @@
+name: Qualify source and package
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source:
+    name: Runtime and installed package (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 12.18.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.13.0
+          package-manager-cache: false
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm check:package
+      - name: Install the qualification Codex baseline in runner-owned custody
+        env:
+          PNPM_HOME: ${{ runner.temp }}/moment-native-tools
+        run: |
+          pnpm add --global @openai/codex@0.169.0 --ignore-scripts
+          echo "$PNPM_HOME" >> "$GITHUB_PATH"
+      - run: pnpm test:integration
+      - run: pnpm test:codex-protocol
+      - run: pnpm test:codex-mcp:protocol
+      - name: Retain the exact Linux-qualified publication artifact
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: qualified-package-${{ github.sha }}
+          path: |
+            dist/*.tgz
+            dist/package-verification.json
+          if-no-files-found: error
+          retention-days: 7
+  formal:
+    name: Rebuild and check formal evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 12.18.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.13.0
+          package-manager-cache: false
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm setup:formal
+      - run: pnpm build:core
+      - run: git diff --exit-code -- runtime/generated/semantics.mjs runtime/generated/semantics.json
+      - run: pnpm test:proof
+      - run: pnpm check:bindings
+  security:
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read

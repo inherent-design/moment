@@ -22,6 +22,8 @@ mise run check
 
 These commands check declarations, positive and negative type examples, documentation links, API documentation coverage, and storage execution tests. The tests include new-process reopen, competing writers, and interruption rollback. See [verification](docs/development/verification.md) for the tested environment and limitations.
 
+Selected pure admission decisions execute from the source-bound Bend core; native ports supply observations and effects. Development changes to that boundary use `pnpm setup:formal`, `pnpm build:core` and the separate `pnpm test:proof` gate before regenerating bindings. Lean laws and finite native comparisons have explicit scopes in [semantics](docs/reference/semantics.md). The installed runtime needs neither compiler. Source coherence, a checked law and a working external effect remain separate evidence.
+
 ## Local service
 
 Inspect available operations and service health without starting a service:
