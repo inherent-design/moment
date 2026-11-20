@@ -6,6 +6,7 @@ import ./accounting.bend as Budget
 import ./scheduler.bend as Sched
 import ./capability.bend as Cap
 import ./policy-query.bend as PQ
+import ./control.bend as Control
 
 law deny_precedence:
   for permits: Core.Truth
@@ -269,3 +270,70 @@ law oversized_role_count_is_above_bound:
 
 law oversized_role_count_cannot_wrap:
   {PQ.role_budget(Budget.BudgetCount{1, 0}, Budget.zero(), PQ.PQBudget{32768}) == PQ.PQExhausted{} : PQ.Budget}
+
+law root_projection_is_usable:
+  {Core.control_projection(1, Con{Control.ProjectionPath{Nil{}}, Nil{}}, True{}) == Control.ProjectionAllowed{} : Control.Projection}
+
+law schema_grouping_needs_visible_schema:
+  {Core.control_projection(1, Con{Control.ProjectionPath{Con{"digest", Nil{}}}, Nil{}}, True{}) == Control.ProjectionSchemaHidden{} : Control.Projection}
+
+law support_children_are_not_projection_fields:
+  {Core.control_projection(1, Con{Control.ProjectionPath{Con{"support", Con{"value", Nil{}}}}, Nil{}}, False{}) == Control.ProjectionUnknown{} : Control.Projection}
+
+law projection_limit_cannot_expand:
+  for paths: +List<Control.Path>
+  for grouped: Bool
+  {Core.control_projection(65, paths, grouped) == Control.ProjectionTooMany{} : Control.Projection}
+
+law empty_proposal_is_not_work:
+  {Core.control_proposal("p", "1", "1", "policy", "policy", Nil{}, 0) == Control.ProposalEmpty{} : Control.Proposal}
+
+law stale_proposal_cannot_admit:
+  for changes: +List<Control.Change>
+  for executions: U32
+  {Core.control_proposal("p", "1", "2", "policy", "policy", changes, executions) == Control.ProposalStale{} : Control.Proposal}
+
+law fresh_proposal_is_usable:
+  {Core.control_proposal("p", "1", "1", "policy", "policy", Con{Control.DeclaredChange{"a"}, Nil{}}, 0) == Control.ProposalAllowed{} : Control.Proposal}
+
+law proposal_cannot_alias_its_change:
+  {Core.control_proposal("p", "1", "1", "policy", "policy", Con{Control.DeclaredChange{"p"}, Nil{}}, 0) == Control.ProposalAlias{} : Control.Proposal}
+
+law terminal_proposal_cannot_commit:
+  for revision: String
+  for policy: String
+  {Core.control_commit("committed", revision, revision, policy, policy) == Control.CommitTerminal{} : Control.Commit}
+
+law stale_commit_cannot_rebase:
+  {Core.control_commit("proposed", "1", "2", "policy", "policy") == Control.CommitStale{} : Control.Commit}
+
+law current_proposal_can_commit:
+  {Core.control_commit("proposed", "1", "1", "policy", "policy") == Control.CommitAllowed{} : Control.Commit}
+
+law repeated_plan_identity_is_refused:
+  {Core.control_plan("p", "i", Nil{}, Con{Control.PlanExecution{"a", "i"}, Con{Control.PlanExecution{"a", "i"}, Nil{}}}) == Control.PlanAlias{} : Control.Plan}
+
+law plan_cannot_cross_incidents:
+  {Core.control_plan("p", "i", Nil{}, Con{Control.PlanExecution{"a", "other"}, Nil{}}) == Control.PlanIncident{} : Control.Plan}
+
+law missing_bound_grant_is_not_selection:
+  for submitted: String
+  for bound: String
+  {Core.control_bound(False{}, True{}, False{}, submitted, bound) == False{} : Bool}
+
+law matching_bound_grant_is_usable:
+  {Core.control_bound(False{}, True{}, True{}, "g", "g") == True{} : Bool}
+
+law unsupported_transition_branch_is_hidden:
+  {Core.control_visible(True{}, True{}, False{}, "author", "reader", "g", Con{"g", Nil{}}, False{}) == False{} : Bool}
+
+law reserved_schema_needs_installed_definition:
+  for submitted: String
+  for actual: String
+  {Core.control_schema("moment.test", False{}, submitted, actual, False{}, "") == Control.SchemaReserved{} : Control.SchemaAdmission}
+
+law matching_user_schema_is_usable:
+  {Core.control_schema("user.test", False{}, "digest", "digest", False{}, "") == Control.SchemaAllowed{} : Control.SchemaAdmission}
+
+law unknown_rule_binding_is_refused:
+  {Core.control_bindings(Con{"arbitrary", Nil{}}) == False{} : Bool}

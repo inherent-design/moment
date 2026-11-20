@@ -3,10 +3,10 @@ import { randomUUID } from 'node:crypto';
 import packageMetadata from '../package.json' with {type:'json'};
 import { canonical, digest, fail, DomainError, resultError } from './json.mjs';
 import { validateInput, compileDocument } from './validation.mjs';
-import { boundLimits, attenuates, grantChain, limitedPolicy, sameRef, includesRef } from './authority.mjs';
+import { boundLimits, attenuates, grantChain, limitedPolicy } from './authority.mjs';
 import { builtinSchemas, installedSchema, validateTopology } from './builtins.mjs';
 import { applyGraph } from './graph.mjs';
-import { select, tokens, bindInput } from './pointers.mjs';
+import { select, bindInput } from './pointers.mjs';
 import { evaluate, evaluatePolicy } from './conditions.mjs';
 import { Executions, executionMethods, zeroUsage } from './executions.mjs';
 import { Events,mutationEvents } from './events.mjs';
@@ -42,7 +42,7 @@ export class Kernel {
     return { value, ref: this.ref(contextId, id), digest: digest(value), revision, recordedAt: new Date().toISOString(), recordedBy: principalId };
   }
   local(ref, contextId) {
-    if (ref.systemId !== this.store.systemId || ref.contextId !== contextId) fail('NOT_FOUND', 'Reference is not in this context');
+    if (!core.sameScope(ref,{systemId:this.store.systemId,contextId})) fail('NOT_FOUND', 'Reference is not in this context');
   }
   lookup(snapshot, ref) {
     this.local(ref, snapshot.context.id);
@@ -52,7 +52,8 @@ export class Kernel {
     return found;
   }
   ensureNewId(snapshot,id) {
-    if (id===snapshot.context.id || snapshot.assertions.some(item=>item.assertion.ref.id===id) || snapshot.records.some(item=>item.ref.id===id) || Object.values(snapshot.controlState).some(namespace=>namespace && typeof namespace==='object' && Object.values(namespace).some(item=>item?.ref?.id===id))) fail('IDENTITY_CONFLICT','Object identity already used');
+    const identities=[snapshot.context.id,...snapshot.assertions.map(item=>item.assertion.ref.id),...snapshot.records.map(item=>item.ref.id),...Object.values(snapshot.controlState).flatMap(namespace=>namespace && typeof namespace==='object'?Object.values(namespace).map(item=>item?.ref?.id).filter(id=>id!==undefined):[])];
+    if (core.textContains(identities,id)) fail('IDENTITY_CONFLICT','Object identity already used');
   }
   admission(snapshot, principalId, boundGrant) {
     const operator = core.isOperator(principalId,this.ownerId,snapshot.controlState.owners?.principalId,boundGrant);
@@ -110,7 +111,7 @@ export class Kernel {
       const access = this.authorize(current, method, principalId, input, boundGrant);
       if(method.startsWith('guidance.'))this.guidance.requestAccess(current,method,input,access);
       if(method==='guidance.review') {
-        if(!access.operator && !sameRef(input.grant,boundGrant))fail('FORBIDDEN','Guidance assessment requires the selected bound grant');
+        if(!core.boundGrantSelected(access.operator,input.grant,boundGrant))fail('FORBIDDEN','Guidance assessment requires the selected bound grant');
         if(!access.canRead(input.capability))fail('NOT_FOUND','Guidance capability is inaccessible');
         const scope={incidentId:input.incidentId,resourceRefs:[input.capability]};
         this.authorize(current,'execution.request',principalId,scope,boundGrant);
@@ -153,12 +154,12 @@ export class Kernel {
         case 'context.get': return ok(snapshot.context);
         case 'context.limits': {
           const totals=this.executions.totals(current);
-          if (input.limits.currency!==current.context.limits.currency) fail('FORBIDDEN','A resource revision cannot redenominate retained accounting');
+          if (!core.sameText(input.limits.currency,current.context.limits.currency)) fail('FORBIDDEN','A resource revision cannot redenominate retained accounting');
           if(!core.resourceCapacity(totals,{...zeroUsage(),concurrentExecutions:0},input.limits))fail('LIMIT_EXCEEDED','Resource revision is below retained usage or reservations');
           // Existing policy/grants can be broader after a reduction, but every new
           // request is still bounded by all three. Preserve actual unknown work.
           if (input.limits.deadline) for (const stored of Object.values(current.controlState.executions ?? {})) {
-            if (!['succeeded','failed','cancelled'].includes(stored.value.state) && (!stored.value.intent.limits.deadline || Date.parse(stored.value.intent.limits.deadline)>Date.parse(input.limits.deadline))) fail('LIMIT_EXCEEDED','New deadline would invalidate a retained execution');
+            if (!core.executionTerminal(stored.value.state) && !core.deadlineFits(stored.value.intent.limits.deadline,input.limits.deadline)) fail('LIMIT_EXCEEDED','New deadline would invalidate a retained execution');
           }
           control('contextMetadata','limits',input.limits);
           control('contextLimitRevisions',String(revision),{previous:current.context.limits,limits:input.limits,evidence:input.evidence,recordedBy:principalId});break;
@@ -188,7 +189,7 @@ export class Kernel {
           if(core.scheduleCancellable(state.state))control('scheduleStates',input.scheduleId,{...state,state:'cancelled',pending:[]});break;
         }
         case 'policy.evaluate': {
-          if (!access.operator && !sameRef(input.grant,boundGrant)) fail('FORBIDDEN','Only the bound grant may be evaluated');
+          if (!core.boundGrantSelected(access.operator,input.grant,boundGrant)) fail('FORBIDDEN','Only the bound grant may be evaluated');
           let decision='permit';
           try { this.authorize(current,input.action,principalId,input,input.grant); } catch (error) {
             if (!(error instanceof DomainError)) throw error;
@@ -206,7 +207,6 @@ export class Kernel {
           if (!current.controlState.policies?.[input.policy.id]) fail('NOT_FOUND','Policy not found');
           boundLimits(candidate.value.limits,current.context.limits);
           if (!access.operator) {
-            if (!access.chain.every(grant=>grant.incidentIds==='all' && includesRef(grant.resourceRefs,this.ref(input.contextId,input.contextId)))) fail('FORBIDDEN','Context policy activation requires context-wide delegation');
             limitedPolicy(candidate.value,this.lookup(current,current.context.policy).value,access.chain[0],[current.controlState.owners.principalId]);
           }
           for (const ref of input.evidence.sources) { if (!access.canRead(ref)) fail('NOT_FOUND','Evidence is not accessible');this.lookup(current,ref); }
@@ -216,11 +216,11 @@ export class Kernel {
           const grant=input.grant;
           this.ensureNewId(current,grant.id);
           const capabilityNames=Object.values(current.controlState.capabilities ?? {}).map(item=>item.value.name);
-          if (grant.actions.some(action=>!bootstrapActions.includes(action) && !capabilityNames.includes(action))) fail('INVALID_ARGUMENT','Grant contains an unknown action');
+          if (!core.grantActions(grant.actions,bootstrapActions,capabilityNames)) fail('INVALID_ARGUMENT','Grant contains an unknown action');
           boundLimits(grant.limits,current.context.limits);
           boundLimits(grant.limits,this.lookup(current,current.context.policy).value.limits);
           for (const ref of grant.resourceRefs) this.local(ref,input.contextId);
-          if (!access.operator && !sameRef(grant.parentGrant,boundGrant)) fail('FORBIDDEN','Delegation must name the bound parent');
+          if (!core.boundGrantSelected(access.operator,grant.parentGrant,boundGrant)) fail('FORBIDDEN','Delegation must name the bound parent');
           if (grant.parentGrant) {
             const parent=this.lookup(current,grant.parentGrant).value;
             grantChain(current,grant.parentGrant,parent.principalId,this.clock.wall());attenuates(grant,parent);
@@ -234,7 +234,7 @@ export class Kernel {
           if (!current.controlState.grants?.[input.grant.id]) fail('NOT_FOUND','Grant not found');
           if (!access.operator) {
             const chain=grantChain(current,input.grant,target.value.principalId,this.clock.wall());
-            if (!sameRef(input.grant,boundGrant) && (target.recordedBy!==principalId || !chain.some(item=>item.id===boundGrant.id))) fail('FORBIDDEN','Cannot revoke outside the active delegation');
+            if (!core.grantRevocable(access.operator,input.grant,boundGrant,target.recordedBy,principalId,chain)) fail('FORBIDDEN','Cannot revoke outside the active delegation');
           }
           control('revokedGrants',input.grant.id,true);
           this.executions.cancelMatching(current,(_value,origin)=>origin.grantIds.includes(input.grant.id),'Execution grant revoked',principalId,control);break;
@@ -243,21 +243,21 @@ export class Kernel {
           control('contextMetadata', 'state', 'closed');
           this.executions.cancelMatching(current,()=>true,'Context closed',principalId,control);break;
         case 'control.get': {
-          if (!access.operator && !sameRef(input.ref,boundGrant) && !access.canRead(input.ref)) fail('NOT_FOUND','Control object is not accessible');
+          if (!core.any([core.boundGrantSelected(access.operator,input.ref,boundGrant),access.canRead(input.ref)])) fail('NOT_FOUND','Control object is not accessible');
           if(current.controlState.guidanceSources?.[input.ref.id])this.guidance.source(current,input.ref.id,access);
           if(current.controlState.guidanceCaptures?.[input.ref.id])this.guidance.capture(current,input.ref.id,access);
           const item = this.lookup(snapshot, input.ref);
-          if (!['policies', 'grants', 'rules', 'capabilities', 'schedules', 'views','guidanceSources','guidanceCaptures'].some(namespace => snapshot.controlState[namespace]?.[input.ref.id])) fail('NOT_FOUND', 'Control object not found');
+          if (!core.controlNamespace(Object.keys(snapshot.controlState).filter(namespace=>snapshot.controlState[namespace]?.[input.ref.id]))) fail('NOT_FOUND', 'Control object not found');
           return ok(item);
         }
         case 'schema.publish': {
           if (!access.operator) fail('FORBIDDEN','Schema admission currently requires the operator');
-          if (input.schema.name.startsWith('moment.') && !installedSchema(input.schema)) fail('FORBIDDEN', 'The moment schema namespace is reserved for installed definitions');
-          if (digest(input.document) !== input.schema.digest) fail('INVALID_ARGUMENT', 'Schema digest does not match document');
+          const key = canonical([input.schema.name, input.schema.version]),old=current.controlState.schemas?.[key];
+          const admission=core.schemaAdmission(input.schema,installedSchema(input.schema),digest(input.document),old);
+          if(admission==='SchemaReserved')fail('FORBIDDEN','The moment schema namespace is reserved for installed definitions');
+          if(admission==='SchemaDigest')fail('INVALID_ARGUMENT','Schema digest does not match document');
           compileDocument(input.document);
-          const key = canonical([input.schema.name, input.schema.version]);
-          const old = current.controlState.schemas?.[key];
-          if (old && old.value.schema.digest !== input.schema.digest) fail('IDENTITY_CONFLICT', 'Schema version already has different content');
+          if(admission==='SchemaConflict')fail('IDENTITY_CONFLICT','Schema version already has different content');
           const value = { schema: input.schema, document: input.document };
           const stored = { value, ref: this.ref(input.contextId, randomUUID()), digest: digest(value), revision, recordedAt: new Date().toISOString(), recordedBy: principalId };
           if (!old) this.ensureNewId(current,stored.ref.id);
@@ -311,9 +311,10 @@ export class Kernel {
         }
         case 'view.publish': {
           this.ensureNewId(current,input.view.id);
-          if (input.view.fields.length>64) fail('LIMIT_EXCEEDED','Too many projection fields');
-          for (const pointer of input.view.fields) { tokens(pointer);if (pointer.startsWith('/support/') || (pointer!=='/support' && !select({ value:{},ref:{},digest:'',revision:0,recordedAt:'',recordedBy:'' },pointer).found && !pointer.startsWith('/value/') && !pointer.startsWith('/ref/'))) fail('INVALID_ARGUMENT','Unknown projection field'); }
-          if (input.view.groupBy==='schema' && !input.view.fields.includes('') && !input.view.fields.includes('/value') && !input.view.fields.includes('/value/schema') && !input.view.fields.includes('/value/schema/name')) fail('INVALID_ARGUMENT','Schema grouping requires a visible schema name');
+          const admission=core.projectionPlan(input.view.fields,input.view.groupBy);
+          if(admission==='ProjectionTooMany')fail('LIMIT_EXCEEDED','Too many projection fields');
+          if(admission==='ProjectionUnknown')fail('INVALID_ARGUMENT','Unknown projection field');
+          if(admission==='ProjectionSchemaHidden')fail('INVALID_ARGUMENT','Schema grouping requires a visible schema name');
           const value=this.stored(input.contextId,input.view,revision,principalId);control('views',input.view.id,value);batch.response=value;break;
         }
         case 'view.read': {
@@ -326,21 +327,22 @@ export class Kernel {
         }
         case 'rule.publish': {
           this.ensureNewId(current,input.rule.id);
-          if (!methods.includes(input.rule.operation)) fail('CAPABILITY_UNAVAILABLE','Reaction destination is not installed');
+          if (!core.textContains(methods,input.rule.operation)) fail('CAPABILITY_UNAVAILABLE','Reaction destination is not installed');
           boundLimits(input.rule.limits,current.context.limits);
           if (!access.operator) for (const grant of access.chain) boundLimits(input.rule.limits,grant.limits);
           // Validate pointer structure and binding names at publication; actual values arrive at evaluation.
           const dummy=Object.fromEntries(Object.values(input.rule.inputBindings).map(name=>[name,null]));bindInput(input.rule.literalInput,input.rule.inputBindings,dummy);
-          for (const name of Object.values(input.rule.inputBindings)) if (!['occurrence.id','occurrence.eventIds','schedule.id','contextId','principalId','incidentId','action','resourceRefs','contextRevision','now','event.id','event.ids','event.type','event.subjectRefs'].includes(name)) fail('INVALID_ARGUMENT','Unknown input binding');
+          if (!core.ruleBindings(Object.values(input.rule.inputBindings))) fail('INVALID_ARGUMENT','Unknown input binding');
           const value=this.stored(input.contextId,input.rule,revision,principalId);control('rules',input.rule.id,value);batch.response=value;break;
         }
         case 'reaction.evaluate': return ok(this.evaluateReaction(snapshot,input,principalId,access));
         case 'transition.propose': {
           const proposal=input.proposal;this.ensureNewId(current,proposal.id);
           if (!access.canIncident(proposal.incidentId) || !current.controlState.incidents?.[proposal.incidentId]) fail('NOT_FOUND','Incident not found');
-          if (proposal.basisRevision!==input.expectedRevision || !sameRef(proposal.policy,current.context.policy)) fail('REVISION_CONFLICT','Proposal basis or policy is stale','refresh');
-          if (!proposal.changes.length && !proposal.executions.length) fail('INVALID_ARGUMENT','Proposal is empty');
-          if (proposal.changes.some(change=>(change.record?.id ?? change.assertion?.id)===proposal.id)) fail('IDENTITY_CONFLICT','Proposal identity aliases its graph change');
+          const admission=core.proposalAdmission(proposal,input.expectedRevision,current.context.policy);
+          if(admission==='ProposalStale')fail('REVISION_CONFLICT','Proposal basis or policy is stale','refresh');
+          if(admission==='ProposalEmpty')fail('INVALID_ARGUMENT','Proposal is empty');
+          if(admission==='ProposalAlias')fail('IDENTITY_CONFLICT','Proposal identity aliases its graph change');
           if (proposal.rule) { this.local(proposal.rule,input.contextId);if (!access.canRead(proposal.rule) || !current.controlState.rules?.[proposal.rule.id]) fail('NOT_FOUND','Rule not found'); }
           for (const ref of proposal.evidence.sources) { if (!access.canRead(ref)) fail('NOT_FOUND','Proposal evidence is inaccessible');this.lookup(current,ref); }
           if (proposal.changes.length) {
@@ -355,8 +357,9 @@ export class Kernel {
         }
         case 'transition.commit': {
           const stored=this.transition(current,input.proposalId,principalId,access),proposal=stored.value.proposal;
-          if (stored.value.state!=='proposed') fail('IDENTITY_CONFLICT','Proposal is already terminal; use its original retry key or transition.get');
-          if (stored.revision!==current.context.revision || !sameRef(proposal.policy,current.context.policy)) fail('REVISION_CONFLICT','Proposal requires a fresh basis','refresh');
+          const admission=core.commitAdmission(stored,current);
+          if(admission==='CommitTerminal')fail('IDENTITY_CONFLICT','Proposal is already terminal; use its original retry key or transition.get');
+          if(admission==='CommitStale')fail('REVISION_CONFLICT','Proposal requires a fresh basis','refresh');
           if (proposal.changes.length) {
             this.authorize(current,'graph.transact',principalId,{ ...input,changes:proposal.changes },boundGrant);
             this.admitGraph(current,proposal.changes,principalId,access);
@@ -401,10 +404,10 @@ export class Kernel {
   }
   executionPlan(current,proposal,principalId,access,boundGrant,requester) {
     const preview={ ...current,controlState:{ ...current.controlState,executions:{ ...current.controlState.executions },executionOrigins:{ ...current.controlState.executionOrigins } } };
-    const ids=new Set([proposal.id,...proposal.changes.map(change=>change.record?.id ?? change.assertion?.id).filter(Boolean)]),prepared=[];
+    const plan=core.proposalPlan(proposal),prepared=[];
+    if(plan==='PlanIncident')fail('FORBIDDEN','Proposal executions must share its incident');
+    if(plan==='PlanAlias')fail('IDENTITY_CONFLICT','Execution identity aliases another proposal object');
     for (const intent of proposal.executions) {
-      if (intent.incidentId!==proposal.incidentId) fail('FORBIDDEN','Proposal executions must share its incident');
-      if (ids.has(intent.id)) fail('IDENTITY_CONFLICT','Execution identity aliases another proposal object');ids.add(intent.id);
       this.authorize(current,'execution.request',principalId,{ incidentId:intent.incidentId,resourceRefs:[intent.capability] },boundGrant);
       const item=this.executions.prepare(preview,intent,principalId,access,requester);
       preview.controlState.executions[intent.id]=this.stored(current.context.id,item.execution,current.context.revision+1,principalId,intent.id);
@@ -415,8 +418,7 @@ export class Kernel {
   transition(snapshot,id,principalId,access) {
     const stored=snapshot.controlState.transitions?.[id];
     const origin=snapshot.controlState.transitionOrigins?.[id];
-    const ownBranch=origin?.principalId===principalId && access.chain.some(grant=>grant.id===origin.grantId);
-    if (!stored || !access.canIncident(stored.value.proposal.incidentId) || (!access.operator && !ownBranch && !access.canRead(stored.ref))) fail('NOT_FOUND','Transition not found');
+    if (!core.transitionVisible(stored,origin,principalId,access)) fail('NOT_FOUND','Transition not found');
     return stored;
   }
   evaluateReaction(snapshot,input,principalId,access,extraBindings={}) {

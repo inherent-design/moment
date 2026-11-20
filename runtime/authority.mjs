@@ -1,7 +1,6 @@
 import { fail } from './json.mjs';
 import * as core from './semantic-core.mjs';
 export const sameRef=(a,b)=>a && b && core.sameReference(a,b);
-export const includesRef=(refs,ref)=>refs.some(item=>sameRef(item,ref));
 export function boundLimits(child,parent) {
   const decision=core.limitsBound(child,parent),reason={CurrencyMismatch:'Budget currencies differ',BudgetExceeded:'Requested budget exceeds its envelope',DeadlineExceeded:'Requested deadline exceeds its envelope'}[decision];
   if(reason)fail('FORBIDDEN',reason);

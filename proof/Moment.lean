@@ -853,6 +853,95 @@ theorem pq_settled_result_is_preserved (edges : List PqEdge) (destination : Stri
   | zero => rfl
   | succ count ih => simpa [pqLayers,pqLayer] using ih
 
+def ctlField : List String → Bool
+  | [] => true
+  | [head] => ["value","ref","support","digest","revision","recordedAt","recordedBy"].contains head
+  | head :: _ :: _ => head == "value" || head == "ref"
+def ctlSchemaPath (path : List String) : Bool :=
+  [[],["value"],["value","schema"],["value","schema","name"]].contains path
+def ctlProjection (count : Nat) (paths : List (List String)) (schema : Bool) : String :=
+  if count > 64 then "ProjectionTooMany"
+  else if !(paths.all ctlField) then "ProjectionUnknown"
+  else if schema && !(paths.any ctlSchemaPath) then "ProjectionSchemaHidden"
+  else "ProjectionAllowed"
+def ctlProposal (id basis expected policy current : String) (changes : List (Option String)) (executions : Nat) : String :=
+  if basis != expected || policy != current then "ProposalStale"
+  else if changes.isEmpty && executions == 0 then "ProposalEmpty"
+  else if changes.contains (some id) then "ProposalAlias" else "ProposalAllowed"
+def ctlCommit (state recorded current policy selected : String) : String :=
+  if state ≠ "proposed" then "CommitTerminal"
+  else if recorded ≠ current ∨ policy ≠ selected then "CommitStale" else "CommitAllowed"
+def ctlExecutions (incident : String) : List String → List (String × String) → String
+  | _, [] => "PlanAllowed"
+  | seen, (id, scope) :: tail =>
+    if scope != incident then "PlanIncident"
+    else if seen.contains id then "PlanAlias" else ctlExecutions incident (id :: seen) tail
+def ctlPlan (identity incident : String) (changes : List (Option String)) (items : List (String × String)) : String :=
+  ctlExecutions incident (identity :: changes.filterMap id) items
+def ctlVisible (present incident operator : Bool) (origin principal grant : String) (chain : List String) (readable : Bool) : Bool :=
+  present && incident && (operator || readable || (origin == principal && chain.contains grant))
+def ctlNamespace (names : List String) : Bool :=
+  names.any (["policies","grants","rules","capabilities","schedules","views","guidanceSources","guidanceCaptures"].contains ·)
+def ctlRevoke (operator : Bool) (target bound issuer principal : String) (chain : List String) : Bool :=
+  operator || target == bound || (issuer == principal && chain.contains bound)
+def ctlActions (requested installed capabilities : List String) : Bool :=
+  requested.all ((installed ++ capabilities).contains ·)
+def ctlSchema (name : String) (installed : Bool) (submitted actual : String) (present : Bool) (previous : String) : String :=
+  if name.startsWith "moment." && !installed then "SchemaReserved"
+  else if submitted != actual then "SchemaDigest"
+  else if present && previous != submitted then "SchemaConflict" else "SchemaAllowed"
+def ctlBindings (names : List String) : Bool :=
+  names.all (["occurrence.id","occurrence.eventIds","schedule.id","contextId","principalId","incidentId","action","resourceRefs","contextRevision","now","event.id","event.ids","event.type","event.subjectRefs"].contains ·)
+def ctlBound (operator submittedPresent boundPresent : Bool) (submitted bound : String) : Bool :=
+  operator || (submittedPresent && boundPresent && submitted == bound)
+
+theorem ctl_root_is_usable : ctlProjection 1 [[]] true = "ProjectionAllowed" := rfl
+theorem ctl_projection_bound (count : Nat) (paths : List (List String)) (schema : Bool) (h : count > 64) :
+    ctlProjection count paths schema = "ProjectionTooMany" := by simp [ctlProjection,h]
+theorem ctl_support_descendant_is_hidden (tail : List String) : ctlField ("support" :: "value" :: tail) = false := rfl
+theorem ctl_empty_proposal_refused : ctlProposal "p" "1" "1" "policy" "policy" [] 0 = "ProposalEmpty" := rfl
+theorem ctl_fresh_proposal_usable : ctlProposal "p" "1" "1" "policy" "policy" [some "a"] 0 = "ProposalAllowed" := rfl
+theorem ctl_stale_basis_refused (id basis expected policy current : String) (changes : List (Option String)) (executions : Nat) (h : basis ≠ expected) :
+    ctlProposal id basis expected policy current changes executions = "ProposalStale" := by simp [ctlProposal,h]
+theorem ctl_commit_requires_current_basis (state recorded current policy selected : String)
+    (h : ctlCommit state recorded current policy selected = "CommitAllowed") :
+    state = "proposed" ∧ recorded = current ∧ policy = selected := by
+  dsimp only [ctlCommit] at h
+  split at h
+  · simp at h
+  · rename_i hs
+    split at h
+    · simp at h
+    · rename_i hb
+      exact ⟨by simpa using hs,Classical.byContradiction (fun hn => hb (Or.inl hn)),Classical.byContradiction (fun hn => hb (Or.inr hn))⟩
+theorem ctl_current_commit_is_usable (revision policy : String) :
+    ctlCommit "proposed" revision revision policy policy = "CommitAllowed" := by simp [ctlCommit]
+theorem ctl_cross_incident_plan_refused (seen : List String) (id scope incident : String) (tail : List (String × String)) (h : scope ≠ incident) :
+    ctlExecutions incident seen ((id,scope) :: tail) = "PlanIncident" := by simp [ctlExecutions,h]
+theorem ctl_hidden_incident_hides_transition (present operator : Bool) (origin principal grant : String) (chain : List String) (readable : Bool) :
+    ctlVisible present false operator origin principal grant chain readable = false := by simp [ctlVisible]
+theorem ctl_no_bound_selection (submittedPresent : Bool) (submitted bound : String) :
+    ctlBound false submittedPresent false submitted bound = false := by simp [ctlBound]
+theorem ctl_matching_bound_selection (grant : String) : ctlBound false true true grant grant = true := by simp [ctlBound]
+theorem ctl_reserved_schema_requires_installed (name submitted actual : String) (h : name.startsWith "moment." = true) :
+    ctlSchema name false submitted actual false "" = "SchemaReserved" := by simp [ctlSchema,h]
+theorem ctl_unchanged_schema_is_usable (digest : String) : ctlSchema "user.test" false digest digest true digest = "SchemaAllowed" := by simp [ctlSchema]
+
+#print axioms ctl_root_is_usable
+#print axioms ctl_projection_bound
+#print axioms ctl_support_descendant_is_hidden
+#print axioms ctl_empty_proposal_refused
+#print axioms ctl_fresh_proposal_usable
+#print axioms ctl_stale_basis_refused
+#print axioms ctl_commit_requires_current_basis
+#print axioms ctl_current_commit_is_usable
+#print axioms ctl_cross_incident_plan_refused
+#print axioms ctl_hidden_incident_hides_transition
+#print axioms ctl_no_bound_selection
+#print axioms ctl_matching_bound_selection
+#print axioms ctl_reserved_schema_requires_installed
+#print axioms ctl_unchanged_schema_is_usable
+
 #print axioms pq_charge_exhaustion_is_final
 #print axioms pq_charge_never_increases
 #print axioms pq_zero_charge_preserves
@@ -1156,6 +1245,15 @@ def resourceRequests (size code : Nat) : List Nat :=
   (List.range size).map (fun i => ([0,1,Moment.budgetMaximum][code / 3^i % 3]?).getD 0)
 
 /-- Bounded executable correspondence cases; these do not replace theorems. -/
+def ctlPaths : List (List String) := [[],["value"],["value","schema"],["value","schema","name"],["value","schema","name","x"],["value","value","a/b"],["ref"],["ref","id"],["support"],["support","x"],["digest"],["revision"],["recordedAt"],["recordedBy"],["other"],["digest","x"]]
+def ctlChanges : List (List (Option String)) := [[],[some "p"],[some "a"],[none],[some "a",none]]
+def ctlItems : List (String × String) := [("a","i"),("b","i"),("p","i"),("a","other")]
+def ctlChains : List (List String) := [[],["g"],["other"]]
+def ctlNames : List String := ["policies","transitions","executions","schemas","guidanceSources","unknown"]
+def ctlBindingSamples : List (List String) := [[],["now"],["arbitrary"],["now","event.id"],["now","arbitrary"]]
+def fromCode {α : Type} (values : List α) (size code : Nat) : List α :=
+  (List.range size).filterMap (fun i => values[code / values.length^i % values.length]?)
+
 def main : IO Unit := do
   let values : List Moment.Truth := [.yes,.no,.unknown]
   for a in values do
@@ -1529,3 +1627,59 @@ def main : IO Unit := do
         for hops in [1,2,8] do
           for operator in [false,true] do
             IO.println s!"case|policyQueryRelated|{size}|{mask}|{index}|{hops}|{operator}|{pqSearchLabel (Moment.pqRelated (pqGraph size mask) "n0" ("n" ++ toString (size-1)) hops operator budget)}"
+
+  for size in List.range 3 do
+    for code in List.range (16^size) do
+      let paths := fromCode ctlPaths size code
+      for schema in [false,true] do
+        IO.println s!"case|controlProjection|{size}|{code}|{schema}|{Moment.ctlProjection size paths schema}"
+  for count in [0,1,64,65,1000] do
+    for schema in [false,true] do
+      IO.println s!"case|controlProjectionCount|{count}|{schema}|{Moment.ctlProjection count (List.replicate count ["value"]) schema}"
+  for revision in [0,1,9007199254740991] do
+    for sameBasis in [false,true] do
+      for samePolicy in [false,true] do
+        for (changes,index) in ctlChanges.zipIdx do
+          for executions in [0,1,1000] do
+            IO.println s!"case|controlProposal|{revision}|{sameBasis}|{samePolicy}|{index}|{executions}|{Moment.ctlProposal "p" (toString revision) (if sameBasis then toString revision else if revision == 0 then "1" else "0") "policy" (if samePolicy then "policy" else "other") changes executions}"
+  for state in ["proposed","committed","cancelled"] do
+    for revision in [0,1,9007199254740991] do
+      for sameBasis in [false,true] do
+        for samePolicy in [false,true] do
+          IO.println s!"case|controlCommit|{state}|{revision}|{sameBasis}|{samePolicy}|{Moment.ctlCommit state (toString revision) (if sameBasis then toString revision else if revision == 0 then "1" else "0") "policy" (if samePolicy then "policy" else "other")}"
+  for (changes,index) in ctlChanges.zipIdx do
+    for size in List.range 3 do
+      for code in List.range (4^size) do
+        IO.println s!"case|controlPlan|{index}|{size}|{code}|{Moment.ctlPlan "p" "i" changes (fromCode ctlItems size code)}"
+  for present in [false,true] do
+    for incident in [false,true] do
+      for operator in [false,true] do
+        for own in [false,true] do
+          for (chain,index) in ctlChains.zipIdx do
+            for readable in [false,true] do
+              IO.println s!"case|controlVisible|{present}|{incident}|{operator}|{own}|{index}|{readable}|{Moment.ctlVisible present incident operator (if own then "caller" else "other") "caller" "g" chain readable}"
+  for size in List.range 3 do
+    for code in List.range (6^size) do
+      IO.println s!"case|controlNamespace|{size}|{code}|{Moment.ctlNamespace (fromCode ctlNames size code)}"
+  for operator in [false,true] do
+    for bound in [false,true] do
+      for issuer in [false,true] do
+        for (chain,index) in ctlChains.zipIdx do
+          IO.println s!"case|controlRevoke|{operator}|{bound}|{issuer}|{index}|{Moment.ctlRevoke operator (if bound then "g" else "target") "g" (if issuer then "caller" else "other") "caller" chain}"
+  for requested in List.range 4 do
+    for installed in List.range 4 do
+      for capabilities in List.range 4 do
+        IO.println s!"case|controlActions|{requested}|{installed}|{capabilities}|{Moment.ctlActions (chooseMask ["read","write"] requested) (chooseMask ["read","write"] installed) (chooseMask ["read","write"] capabilities)}"
+  for name in ["moment.test","user.test"] do
+    for installed in [false,true] do
+      for actual in [false,true] do
+        for present in [false,true] do
+          for same in [false,true] do
+            IO.println s!"case|controlSchema|{name}|{installed}|{actual}|{present}|{same}|{Moment.ctlSchema name installed "digest" (if actual then "digest" else "other") present (if same then "digest" else "other")}"
+  for (names,index) in ctlBindingSamples.zipIdx do
+    IO.println s!"case|controlBindings|{index}|{Moment.ctlBindings names}"
+  for operator in [false,true] do
+    for submitted in [false,true] do
+      for bound in [false,true] do
+        for same in [false,true] do
+          IO.println s!"case|controlBound|{operator}|{submitted}|{bound}|{same}|{Moment.ctlBound operator submitted bound "g" (if same then "g" else "other")}"

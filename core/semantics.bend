@@ -6,6 +6,7 @@ import ./collections.bend as Text
 import ./scheduler.bend as Sched
 import ./capability.bend as Cap
 import ./policy-query.bend as PQ
+import ./control.bend as Control
 
 def execution_step(state: Run.State, action: Run.Action) -> Run.Step:
   Run.step(state, action)
@@ -753,9 +754,6 @@ def execution_reconcile(principal: String, provider: String, operator: Bool, rea
 def execution_evidence(required: Bool, sources: +List<String>) -> Bool:
   Cap.evidence(required, sources)
 
-def capability_bound_grant(operator: Bool, submitted: String, bound: String) -> Bool:
-  Bool.or(operator, String.eq(submitted, bound))
-
 def capability_selected(advertised: String, requested: String, readable: Bool) -> Bool:
   Cap.selected(advertised, requested, readable)
 
@@ -788,3 +786,39 @@ def policy_query_related(edges: +List<PQ.Edge>, start: String, destination: Stri
 
 def policy_query_exists_budget(budget: PQ.Budget, records: U32, assertions: U32, provenance: U32, +roles: +List<U32>) -> PQ.Budget:
   PQ.charges(roles, PQ.charges(roles, PQ.charge(PQ.charge(PQ.charge(PQ.charge(budget, records), assertions), provenance), 1)))
+
+def control_projection(count: U32, paths: +List<Control.Path>, schema: Bool) -> Control.Projection:
+  Control.projection(count, paths, schema)
+
+def control_proposal(id: String, basis: String, expected: String, policy: String, current: String, changes: +List<Control.Change>, executions: U32) -> Control.Proposal:
+  Control.proposal(id, basis, expected, policy, current, changes, executions)
+
+def control_commit(state: String, recorded: String, current: String, policy: String, selected: String) -> Control.Commit:
+  Control.commit(state, recorded, current, policy, selected)
+
+def control_plan(id: String, incident: String, changes: +List<Control.Change>, items: +List<Control.ExecutionItem>) -> Control.Plan:
+  Control.plan(id, incident, changes, items)
+
+def control_visible(present: Bool, incident: Bool, operator: Bool, origin: String, principal: String, grant: String, chain: +List<String>, readable: Bool) -> Bool:
+  Control.visible(present, incident, operator, origin, principal, grant, chain, readable)
+
+def control_namespace(names: +List<String>) -> Bool:
+  Control.namespace(names)
+
+def control_revoke(operator: Bool, target: String, bound: String, issuer: String, principal: String, chain: +List<String>) -> Bool:
+  Control.revoke(operator, target, bound, issuer, principal, chain)
+
+def control_actions(requested: +List<String>, installed: +List<String>, capabilities: +List<String>) -> Bool:
+  Control.actions(requested, installed, capabilities)
+
+def control_schema(name: String, installed: Bool, submitted: String, actual: String, present: Bool, previous: String) -> Control.SchemaAdmission:
+  Control.schema(name, installed, submitted, actual, present, previous)
+
+def control_bindings(names: +List<String>) -> Bool:
+  Control.binding_names(names)
+
+def control_bound(operator: Bool, submitted_present: Bool, bound_present: Bool, submitted: String, bound: String) -> Bool:
+  Bool.or(operator, Bool.and(Bool.and(submitted_present, bound_present), String.eq(submitted, bound)))
+
+def control_projection_room(count: U32) -> Bool:
+  Control.projection_room(count)

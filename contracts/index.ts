@@ -362,6 +362,7 @@ export interface Message {
 export interface View {
   id: Id;
   selector: Selector;
+  /** JSON Pointers into a visible Stored<Atom | Relation>; "" selects its root. Support is separate. */
   fields: string[];
   groupBy?: "record" | "schema";
 }

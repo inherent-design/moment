@@ -1944,6 +1944,193 @@ function $policy_query_related(_edges_0, _start_0, _destination_0, _hops_0, _ope
   return $policy_query_related_budget(_budget_0, _edges_0, _start_0, _destination_0, _hops_0, _operator_0);
 }
 
+function $control_field(_path_0) {
+  if (_path_0.$ === "Nil") {
+    return true;
+  } else {
+    const _head_0 = _path_0["head"];
+    const _tail_0 = _path_0["tail"];
+    const _name_0 = _head_0;
+    const _x_0 = $$String_eq(_name_0, "value");
+    const _x_1 = $$String_eq(_name_0, "ref");
+    const _x_2 = (_x_0 || _x_1);
+    const _x_3 = $$Bool_and($$List_is_empty(_tail_0), $$collections_contains({$: "Con", "head": "support", "tail": {$: "Con", "head": "digest", "tail": {$: "Con", "head": "revision", "tail": {$: "Con", "head": "recordedAt", "tail": {$: "Con", "head": "recordedBy", "tail": {$: "Nil"}}}}}}, _name_0));
+    return (_x_2 || _x_3);
+  }
+}
+
+function $control_schema_name(_path_0) {
+  if (_path_0.$ === "Nil") {
+    return true;
+  } else {
+    const _head_0 = _path_0["head"];
+    const _tail_0 = _path_0["tail"];
+    return $Bool_and($$String_eq(_head_0, "name"), $$List_is_empty(_tail_0));
+  }
+}
+
+function $control_schema_tail(_path_0) {
+  if (_path_0.$ === "Nil") {
+    return true;
+  } else {
+    const _head_0 = _path_0["head"];
+    const _tail_0 = _path_0["tail"];
+    return $Bool_and($$String_eq(_head_0, "schema"), $$control_schema_name(_tail_0));
+  }
+}
+
+function $control_schema_path(_path_0) {
+  if (_path_0.$ === "Nil") {
+    return true;
+  } else {
+    const _head_0 = _path_0["head"];
+    const _tail_0 = _path_0["tail"];
+    return $Bool_and($$String_eq(_head_0, "value"), $$control_schema_tail(_tail_0));
+  }
+}
+
+function $control_fields(_paths_0) {
+  if (_paths_0.$ === "Nil") {
+    return true;
+  } else {
+    const _t_0 = _paths_0["head"];
+    const _path_0 = _t_0["tokens"];
+    const _tail_0 = _paths_0["tail"];
+    return $Bool_and($$control_field(_path_0), $$control_fields(_tail_0));
+  }
+}
+
+function $control_schema_visible(_paths_0) {
+  if (_paths_0.$ === "Nil") {
+    return false;
+  } else {
+    const _t_0 = _paths_0["head"];
+    const _path_0 = _t_0["tokens"];
+    const _tail_0 = _paths_0["tail"];
+    const _x_0 = $$control_schema_path(_path_0);
+    const _x_1 = $$control_schema_visible(_tail_0);
+    return (_x_0 || _x_1);
+  }
+}
+
+function $control_projection_room(_count_0) {
+  return (_count_0 <= 64);
+}
+
+function $control_projection(_count_0, _paths_0, _schema_0) {
+  return $Bool_pick($$Bool_not($$control_projection_room(_count_0)), {$: "ProjectionTooMany"}, $$Bool_pick($$control_fields(_paths_0), $$Bool_pick($$Bool_and(_schema_0, $$Bool_not($$control_schema_visible(_paths_0))), {$: "ProjectionSchemaHidden"}, {$: "ProjectionAllowed"}), {$: "ProjectionUnknown"}));
+}
+
+function $control_aliases($0, $1) {
+  for (;;) {
+    {
+      const _changes_0 = $0;
+      const _id_0 = $1;
+      if (_changes_0.$ === "Nil") {
+        return false;
+      } else {
+        const _t_0 = _changes_0["head"];
+        if (_t_0.$ === "DeclaredChange") {
+          const _other_0 = _t_0["id"];
+          const _tail_0 = _changes_0["tail"];
+          const _x_0 = $$String_eq(_other_0, _id_0);
+          const _x_1 = $$control_aliases(_tail_0, _id_0);
+          return (_x_0 || _x_1);
+        } else {
+          const _tail_1 = _changes_0["tail"];
+          $0 = _tail_1;
+          $1 = _id_0;
+          continue;
+        }
+      }
+    }
+  }
+}
+
+function $control_proposal(_id_0, _basis_0, _expected_0, _policy_0, _current_0, _changes_0, _executions_0) {
+  return $Bool_pick($$Bool_and($$String_eq(_basis_0, _expected_0), $$String_eq(_policy_0, _current_0)), $$Bool_pick($$Bool_and($$List_is_empty(_changes_0), (_executions_0 === 0)), {$: "ProposalEmpty"}, $$Bool_pick($$control_aliases(_changes_0, _id_0), {$: "ProposalAlias"}, {$: "ProposalAllowed"})), {$: "ProposalStale"});
+}
+
+function $control_commit(_state_0, _recorded_0, _current_0, _policy_0, _selected_0) {
+  return $Bool_pick($$String_eq(_state_0, "proposed"), $$Bool_pick($$Bool_and($$String_eq(_recorded_0, _current_0), $$String_eq(_policy_0, _selected_0)), {$: "CommitAllowed"}, {$: "CommitStale"}), {$: "CommitTerminal"});
+}
+
+function $control_declared($0) {
+  for (;;) {
+    {
+      const _changes_0 = $0;
+      if (_changes_0.$ === "Nil") {
+        return {$: "Nil"};
+      } else {
+        const _t_0 = _changes_0["head"];
+        if (_t_0.$ === "DeclaredChange") {
+          const _id_0 = _t_0["id"];
+          const _tail_0 = _changes_0["tail"];
+          return {$: "Con", "head": _id_0, "tail": $$control_declared(_tail_0)};
+        } else {
+          const _tail_1 = _changes_0["tail"];
+          $0 = _tail_1;
+          continue;
+        }
+      }
+    }
+  }
+}
+
+function $control_executions(_items_0, _incident_0, _seen_0) {
+  if (_items_0.$ === "Nil") {
+    return {$: "PlanAllowed"};
+  } else {
+    const _t_0 = _items_0["head"];
+    const _id_0 = _t_0["id"];
+    const _selected_0 = _t_0["incident"];
+    const _tail_0 = _items_0["tail"];
+    const _key_0 = _id_0;
+    return $Bool_pick($$String_eq(_selected_0, _incident_0), $$Bool_pick($$collections_contains(_seen_0, _key_0), {$: "PlanAlias"}, $$control_executions(_tail_0, _incident_0, {$: "Con", "head": _key_0, "tail": _seen_0})), {$: "PlanIncident"});
+  }
+}
+
+function $control_plan(_id_0, _incident_0, _changes_0, _items_0) {
+  return $control_executions(_items_0, _incident_0, {$: "Con", "head": _id_0, "tail": $$control_declared(_changes_0)});
+}
+
+function $control_visible(_present_0, _incident_0, _operator_0, _origin_0, _principal_0, _grant_0, _chain_0, _readable_0) {
+  const _x_0 = $$Bool_and($$String_eq(_origin_0, _principal_0), $$collections_contains(_chain_0, _grant_0));
+  const _x_1 = (_readable_0 || _x_0);
+  return $Bool_and($$Bool_and(_present_0, _incident_0), (_operator_0 || _x_1));
+}
+
+function $control_namespace(_names_0) {
+  if (_names_0.$ === "Nil") {
+    return false;
+  } else {
+    const _head_0 = _names_0["head"];
+    const _tail_0 = _names_0["tail"];
+    const _x_0 = $$collections_contains({$: "Con", "head": "policies", "tail": {$: "Con", "head": "grants", "tail": {$: "Con", "head": "rules", "tail": {$: "Con", "head": "capabilities", "tail": {$: "Con", "head": "schedules", "tail": {$: "Con", "head": "views", "tail": {$: "Con", "head": "guidanceSources", "tail": {$: "Con", "head": "guidanceCaptures", "tail": {$: "Nil"}}}}}}}}}, _head_0);
+    const _x_1 = $$control_namespace(_tail_0);
+    return (_x_0 || _x_1);
+  }
+}
+
+function $control_revoke(_operator_0, _target_0, _bound_0, _issuer_0, _principal_0, _chain_0) {
+  const _x_0 = $$String_eq(_target_0, _bound_0);
+  const _x_1 = $$Bool_and($$String_eq(_issuer_0, _principal_0), $$collections_contains(_chain_0, _bound_0));
+  const _x_2 = (_x_0 || _x_1);
+  return (_operator_0 || _x_2);
+}
+
+function $control_actions(_requested_0, _installed_0, _capabilities_0) {
+  return $collections_subset(_requested_0, $$collections_union(_installed_0, _capabilities_0));
+}
+
+function $control_schema(_name_0, _installed_0, _submitted_0, _actual_0, _present_0, _previous_0) {
+  return $Bool_pick($$Bool_and($$String_starts_with(_name_0, "moment."), $$Bool_not(_installed_0)), {$: "SchemaReserved"}, $$Bool_pick($$String_eq(_submitted_0, _actual_0), $$Bool_pick($$Bool_and(_present_0, $$Bool_not($$String_eq(_previous_0, _submitted_0))), {$: "SchemaConflict"}, {$: "SchemaAllowed"}), {$: "SchemaDigest"}));
+}
+
+function $control_binding_names(_names_0) {
+  return $collections_subset(_names_0, {$: "Con", "head": "occurrence.id", "tail": {$: "Con", "head": "occurrence.eventIds", "tail": {$: "Con", "head": "schedule.id", "tail": {$: "Con", "head": "contextId", "tail": {$: "Con", "head": "principalId", "tail": {$: "Con", "head": "incidentId", "tail": {$: "Con", "head": "action", "tail": {$: "Con", "head": "resourceRefs", "tail": {$: "Con", "head": "contextRevision", "tail": {$: "Con", "head": "now", "tail": {$: "Con", "head": "event.id", "tail": {$: "Con", "head": "event.ids", "tail": {$: "Con", "head": "event.type", "tail": {$: "Con", "head": "event.subjectRefs", "tail": {$: "Nil"}}}}}}}}}}}}}}});
+}
+
 function $execution_step_1(_state_0, _action_0) {
   return $execution_step(_state_0, _action_0);
 }
@@ -2816,11 +3003,6 @@ function $execution_evidence(_required_0, _sources_0) {
   return $capability_evidence(_required_0, _sources_0);
 }
 
-function $capability_bound_grant(_operator_0, _submitted_0, _bound_0) {
-  const _x_0 = $$String_eq(_submitted_0, _bound_0);
-  return (_operator_0 || _x_0);
-}
-
 function $capability_selected_1(_advertised_0, _requested_0, _readable_0) {
   return $capability_selected(_advertised_0, _requested_0, _readable_0);
 }
@@ -2863,6 +3045,55 @@ function $policy_query_related_1(_edges_0, _start_0, _destination_0, _hops_0, _o
 
 function $policy_query_exists_budget(_budget_0, _records_0, _assertions_0, _provenance_0, _roles_0) {
   return $policy_query_charges(_roles_0, $$policy_query_charges(_roles_0, $$policy_query_charge($$policy_query_charge($$policy_query_charge($$policy_query_charge(_budget_0, _records_0), _assertions_0), _provenance_0), 1)));
+}
+
+function $control_projection_1(_count_0, _paths_0, _schema_0) {
+  return $control_projection(_count_0, _paths_0, _schema_0);
+}
+
+function $control_proposal_1(_id_0, _basis_0, _expected_0, _policy_0, _current_0, _changes_0, _executions_0) {
+  return $control_proposal(_id_0, _basis_0, _expected_0, _policy_0, _current_0, _changes_0, _executions_0);
+}
+
+function $control_commit_1(_state_0, _recorded_0, _current_0, _policy_0, _selected_0) {
+  return $control_commit(_state_0, _recorded_0, _current_0, _policy_0, _selected_0);
+}
+
+function $control_plan_1(_id_0, _incident_0, _changes_0, _items_0) {
+  return $control_plan(_id_0, _incident_0, _changes_0, _items_0);
+}
+
+function $control_visible_1(_present_0, _incident_0, _operator_0, _origin_0, _principal_0, _grant_0, _chain_0, _readable_0) {
+  return $control_visible(_present_0, _incident_0, _operator_0, _origin_0, _principal_0, _grant_0, _chain_0, _readable_0);
+}
+
+function $control_namespace_1(_names_0) {
+  return $control_namespace(_names_0);
+}
+
+function $control_revoke_1(_operator_0, _target_0, _bound_0, _issuer_0, _principal_0, _chain_0) {
+  return $control_revoke(_operator_0, _target_0, _bound_0, _issuer_0, _principal_0, _chain_0);
+}
+
+function $control_actions_1(_requested_0, _installed_0, _capabilities_0) {
+  return $control_actions(_requested_0, _installed_0, _capabilities_0);
+}
+
+function $control_schema_1(_name_0, _installed_0, _submitted_0, _actual_0, _present_0, _previous_0) {
+  return $control_schema(_name_0, _installed_0, _submitted_0, _actual_0, _present_0, _previous_0);
+}
+
+function $control_bindings(_names_0) {
+  return $control_binding_names(_names_0);
+}
+
+function $control_bound(_operator_0, _submitted_present_0, _bound_present_0, _submitted_0, _bound_0) {
+  const _x_0 = $$Bool_and($$Bool_and(_submitted_present_0, _bound_present_0), $$String_eq(_submitted_0, _bound_0));
+  return (_operator_0 || _x_0);
+}
+
+function $control_projection_room_1(_count_0) {
+  return $control_projection_room(_count_0);
 }
 
 function $Bool_not(_b_0) {
@@ -3199,6 +3430,17 @@ const $$policy_query_observed = $policy_query_observed;
 const $$policy_query_sources_fold = $policy_query_sources_fold;
 const $$policy_query_layer = $policy_query_layer;
 const $$policy_query_layers = $policy_query_layers;
+const $$control_schema_name = $control_schema_name;
+const $$control_schema_tail = $control_schema_tail;
+const $$control_field = $control_field;
+const $$control_fields = $control_fields;
+const $$control_schema_path = $control_schema_path;
+const $$control_schema_visible = $control_schema_visible;
+const $$control_projection_room = $control_projection_room;
+const $$control_aliases = $control_aliases;
+const $$control_declared = $control_declared;
+const $$control_executions = $control_executions;
+const $$control_namespace = $control_namespace;
 const $$truth_all = $truth_all;
 const $$truth_any = $truth_any;
 const $$same_scope = $same_scope;
@@ -3390,6 +3632,26 @@ const $$Char_is_eq = $Char_is_eq;export default {
   "policy-query:search_finish": run_lib((a0,a1) => run_loop($policy_query_search_finish(a0,a1)), 2),
   "policy-query:related_budget": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($policy_query_related_budget(a0,a1,str_in(a2),str_in(a3),nat_in(a4),a5)), 6),
   "policy-query:related": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($policy_query_related(a0,str_in(a1),str_in(a2),nat_in(a3),a4,a5)), 6),
+  "control:field": run_lib((a0) => run_loop($control_field(a0)), 1),
+  "control:schema_name": run_lib((a0) => run_loop($control_schema_name(a0)), 1),
+  "control:schema_tail": run_lib((a0) => run_loop($control_schema_tail(a0)), 1),
+  "control:schema_path": run_lib((a0) => run_loop($control_schema_path(a0)), 1),
+  "control:fields": run_lib((a0) => run_loop($control_fields(a0)), 1),
+  "control:schema_visible": run_lib((a0) => run_loop($control_schema_visible(a0)), 1),
+  "control:projection_room": run_lib((a0) => run_loop($control_projection_room(a0)), 1),
+  "control:projection": run_lib((a0,a1,a2) => run_loop($control_projection(a0,a1,a2)), 3),
+  "control:aliases": run_lib((a0,a1) => run_loop($control_aliases(a0,str_in(a1))), 2),
+  "control:proposal": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($control_proposal(str_in(a0),str_in(a1),str_in(a2),str_in(a3),str_in(a4),a5,a6)), 7),
+  "control:commit": run_lib((a0,a1,a2,a3,a4) => run_loop($control_commit(str_in(a0),str_in(a1),str_in(a2),str_in(a3),str_in(a4))), 5),
+  "control:declared": run_lib((a0) => run_loop($control_declared(a0)), 1),
+  "control:executions": run_lib((a0,a1,a2) => run_loop($control_executions(a0,str_in(a1),a2)), 3),
+  "control:plan": run_lib((a0,a1,a2,a3) => run_loop($control_plan(str_in(a0),str_in(a1),a2,a3)), 4),
+  "control:visible": run_lib((a0,a1,a2,a3,a4,a5,a6,a7) => run_loop($control_visible(a0,a1,a2,str_in(a3),str_in(a4),str_in(a5),a6,a7)), 8),
+  "control:namespace": run_lib((a0) => run_loop($control_namespace(a0)), 1),
+  "control:revoke": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($control_revoke(a0,str_in(a1),str_in(a2),str_in(a3),str_in(a4),a5)), 6),
+  "control:actions": run_lib((a0,a1,a2) => run_loop($control_actions(a0,a1,a2)), 3),
+  "control:schema": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($control_schema(str_in(a0),a1,str_in(a2),str_in(a3),a4,str_in(a5))), 6),
+  "control:binding_names": run_lib((a0) => run_loop($control_binding_names(a0)), 1),
   "execution_step": run_lib((a0,a1) => run_loop($execution_step_1(a0,a1)), 2),
   "execution_terminal": run_lib((a0) => run_loop($execution_terminal_1(a0)), 1),
   "topology_check": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($topology_check_1(a0,a1,a2,a3,a4,a5,a6)), 7),
@@ -3515,7 +3777,6 @@ const $$Char_is_eq = $Char_is_eq;export default {
   "execution_visible": run_lib((a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,a10) => run_loop($execution_visible(a0,a1,a2,a3,str_in(a4),str_in(a5),str_in(a6),str_in(a7),a8,a9,a10)), 11),
   "execution_reconcile": run_lib((a0,a1,a2,a3) => run_loop($execution_reconcile(str_in(a0),str_in(a1),a2,a3)), 4),
   "execution_evidence": run_lib((a0,a1) => run_loop($execution_evidence(a0,a1)), 2),
-  "capability_bound_grant": run_lib((a0,a1,a2) => run_loop($capability_bound_grant(a0,str_in(a1),str_in(a2))), 3),
   "capability_selected": run_lib((a0,a1,a2) => run_loop($capability_selected_1(str_in(a0),str_in(a1),a2)), 3),
   "policy_query_initial": run_lib((a0,a1) => run_loop($policy_query_initial_1(a0,a1)), 2),
   "policy_query_available": run_lib((a0) => run_loop($policy_query_available_1(a0)), 1),
@@ -3527,4 +3788,16 @@ const $$Char_is_eq = $Char_is_eq;export default {
   "policy_query_plan": run_lib((a0,a1) => run_loop($policy_query_plan_1(a0,a1)), 2),
   "policy_query_related": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($policy_query_related_1(a0,str_in(a1),str_in(a2),nat_in(a3),a4,a5)), 6),
   "policy_query_exists_budget": run_lib((a0,a1,a2,a3,a4) => run_loop($policy_query_exists_budget(a0,a1,a2,a3,a4)), 5),
+  "control_projection": run_lib((a0,a1,a2) => run_loop($control_projection_1(a0,a1,a2)), 3),
+  "control_proposal": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($control_proposal_1(str_in(a0),str_in(a1),str_in(a2),str_in(a3),str_in(a4),a5,a6)), 7),
+  "control_commit": run_lib((a0,a1,a2,a3,a4) => run_loop($control_commit_1(str_in(a0),str_in(a1),str_in(a2),str_in(a3),str_in(a4))), 5),
+  "control_plan": run_lib((a0,a1,a2,a3) => run_loop($control_plan_1(str_in(a0),str_in(a1),a2,a3)), 4),
+  "control_visible": run_lib((a0,a1,a2,a3,a4,a5,a6,a7) => run_loop($control_visible_1(a0,a1,a2,str_in(a3),str_in(a4),str_in(a5),a6,a7)), 8),
+  "control_namespace": run_lib((a0) => run_loop($control_namespace_1(a0)), 1),
+  "control_revoke": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($control_revoke_1(a0,str_in(a1),str_in(a2),str_in(a3),str_in(a4),a5)), 6),
+  "control_actions": run_lib((a0,a1,a2) => run_loop($control_actions_1(a0,a1,a2)), 3),
+  "control_schema": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($control_schema_1(str_in(a0),a1,str_in(a2),str_in(a3),a4,str_in(a5))), 6),
+  "control_bindings": run_lib((a0) => run_loop($control_bindings(a0)), 1),
+  "control_bound": run_lib((a0,a1,a2,a3,a4) => run_loop($control_bound(a0,a1,a2,str_in(a3),str_in(a4))), 5),
+  "control_projection_room": run_lib((a0) => run_loop($control_projection_room_1(a0)), 1),
 };

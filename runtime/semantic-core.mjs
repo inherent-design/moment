@@ -1,4 +1,5 @@
 import {canonical,fail} from './json.mjs';
+import {tokens} from './pointers.mjs';
 import {fileURLToPath} from 'node:url';
 import {verifySemanticBuild} from './semantic-manifest.mjs';
 
@@ -282,7 +283,6 @@ const capRequirement=value=>({$:'CapRequirement',versions:codecTexts(value.versi
 const capEligibilityTags={eligible:'CapEligible',ineligible:'CapIneligible',unknown:'CapUnknown'};
 const capEligibility=value=>{if(typeof value!=='string'||!Object.hasOwn(capEligibilityTags,value))fail('INVALID_ARGUMENT','Unsupported capability eligibility');return {$:capEligibilityTags[value]};};
 const capTag=(value,tags)=>{if(!tags.includes(value?.$))fail('INTERNAL','Invalid core capability decision');return value.$;};
-export const capabilityBoundGrant=(operator,submitted,bound)=>coreBoolean(Core.capability_bound_grant(!!operator,resourceKey(submitted),bound?resourceKey(bound):''));
 export function capabilityBasis(item,requirement,chain,incident,now) {
  const scopes=chain.map(grant=>({$:'CapScope',actions:codecTexts(grant.actions),resources:list(grant.resourceRefs.map(resourceKey)),all_incidents:grant.incidentIds==='all'}));
  const result=Core.capability_basis(capAdvertisement(item.value,item.ref),capRequirement(requirement),list(scopes),instant(codecText(item.value.expiresAt)),rank(now),incident!==undefined);capTag(result,['CapNeedsPolicy','CapAssessment']);return result;
@@ -365,3 +365,33 @@ export function policyQueryRelated(budget,records,supported,names,start,end,hops
 }
 
 export const policyQuerySelected=(record,names,readable,asserted)=>coreBoolean(Core.policy_query_selected(codecText(record.kind),codecText(record.schema.name),codecTexts(names),!!readable,!!asserted));
+
+const controlTag=(value,tags)=>{if(!tags.includes(value?.$))fail('INTERNAL','Invalid core control decision');return value.$;};
+const controlChanges=changes=>list(changes.map(change=>change.kind==='assertion.withdraw'?{$:'ExistingChange'}:{$:'DeclaredChange',id:codecText(change.kind==='record.put'?change.record.id:change.assertion.id)}));
+const revisionText=value=>{if(!Number.isSafeInteger(value)||value<0)fail('INVALID_ARGUMENT','Revisions require safe nonnegative integers');return String(value);};
+export function projectionPlan(fields,groupBy) {
+ if(!Array.isArray(fields)||![undefined,'record','schema'].includes(groupBy))fail('INVALID_ARGUMENT','Invalid projection shape');
+ if(!coreBoolean(Core.control_projection_room(size(fields.length))))return 'ProjectionTooMany';
+ const paths=list(fields.map(pointer=>({$:'ProjectionPath',tokens:codecTexts(tokens(codecText(pointer)))})));
+ return controlTag(Core.control_projection(size(fields.length),paths,groupBy==='schema'),['ProjectionAllowed','ProjectionTooMany','ProjectionUnknown','ProjectionSchemaHidden']);
+}
+export function proposalAdmission(proposal,expected,currentPolicy) {
+ return controlTag(Core.control_proposal(codecText(proposal.id),revisionText(proposal.basisRevision),revisionText(expected),resourceKey(proposal.policy),resourceKey(currentPolicy),controlChanges(proposal.changes),size(proposal.executions.length)),['ProposalAllowed','ProposalStale','ProposalEmpty','ProposalAlias']);
+}
+export function commitAdmission(stored,current) {
+ return controlTag(Core.control_commit(codecText(stored.value.state),revisionText(stored.revision),revisionText(current.context.revision),resourceKey(stored.value.proposal.policy),resourceKey(current.context.policy)),['CommitAllowed','CommitTerminal','CommitStale']);
+}
+export function proposalPlan(proposal) {
+ const items=list(proposal.executions.map(intent=>({$:'PlanExecution',id:codecText(intent.id),incident:codecText(intent.incidentId)})));
+ return controlTag(Core.control_plan(codecText(proposal.id),codecText(proposal.incidentId),controlChanges(proposal.changes),items),['PlanAllowed','PlanIncident','PlanAlias']);
+}
+export function transitionVisible(stored,origin,principal,access) {
+ return coreBoolean(Core.control_visible(!!stored,!!stored&&access.canIncident(stored.value.proposal.incidentId),!!access.operator,origin?.principalId??'',codecText(principal),origin?.grantId??'',codecTexts(access.chain.map(grant=>grant.id)),!!stored&&access.canRead(stored.ref)));
+}
+export const controlNamespace=names=>coreBoolean(Core.control_namespace(codecTexts(names)));
+export const grantRevocable=(operator,target,bound,issuer,principal,chain)=>coreBoolean(Core.control_revoke(!!operator,resourceKey(target),bound?resourceKey(bound):'',codecText(issuer),codecText(principal),codecTexts(chain.map(grant=>resourceKey({...target,id:grant.id})))));
+export const grantActions=(requested,installed,capabilities)=>coreBoolean(Core.control_actions(codecTexts(requested),codecTexts(installed),codecTexts(capabilities)));
+export const schemaAdmission=(schema,installed,actual,old)=>controlTag(Core.control_schema(codecText(schema.name),!!installed,codecText(schema.digest),codecText(actual),!!old,old?.value.schema.digest??''),['SchemaAllowed','SchemaReserved','SchemaDigest','SchemaConflict']);
+export const ruleBindings=names=>coreBoolean(Core.control_bindings(codecTexts(names)));
+export const boundGrantSelected=(operator,submitted,bound)=>coreBoolean(Core.control_bound(!!operator,!!submitted,!!bound,submitted?resourceKey(submitted):'',bound?resourceKey(bound):''));
+export const textContains=(values,value)=>coreBoolean(Core.text_contains(codecTexts(values),codecText(value)));

@@ -36,7 +36,7 @@ defs.Change = { anyOf: [
   object({ kind: { const: 'assertion.put' }, assertion: reference('Assertion') }),
   object({ kind: { const: 'assertion.withdraw' }, assertionId: id, reason: string }),
 ] };
-defs.View = object({ id, selector: reference('Selector'), fields: array(string) }, { groupBy: enumeration('record', 'schema') });
+defs.View = object({ id, selector: reference('Selector'), fields: array({...string,minLength:0}) }, { groupBy: enumeration('record', 'schema') });
 defs.Rule = object({ id, triggerEventTypes: array(string), condition: reference('Condition'), operation: string, literalInput: true, inputBindings: { type: 'object', additionalProperties: string, maxProperties:64 }, limits: reference('Limits') });
 defs.ExecutionIntent=object({ id,incidentId:id,capability:reference('Ref'),grant:reference('Ref'),input:true,limits:reference('Limits') });
 defs.Usage=object(Object.fromEntries(['cpuMillis','memoryBytes','outputBytes','modelTokens','apiSpendMicrounits'].map(key=>[key,integer])),{unmeasured:{...array(enumeration('cpuMillis','memoryBytes','modelTokens','apiSpendMicrounits')),uniqueItems:true,maxItems:4}});

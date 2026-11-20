@@ -47,7 +47,7 @@ export class Executions {
     return this.k.stored(snapshot.context.id,capability,snapshot.context.revision+1,principal);
   }
   match(snapshot,current,input,principal,access,boundGrant) {
-    if(!core.capabilityBoundGrant(access.operator,input.grant,boundGrant))fail('FORBIDDEN','Only the bound grant may be matched');
+    if(!core.boundGrantSelected(access.operator,input.grant,boundGrant))fail('FORBIDDEN','Only the bound grant may be matched');
     this.k.local(input.grant,input.contextId);
     const stored=current.controlState.grants?.[input.grant.id];if (!stored) fail('NOT_FOUND','Grant not found');
     const chain=grantChain(current,input.grant,stored.value.principalId,this.k.clock.wall());

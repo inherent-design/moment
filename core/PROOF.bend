@@ -232,3 +232,60 @@ def Laws.oversized_role_count_is_above_bound():
 
 def Laws.oversized_role_count_cannot_wrap():
   {==}
+
+def Laws.root_projection_is_usable():
+  {==}
+
+def Laws.schema_grouping_needs_visible_schema():
+  {==}
+
+def Laws.support_children_are_not_projection_fields():
+  {==}
+
+def Laws.projection_limit_cannot_expand(paths, grouped):
+  {==}
+
+def Laws.empty_proposal_is_not_work():
+  {==}
+
+def Laws.stale_proposal_cannot_admit(changes, executions):
+  {==}
+
+def Laws.fresh_proposal_is_usable():
+  {==}
+
+def Laws.proposal_cannot_alias_its_change():
+  {==}
+
+def Laws.terminal_proposal_cannot_commit(revision, policy):
+  {==}
+
+def Laws.stale_commit_cannot_rebase():
+  {==}
+
+def Laws.current_proposal_can_commit():
+  {==}
+
+def Laws.repeated_plan_identity_is_refused():
+  {==}
+
+def Laws.plan_cannot_cross_incidents():
+  {==}
+
+def Laws.missing_bound_grant_is_not_selection(submitted, bound):
+  {==}
+
+def Laws.matching_bound_grant_is_usable():
+  {==}
+
+def Laws.unsupported_transition_branch_is_hidden():
+  {==}
+
+def Laws.reserved_schema_needs_installed_definition(submitted, actual):
+  {==}
+
+def Laws.matching_user_schema_is_usable():
+  {==}
+
+def Laws.unknown_rule_binding_is_refused():
+  {==}
