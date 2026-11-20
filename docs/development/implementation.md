@@ -2,6 +2,10 @@
 
 The implementation establishes one useful persistent loop before adding provider breadth. This is the single work and dependency index; reference documents own behavior, and [verification](verification.md) owns executed evidence.
 
+## Source-backed candidate delivery
+
+The implemented subset adds registered file/semantic-record sources, explicit refresh, bounded source-backed Luna candidates and read-only native handoff evidence. It reuses execution/cancellation/reconciliation, shares durable native capacity with memory and permits governed operator revision of existing context ceilings. Contracts, generated bindings/directives, CLI/MCP, source projections and current-authority checks share one surface. The broader P1–P10 normative package remains proposed. [Guidance](../reference/guidance.md#source-backed-candidate-service) owns usage and limits; [verification](verification.md) owns the tested snapshot and rollout evidence.
+
 ## Units
 
 | Unit | Outcome | Dependencies | Required evidence | Current state |
@@ -75,3 +79,79 @@ Implement one connected U1–U4 path early, then complete the other advertised o
 | G8 Resources and handoff | Bounded streams/logs/context/caches, no credential leakage, no leaked owned processes, and cleanup preserving unknown effects, active state and recovery inputs. Test recoverable and insufficient-evidence cases. Full checks run on the settled candidate; selected captures and explicit limitations stay central and the owning docs match shipped behavior. |
 
 [Verification](verification.md) maps each gate to current execution evidence and limits. The actual SDK/native case supersedes the earlier fixture-only G5 probe. Tests distinguish unsupported native capabilities, host approval refusals, domain faults and unverified model claims.
+
+## Purpose and guidance package
+
+This is the single complete implementation/dependency and acceptance index for the proposed evolution. [Purpose](../reference/purpose.md), [guidance](../reference/guidance.md), and [work](../reference/work.md) own semantics; [evolution declarations](../../contracts/evolution.ts) own proposed APIs and [examples](../../contracts/evolution.examples.ts) exercise consumer types. The current kernel, 15-tool profile, qualified verifier, and isolated native connection remain the implemented baseline. A complete design package is not completion of P1–P10.
+
+| Unit | Complete outcome | Dependencies | Acceptance | State |
+| --- | --- | --- | --- | --- |
+| P0 System contract | Coherent full purpose/guidance/work architecture, proposed typed APIs, examples, ownership, rollout, and full implementation directive. | M0–M4 basis. | Type/rejection examples, current binding identity unchanged, local links, combined existing regression. | Design package complete; static checks pass as recorded in verification. |
+| P1 Semantic admission | Versioned schema bundle, purpose/criterion semantics, source/target/binding/fact/assessment/adoption validators, semantic checks shared by graph and transition paths. | M1/M2, P0. | C04–C05, C08–C09, C13, C29. | Proposed. |
+| P2 Selected source adapters | Qualified artifact/conversation/record capture, privacy, ranges, exact bytes, source coverage, and incremental cursors. | P1. | C01–C03, C11, C27. | Proposed. |
+| P3 Resolution and purpose evaluation | Deterministic applicable guidance with explanations, freshness, scoped coverage, conflicts, pagination, and finite/maintained evaluation. | P1/P2. | C07–C13. | Proposed. |
+| P4 Shared delivery | Registered/validated APIs, conditional guided workspace reads, trusted composition, generated MCP/CLI/native discovery, and explicit old-policy upgrade. | P3. | C10, C12, C29, C32. | Proposed. |
+| P5 Bounded native work | Atomic work/execution admission, source/budget/profile checks, durable Codex provider descriptors/receipts, observed usage, read/cancel/reconcile, owned test isolation. | M3/M4, P1/P2. | C14–C18, C28. | Proposed. |
+| P6 Extraction and goal generalization | Manually triggered/incremental agent passes produce attributable candidates, meaningful generalizations, local refinements, and faithful future goal drafts. | P3/P5. | C01–C05, C14, C22, C30. | Proposed. |
+| P7 Reconciliation and handoffs | Affected-source invalidation, coalesced/resting responses, guarded verified repairs, coordinated writers, and separately authorized native objective replacement. | P3/P5/P6. | C11, C19–C24, C28. | Proposed. |
+| P8 Shared context and system exchange | Qualified source/local projections, current visibility/support, scoped independent adoption, exact capability matching, withdrawal/replay recovery, and two owned local-system exchange. | P1–P5. | C06, C25–C26, C28. | Proposed; local attributed copies are the baseline until live projection is qualified. |
+| P9 Operational stewardship | Bounded provider capacity, artifacts/indexes/logs, storage growth measurements, protected retention, private credentials, restart/restore, and actionable refusal/unknown UX. | P2/P5/P7/P8. | C03, C16–C18, C25–C29, C32. | Proposed. |
+| P10 Representative self use | Actual fresh-recipient discovery, bounded extraction/assessment/repair, faithful handoff, and measured useful learning across related and unrelated purposes. | P1–P9. | C30–C32 plus recorded use of the complete system. | Proposed. |
+
+These are implementation dependencies, not enforced runtime phases. Deliver connected capabilities while retaining every mandatory outcome. The package's complete local system includes source capture, shared discovery, scope-safe adoption, bounded Codex work, reconciliation, goal generalization, controlled native handoff, and local-system exchange. A VM, graphical provider, paid API provider, remote network deployment, distribution license, or new service purchase remains conditional on an actual consumer and matching authority; their capability/refusal contracts are required even when the implementation is absent. M5 qualifies each selected additional provider separately.
+
+### Concrete code and contract changes
+
+| Boundary | Required change |
+| --- | --- |
+| `contracts/evolution.ts` → installed API | Integrate implemented method/type definitions into the authoritative installed declarations only with handlers, validators, policy actions, schemas, and generated availability. Keep unimplemented declarations visibly separate. |
+| Semantic schema layer | Add versioned ordinary schema definitions and shared admission validation; prevent acceptance bypass through generic graph/transition paths. Reuse immutable records/assertions and current context transactions. |
+| Source and provenance layer | Add qualified source adapters and range/cursor/capture validation. Candidate extraction consumes their bounded output, not arbitrary host paths or a whole conversation archive. |
+| Guidance service | Add derived field indexes, authorized candidate discovery, applicability/freshness/supersession, conflict explanations, and purpose evaluation. No model invocation inside deterministic reads. |
+| `runtime/managed.mjs` and `runtime/awareness.mjs` | Deliver the negotiated guided workspace packet and compose exact accepted instructions with quoted evidence. Preserve old input rejection, byte bounds, truthful scoped coverage, and current credential checks. Let the native agent select retrieval depth and judge readiness. |
+| Execution/provider layer | Add atomic work definition/execution admission and a qualified native provider using existing state/lease/reconciliation. A native connection alone is not a dispatched worker. |
+| Scheduler/reconciliation layer | Register new work destinations explicitly; observe qualified changes, coalesce affected subjects, rest without inference, and protect current source/writer ownership before effects. |
+| Context/system exchange | Implement the missing local-reference/import projection boundary with current visibility and retained origin, independent local adoption, and authenticated peer replay/withdrawal behavior. |
+| `runtime/operations.mjs`, input schemas, generator, and MCP/CLI | Derive all surfaces and profile availability from the same actually implemented definitions. Generate actionable upgrade/refusal guidance; do not silently widen existing policies. |
+| Storage, operations, and tests | Retain exact retry/native descriptors, safe publication journals, input coverage, bounded caches, and proof of advertised isolation/accounting; exercise all cases below. |
+
+Private module names can follow the existing runtime layout. This table fixes ownership/effects rather than prescribing helper files or introducing a parallel implementation roadmap.
+
+### Complete acceptance
+
+| ID | Case | Required observation |
+| --- | --- | --- |
+| C01 | Recover a decisive correction from actual user/agent items. | Exact selected user item and subsequent accepted direction survive; an assistant summary or forged role cannot establish the correction. |
+| C02 | Repeat extraction and edit a source without changing its timestamp. | Exact equivalent work reuses its retained identity; changed bytes produce a distinct basis and cannot reuse stale interpretation. |
+| C03 | Capture escaped, hidden, private, sensitive, and oversized sources. | Authorized bounded selection only; no symlink/root escape, secret leak, unrequested transcript, or fabricated complete coverage. |
+| C04 | Candidate tries to activate itself through adoption, graph, and transition paths. | All paths enforce the same issuer/scope checks; candidate output and schema publication grant no authority. |
+| C05 | Adopt an ordinary delegated refinement, then attempt scope expansion. | In-scope adoption works autonomously; widened project/incident/effect authority is refused without asking for repeated routine approvals. |
+| C06 | Reuse a target across two contexts under different visibility. | Local projections retain exact origin and independent adoption; current kernel locality is not bypassed; forbidden/withdrawn source access is not revived by cache. |
+| C07 | Resolve docs, UI, dependency, and ordinary-discussion tasks. | Only applicable guidance is selected with reasons. Discussion does not trigger cleanup; similar file names do not establish applicability. |
+| C08 | A correction supersedes an older instruction in one scope. | New direction applies there, older applicable scopes remain, and unresolved semantic conflict stays explicit instead of timestamp-based precedence. |
+| C09 | Facts are missing, ambiguous, stale, or supplied as caller hints. | Applicability becomes unknown where appropriate; hints cannot become trusted classification or kernel permission. |
+| C10 | Read a metadata projection and a budget-limited body selection, including hidden and required guidance. | Metadata can be complete for its scope; a partial body selection succeeds with explicit visible omissions/recovery. Omission does not waive required guidance. No hidden counts or cursor leakage; incomplete discovery prevents full-coverage claims. Minimum-packet overflow remains an error; read success certifies neither agent readiness nor purpose completion. |
+| C11 | Change source bytes, criterion, support, or exception validity. | Only relevant assessments become stale/unknown; history remains; unchanged valid evidence is reusable with its original scope. |
+| C12 | Compose accepted instructions with malicious or oversized evidence. | Evidence remains quoted, template authority is current, required guidance is preserved/refused truthfully, and digest/basis identify the exact result. |
+| C13 | Compare deterministic proof with qualitative judgment. | Each reports its method and actual coverage; passing links does not prove tone, nor does a model's agreement prove runtime behavior. |
+| C14 | Native output has invalid JSON/schema, unresolved references, or unsupported conclusions. | Work fails or retains bounded candidates/uncertainty; it cannot manufacture an empty success or activate the proposed instruction. |
+| C15 | Run actual bounded native work in an owned test environment. | Qualified app-server/profile/authentication and actual source/result readback; owner daemon, config, goals, threads, and writable auth remain untouched. |
+| C16 | Lose native start/turn/completion acknowledgment. | Durable descriptors and actual native evidence reconcile the same attempt; otherwise unknown retains reservation and prevents duplicate dispatch. |
+| C17 | Race cancellation, late completion, lease expiry, and authority loss. | Existing execution/attempt semantics remain accurate; no invented rollback or terminal result. |
+| C18 | Exceed budget/profile or encounter unavailable measurement. | Actual supported limits are enforced/reported, unsupported guarantees refuse admission, missing usage is not zero, and recursive work cannot escape declared bounds. |
+| C19 | Interleave changes under an ongoing consistency purpose. | Relevant events coalesce; finite jobs finish; the maintained purpose rests and wakes without model polling or repeated unchanged repair. |
+| C20 | Another writer changes proposed artifact inputs. | Expected-old/source/ownership guards reject stale repair and preserve unrelated changes; a coordinated writer handles the updated basis. |
+| C21 | Fail after some artifact effects but before graph/receipt completion. | Per-subject outcomes and journal permit reconciliation; no cross-system atomicity or rollback is invented. |
+| C22 | Generalize a goal with completed, superseded, and unresolved material. | The full objective and real remaining gates survive; completed work and historical permissions are not reactivated or dropped. |
+| C23 | Replace an obsolete native objective with the correct central intent. | Objective, thread, source basis, intended state, and actual activity are separately read back; merely resuming the old goal fails acceptance. |
+| C24 | User edits a goal during handoff or clear/set is interrupted. | Unsupported compare-and-set yields prepared/conflict/unknown behavior; no unconditional overwrite or restoration over later owner work. |
+| C25 | Replay an import, then replay history after withdrawal/revocation. | Exact receipts deduplicate, current local/source authority governs, origin remains, and old evidence cannot reinstate permission. |
+| C26 | Negotiate a mismatched/unqualified process, VM, GUI, or peer capability. | Exact schema/platform/resource/receipt guarantees are checked; unsupported capabilities refuse or rest with an explanation. Isolation is claimed only for a qualified provider. |
+| C27 | Pressure storage and rebuild indexes. | Required accepted/supporting/recovery evidence remains; regenerable indexes rebuild with truthful coverage; pressure defers work instead of deleting meaning. |
+| C28 | Restart with pending work, stale imports, partial effects, and cached guidance. | Reconciliation precedes new effects, source/current-policy checks remain, and the same purpose/work identities survive. |
+| C29 | New operations meet an old denying policy or expired delegate. | Actionable refusal and an admitted bounded upgrade path; no automatic owner fallback or permission expansion. |
+| C30 | A fresh native recipient receives the earlier CAPTCHA testing correction and an unrelated task. | It identifies the obsolete prerequisite, the accepted isolated-testing boundary, remaining live proof, and useful next action; the unrelated task inherits none of that requirement. Use synthetic, source-faithful fixtures in Git. |
+| C31 | Moment uses the complete system for a real change to itself. | Exact sources, guidance/adoption, assessment/work, actual implementation verification, restart, and next-goal carry-forward are retrieved through the API; output shows a useful result and measured cost/limitations. |
+| C32 | Open a fresh clone and inspect CLI/MCP/native discovery. | No required personal markers/store for ordinary checks; installed availability, schemas, policy, compatibility, and human/machine outcomes agree. |
+
+P0 requires static checks and review of the complete package. P1–P10 require the actual execution evidence above; these planned cases are not current passes. Integration tests use test-owned services and native instances. Retain representative before/after retrieval failures and useful coverage, not private raw sessions or a new permanent review diary. Completion of this package's implementation requires every mandatory unit and acceptance case; conditional providers remain explicitly unavailable until separately qualified.

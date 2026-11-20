@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { createClient } from '../runtime/client.mjs';
 import { issueCredential } from '../runtime/credentials.mjs';
 import { isolatedCodex } from '../runtime/codex.mjs';
+import { codexApiContractDigest } from '../runtime/codex-api.mjs';
 import { installVerifier } from '../runtime/providers/bytes-runtime.mjs';
 import { promptSchema } from '../runtime/builtins.mjs';
 import { digest,bytesDigest,canonical } from '../runtime/json.mjs';
@@ -60,8 +61,10 @@ try {
     }
     throw Error('Unassigned tool');
   } });
+  assert.equal(native.apiContractDigest,codexApiContractDigest);assert.equal(Object.hasOwn(native,'schemaDigest'),false);
   const account=await native.account();assert.equal(account.authenticated,true);assert.equal(account.persistedAuth,false);
   const result=await native.invoke({ instruction:'Call moment_context. Read its instructions and quoted actual verifier receipt. Submit a concise factual observation using moment_observe, acknowledging that Node guards are not an OS sandbox. Then return {"submitted":true}.',outputSchema:{ type:'object',properties:{ submitted:{ const:true } },required:['submitted'],additionalProperties:false } });
+  assert.equal(result.apiContractDigest,codexApiContractDigest);assert.equal(Object.hasOwn(result,'schemaDigest'),false);
   assert.ok(prompt && submission);assert.ok(toolNames.includes('moment_context') && toolNames.includes('moment_observe'));
   await native.close();native=undefined;await stop(daemon,'SIGKILL');daemon=await start(root);
   const saved=await call(agent,'graph.query',{ contextId,selector:{ ids:[observationId],assertionStatus:'asserted' },limit:1 });

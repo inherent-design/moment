@@ -80,7 +80,7 @@ export class BytesVerifier {
       for (const name of ['cpuMillis','memoryBytes','outputBytes','modelTokens','apiSpendMicrounits']) if (!Number.isSafeInteger(receipt.usage?.[name]) || receipt.usage[name]<0 || !Number.isSafeInteger(receipt.baselineUsage?.[name]) || receipt.baselineUsage[name]<0) fail('INVALID_ARGUMENT','Verifier receipt has invalid measured usage');
       if (receipt.usage.modelTokens || receipt.usage.apiSpendMicrounits) fail('IDENTITY_CONFLICT','Verifier receipt claims unsupported billed work');
       const usage={};
-      for (const name of Object.keys(receipt.usage)) usage[name]=name==='memoryBytes'?Math.max(receipt.baselineUsage[name],receipt.usage[name]):receipt.baselineUsage[name]+receipt.usage[name];
+      for (const name of ['cpuMillis','memoryBytes','outputBytes','modelTokens','apiSpendMicrounits']) usage[name]=name==='memoryBytes'?Math.max(receipt.baselineUsage[name],receipt.usage[name]):receipt.baselineUsage[name]+receipt.usage[name];
       if (!acknowledged) publish(path,raw);
       else { const fd=openSync(join(path,'receipt.json'),constants.O_RDONLY|constants.O_NOFOLLOW);try { fsyncSync(fd); } finally { closeSync(fd); }sync(path); }
       const hash=bytesDigest(raw),outcome={ ...receipt.outcome,evidence:evidence(hash,'local-bytes-receipt/v1') };

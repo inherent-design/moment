@@ -3,11 +3,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync,readdirSync,existsSync,unlinkSync,realpathSync,symlinkSync,renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join,delimiter } from 'node:path';
 import { spawn,spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
-import { createIntegration } from '../runtime/integration.mjs';
+import { createIntegration,stageCodexConfig } from '../runtime/integration.mjs';
+import { catalogIdentity } from '../runtime/bindings.mjs';
+import {observeCodexVersion} from '../runtime/codex-api.mjs';
+import { bytesDigest,digest } from '../runtime/json.mjs';
 import { validateSurface } from '../runtime/bindings.mjs';
 import { createClient } from '../runtime/client.mjs';
 import { start,stop,cli } from '../test/daemon-fixture.mjs';
@@ -32,16 +35,59 @@ test('supported CLI preview/apply/repeat/remove preserves unrelated bytes and ex
   assert.equal(existsSync(f.momentHome),false);assert.equal(readFileSync(f.target,'utf8'),original);
   assert.equal(preview.value.launcher.command,realpathSync(process.execPath));
   assert.equal(preview.value.launcher.env.MOMENT_HOME,f.momentHome);assert.match(preview.value.ownedEntry.text,/\[mcp_servers.moment\]/);
+  assert.equal(preview.value.launcher.env.MOMENT_CATALOG_REVISION,catalogIdentity.digest);
   state(await f.run(),'applied');state(await f.run(),'unchanged');
   assert.equal(readFileSync(f.target,'utf8').startsWith(original),true);
-  const receipt=JSON.parse(readFileSync(join(f.receiptDirectory(),'receipt.json')));assert.equal(receipt.codexVersion,'codex-cli 0.167.2');
+  const receipt=JSON.parse(readFileSync(join(f.receiptDirectory(),'receipt.json')));assert.equal(receipt.codexVersion,observeCodexVersion('codex'));
   const mcp=new Client({name:'moment-emitted-launcher',version:'1'});
   try {
     await mcp.connect(new StdioClientTransport({...receipt.launcher,env:{PATH:process.env.PATH,...receipt.launcher.env},stderr:'pipe'}));
-    assert.equal((await mcp.listTools()).tools.length,15);assert.equal(existsSync(join(f.momentHome,'runtime')),false);
+    const tools=(await mcp.listTools()).tools;assert.equal(tools.length,16);assert.ok(tools.some(tool=>tool.name==='moment_memory_read'));assert.ok(tools.every(tool=>tool._meta['moment/catalog']===receipt.launcher.env.MOMENT_CATALOG_REVISION));assert.equal(existsSync(join(f.momentHome,'runtime')),false);
   } finally {await mcp.close();}
   const disconnected=await f.run('disconnect');state(disconnected,'applied');assert.equal(readFileSync(f.target,'utf8'),original);
   state(await f.run('disconnect'),'unchanged');
+});
+
+test('an owned pre-revision registration upgrades once and edited revision markers remain conflicts',async t=>{
+  const f=fixture(t);state(await f.run(),'applied');
+  const receiptPath=join(f.receiptDirectory(),'receipt.json'),receipt=JSON.parse(readFileSync(receiptPath));
+  const removeMarker=text=>text.replace(/^MOMENT_CATALOG_REVISION = .*\n/m,'');
+  const legacy=removeMarker(readFileSync(f.target,'utf8'));assert.notEqual(legacy,readFileSync(f.target,'utf8'));
+  receipt.entryBlock=removeMarker(receipt.entryBlock);receipt.entryDigest=bytesDigest(receipt.entryBlock);
+  delete receipt.launcher.env.MOMENT_CATALOG_REVISION;receipt.codexVersion='codex-cli 0.167.2';
+  const staged=stageCodexConfig({before:legacy,action:'disconnect',launcher:receipt.launcher,ownedBlock:receipt.entryBlock});
+  receipt.configEntryDigest=digest(staged.currentEntry);
+  writeFileSync(f.target,legacy);writeFileSync(receiptPath,JSON.stringify(receipt)+'\n',{mode:0o600});
+  state(await f.run('connect',false),'planned');assert.equal(readFileSync(f.target,'utf8'),legacy);
+  state(await f.run(),'applied');state(await f.run(),'unchanged');
+  const updated=JSON.parse(readFileSync(receiptPath));
+  assert.equal(updated.codexVersion,observeCodexVersion('codex'));assert.equal(updated.launcher.env.MOMENT_CATALOG_REVISION,catalogIdentity.digest);
+  const installed=readFileSync(f.target,'utf8');assert.equal(installed.startsWith(original),true);
+  const edited=installed.replace(catalogIdentity.digest,'owner-edited-revision');writeFileSync(f.target,edited);
+  state(await f.run(),'conflict');state(await f.run('disconnect'),'conflict');assert.equal(readFileSync(f.target,'utf8'),edited);
+});
+
+test('incompatible CLI configuration output refuses before target publication with a boundary diagnostic',async t=>{
+  const f=fixture(t),bin=join(f.root,'bin');mkdirSync(bin);
+  const priorPath=process.env.PATH;
+  try {
+    process.env.PATH=bin+':'+priorPath;
+    for(const version of ['0.167.2','0.170.0']) {
+      writeFileSync(join(bin,'codex'),'#!'+process.execPath+'\nconsole.log('+JSON.stringify('codex-cli '+version)+');\n',{mode:0o700});
+      const result=await f.run('connect',false);assert.equal(result.ok,false);assert.equal(result.error.code,'CAPABILITY_UNAVAILABLE');assert.match(result.error.message,/mcp list requires a JSON/);assert.ok(result.error.message.includes(version));
+      assert.equal(readFileSync(f.target,'utf8'),original);assert.equal(existsSync(f.momentHome),false);
+    }
+  } finally {process.env.PATH=priorPath;}
+});
+test('working configuration commands accept older and future version labels and retain observed provenance',async t=>{
+  const binary=realpathSync(process.env.PATH.split(delimiter).map(path=>join(path,'codex')).find(existsSync));
+  for(const version of ['0.167.2','0.170.0']) {
+    const f=fixture(t),bin=join(f.root,'bin');mkdirSync(bin);
+    writeFileSync(join(bin,'codex'),'#!'+process.execPath+'\nimport {spawnSync} from "node:child_process";if(process.argv.includes("--version"))console.log('+JSON.stringify('codex-cli '+version)+');else{const result=spawnSync('+JSON.stringify(binary)+',process.argv.slice(2),{stdio:"inherit"});process.exit(result.status??1);}\n',{mode:0o700});
+    const prior=process.env.PATH;process.env.PATH=bin+delimiter+prior;
+    try {state(await f.run(),'applied');assert.equal(JSON.parse(readFileSync(join(f.receiptDirectory(),'receipt.json'))).codexVersion,'codex-cli '+version);state(await f.run('disconnect'),'applied');assert.equal(readFileSync(f.target,'utf8'),original);}
+    finally{process.env.PATH=prior;}
+  }
 });
 
 test('absent roots remain absent during preview and removal retires only the owned newly created config',async t=>{

@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { bytesDigest,canonical,digest,fail,DomainError,resultError } from './json.mjs';
 import { publishPrivate } from './private-files.mjs';
 import { catalogIdentity } from './bindings.mjs';
+import {observeCodexVersion,codexApiError} from './codex-api.mjs';
 
 const optionalStat=path=>{try{return lstatSync(path);}catch(error){if(error.code==='ENOENT')return;throw error;}};
 function canonicalRoot(path) {
@@ -72,22 +73,27 @@ export function stageCodexConfig({before,action,launcher,ownedBlock}) {
   const root=realpathSync(mkdtempSync(join(tmpdir(),'moment-config-'))),state=join(root,'codex');
   mkdirSync(state,{mode:0o700});const config=join(state,'config.toml');writeFileSync(config,before,{mode:0o600});
   const env={PATH:process.env.PATH??'',HOME:root,CODEX_HOME:state,XDG_CONFIG_HOME:join(root,'config'),XDG_DATA_HOME:join(root,'data'),XDG_CACHE_HOME:join(root,'cache'),XDG_RUNTIME_DIR:join(root,'run')};
-  const run=args=>{
-    try{return execFileSync(binary,args,{cwd:root,env,encoding:'utf8',timeout:15000,maxBuffer:1048576,stdio:['ignore','pipe','pipe']});}
-    catch{fail('CAPABILITY_UNAVAILABLE','Codex staging command failed; no target configuration was changed');}
+  const version=observeCodexVersion(binary,{cwd:root,env});
+  const run=(args,json=false)=>{
+    const boundary=args[0]==='mcp'?'mcp '+args[1]:'configuration command';
+    let output;
+    try{output=execFileSync(binary,args,{cwd:root,env,encoding:'utf8',timeout:15000,maxBuffer:1048576,stdio:['ignore','pipe','pipe']});}
+    catch{throw codexApiError(boundary,'the selected staging command; target configuration was not changed',version);}
+    if(!json)return output;
+    let value;try{value=JSON.parse(output)}catch{throw codexApiError(boundary,'a JSON configuration response; target configuration was not changed',version);}
+    if(args[1]==='list' && (!Array.isArray(value) || value.some(entry=>!entry || typeof entry.name!=='string')) || args[1]==='get' && (!value || typeof value!=='object' || Array.isArray(value) || value.name!=='moment' || value.transport?.type!=='stdio'))throw codexApiError(boundary,'the consumed configuration fields; target configuration was not changed',version);
+    return value;
   };
   try {
-    const version=run(['--version']).trim();
-    if(version!=='codex-cli 0.167.2') fail('UNSUPPORTED_VERSION','Installed Codex configuration commands need requalification for '+version);
-    const listed=JSON.parse(run(['mcp','list','--json']));
+    const listed=run(['mcp','list','--json'],true);
     const present=listed.some(entry=>entry.name==='moment');
     let currentEntry,currentBlock,without=before;
     if(present) {
-      currentEntry=JSON.parse(run(['mcp','get','moment','--json']));
+      currentEntry=run(['mcp','get','moment','--json'],true);
       if(ownedBlock && before.indexOf(ownedBlock)>=0 && before.indexOf(ownedBlock)===before.lastIndexOf(ownedBlock)) {
         currentBlock=ownedBlock;without=before.replace(ownedBlock,'');
         writeFileSync(config,without,{mode:0o600});
-        if(canonical(JSON.parse(run(['mcp','list','--json'])))!==canonical(listed.filter(entry=>entry.name!=='moment'))) fail('IDENTITY_CONFLICT','Owned entry removal changed the parsed server inventory; preserve the configuration');
+        if(canonical(run(['mcp','list','--json'],true))!==canonical(listed.filter(entry=>entry.name!=='moment'))) fail('IDENTITY_CONFLICT','Owned entry removal changed the parsed server inventory; preserve the configuration');
       } else {
         run(['mcp','remove','moment']);without=readFileSync(config,'utf8');currentBlock=ownedDelta(before,without);
       }
@@ -99,12 +105,12 @@ export function stageCodexConfig({before,action,launcher,ownedBlock}) {
     const args=['mcp','add','moment'];
     for(const [key,value] of Object.entries(launcher.env)) args.push('--env',`${key}=${value}`);
     run([...args,'--',launcher.command,...launcher.args]);
-    const generated=readFileSync(config,'utf8'),entry=JSON.parse(run(['mcp','get','moment','--json']));
+    const generated=readFileSync(config,'utf8'),entry=run(['mcp','get','moment','--json'],true);
     run(['mcp','remove','moment']);
     if(readFileSync(config,'utf8')!=='') fail('IDENTITY_CONFLICT','Codex staging did not isolate the owned entry; inspect before applying');
     const entryBlock=(without && !without.endsWith('\n')?'\n':'')+ownedDelta(generated,''),after=without+entryBlock;
     writeFileSync(config,after,{mode:0o600});
-    if(canonical(JSON.parse(run(['mcp','get','moment','--json'])))!==canonical(entry) || canonical(JSON.parse(run(['mcp','list','--json'])).filter(item=>item.name!=='moment'))!==canonical(listed.filter(item=>item.name!=='moment'))) fail('IDENTITY_CONFLICT','Combined configuration changed the parsed server inventory; preserve the configuration');
+    if(canonical(run(['mcp','get','moment','--json'],true))!==canonical(entry) || canonical(run(['mcp','list','--json'],true).filter(item=>item.name!=='moment'))!==canonical(listed.filter(item=>item.name!=='moment'))) fail('IDENTITY_CONFLICT','Combined configuration changed the parsed server inventory; preserve the configuration');
     return {after,present,currentEntry,currentBlock,entry,entryBlock,version};
   } finally {rmSync(root,{recursive:true,force:true});}
 }
@@ -177,7 +183,7 @@ export function createIntegration({stage=stageCodexConfig,onPhase=async()=>{},cr
       }
       const before=snapshot(target),receiptSnapshot=snapshot(receiptPath,true),receipt=receiptSnapshot.exists?JSON.parse(receiptSnapshot.bytes):undefined;
       if(receipt && (receipt.formatVersion!==1 || receipt.codexHome!==codexHome || receipt.momentHome!==momentHome || receipt.entryDigest!==bytesDigest(receipt.entryBlock))) return conflict('Owned registration receipt does not match these roots; inspect its custody');
-      const launcher={command:realpathSync(process.execPath),args:[new URL('./cli.mjs',import.meta.url).pathname,'mcp'],env:{MOMENT_HOME:momentHome,...(credentialFile?{MOMENT_CREDENTIAL_FILE:canonicalRootFile(credentialFile)}:{})}};
+      const launcher={command:realpathSync(process.execPath),args:[new URL('./cli.mjs',import.meta.url).pathname,'mcp'],env:{MOMENT_HOME:momentHome,MOMENT_CATALOG_REVISION:catalogIdentity.digest,...(credentialFile?{MOMENT_CREDENTIAL_FILE:canonicalRootFile(credentialFile)}:{})}};
       if(request.action==='connect' && process.version!=='v26.13.0') fail('UNSUPPORTED_VERSION','Run the pinned Node 26.13.0 runtime before generating an installation launcher');
       const plan=await stage({before:before.bytes,action:request.action,launcher,ownedBlock:receipt?.entryBlock});
       if(plan.present && (!receipt || receipt.entryDigest!==bytesDigest(plan.currentBlock) || receipt.configEntryDigest!==digest(plan.currentEntry))) return conflict('A preexisting or edited Moment entry is not the unchanged owned registration; preserve and inspect it');

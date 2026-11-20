@@ -1,3 +1,4 @@
+import {readSnapshot} from '../runtime/snapshot-values.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
@@ -117,8 +118,11 @@ test('a real daemon expires leases without client activity and fences running wo
   const bound=await write('grant.issue',{ grant:{ id:randomUUID(),principalId,actions:['execution.request',cap.value.name],incidentIds:[incidentId],resourceRefs:[cap.ref],delegable:false,limits } });
   const enqueue=async()=>write('execution.request',{ execution:{ id:randomUUID(),incidentId,capability:cap.ref,grant:bound.ref,input:'fixture',limits } });
   const dispatch=async(id,leaseMillis)=>{
-    const leased=await write('execution.claim',{ executionId:id,leaseMillis });
+    // The heartbeat starts the measured running lease; allow its setup RPCs to finish first.
+    const leased=await write('execution.claim',{ executionId:id,leaseMillis:Math.max(leaseMillis,10000) });
     const lease={ executionId:id,leaseId:leased.lease.id,fencingToken:leased.lease.fencingToken };
+    // Exercise setup latency longer than the short running lease, without consuming that lease.
+    if (leaseMillis===250) await new Promise(resolve=>setTimeout(resolve,400));
     await write('execution.heartbeat',{ ...lease,leaseMillis });return lease;
   };
   const first=await enqueue();await dispatch(first.intent.id,250);
@@ -128,8 +132,7 @@ test('a real daemon expires leases without client activity and fences running wo
     let observed;
     const until=Date.now()+3000;
     do {
-      const row=observer.prepare('SELECT value FROM snapshots WHERE context_id=? ORDER BY revision DESC LIMIT 1').get(contextId);
-      observed=JSON.parse(row.value).controlState.executions[first.intent.id].value;
+      observed=readSnapshot(observer,contextId).controlState.executions[first.intent.id].value;
       if (observed.state==='unknown') break;
       await new Promise(resolve=>setTimeout(resolve,20));
     } while (Date.now()<until);
@@ -169,7 +172,7 @@ test('a real daemon rests without writes, resumes a saved schedule once after re
   const scheduleId=randomUUID();await write('schedule.put',{ schedule:{ id:scheduleId,incidentId,rule:rule.ref,wake:{ kind:'event',eventTypes:['graph.transact.committed'],selector:{ schemaNames:[schema.name],assertionStatus:'any' },mode:'each' },recurrence:'once',coalesce:false } });
   // Wait for a stable read-only snapshot, then establish that idle time causes no writes.
   const observer=new DatabaseSync(join(root,'runtime','store.sqlite'),{ readOnly:true });
-  const snapshot=()=>JSON.parse(observer.prepare('SELECT value FROM snapshots WHERE context_id=? ORDER BY revision DESC LIMIT 1').get(contextId).value);
+  const snapshot=()=>readSnapshot(observer,contextId);
   try {
     let previous=snapshot().context.revision;
     for (let count=0;count<20;count++) { await new Promise(resolve=>setTimeout(resolve,20));const next=snapshot().context.revision;if (next===previous) break;previous=next; }

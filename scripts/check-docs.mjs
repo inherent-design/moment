@@ -60,22 +60,32 @@ for (const [file, text] of texts) {
   }
 }
 
-const contract = await readFile(path.join(root, "contracts/index.ts"), "utf8");
 // The declaration convention keeps one quoted method name at two-space indent.
 // Compilation separately checks the full TypeScript syntax and type semantics.
-const methods = contract.match(/^export interface Methods \{([\s\S]*?)^\}/m)?.[1];
-if (!methods) failures.push("Missing Methods interface");
-const names = [...(methods ?? "").matchAll(/^  "([a-z]+\.[a-z]+)":/gm)].map(match => match[1]);
-if (!names.length) failures.push("No methods found under the declaration convention");
-const protocol = await readFile(path.join(root, "docs/reference/protocol.md"), "utf8");
-const documented = [...protocol.matchAll(/^\| `([a-z]+\.[a-z]+)` \|/gm)].map(match => match[1]);
-for (const name of names) {
-  if (documented.filter(value => value === name).length !== 1) failures.push(`Method must have exactly one reference entry: ${name}`);
+const owners = [
+  { contract: "contracts/index.ts", pattern: /^export interface Methods \{([\s\S]*?)^\}/m, reference: "docs/reference/protocol.md" },
+  { contract: "contracts/evolution.ts", pattern: /^export interface EvolutionMethods \{([\s\S]*?)^\}/m, reference: "docs/reference/guidance.md", section: "## Public operation contract" },
+];
+let methodEntries = 0;
+for (const owner of owners) {
+  const contract = await readFile(path.join(root, owner.contract), "utf8");
+  const methods = contract.match(owner.pattern)?.[1];
+  if (!methods) failures.push(`Missing method interface: ${owner.contract}`);
+  const names = [...(methods ?? "").matchAll(/^  ["']([a-z]+\.[a-z]+)["']:/gm)].map(match => match[1]);
+  if (!names.length) failures.push(`No methods found under the declaration convention: ${owner.contract}`);
+  const reference = await readFile(path.join(root, owner.reference), "utf8");
+  const protocol = owner.section ? reference.split(`${owner.section}\n`)[1]?.split(/\n## /)[0] : reference;
+  if (!protocol) failures.push(`Missing method reference section: ${owner.reference}`);
+  const documented = [...(protocol ?? "").matchAll(/^\| `([a-z]+\.[a-z]+)` \|/gm)].map(match => match[1]);
+  for (const name of names) {
+    if (documented.filter(value => value === name).length !== 1) failures.push(`Method must have exactly one reference entry in ${owner.reference}: ${name}`);
+  }
+  for (const name of documented) if (!names.includes(name)) failures.push(`Documented method is undeclared in ${owner.contract}: ${name}`);
+  methodEntries += names.length;
 }
-for (const name of documented) if (!names.includes(name)) failures.push(`Documented method is undeclared: ${name}`);
 if (failures.length) {
   process.stderr.write(`${failures.join("\n")}\n`);
   process.exitCode = 1;
 } else {
-  process.stdout.write(`Checked ${files.length} Markdown files, ${links} local links, and ${names.length} method entries.\n`);
+  process.stdout.write(`Checked ${files.length} Markdown files, ${links} local links, and ${methodEntries} method entries.\n`);
 }

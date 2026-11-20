@@ -7,7 +7,7 @@ import { runMcp } from './mcp.mjs';
 import { createIntegration } from './integration.mjs';
 
 const safe=value=>String(value).replace(/[\x00-\x08\x0b-\x1f\x7f]/g,'');
-function argumentsFor(args,values=[],flags=[]) {
+export function argumentsFor(args,values=[],flags=[]) {
   const options={},positionals=[];
   for(let i=0;i<args.length;i++) {
     const arg=args[i];
@@ -29,6 +29,10 @@ function reportFault(result,json) {
 /** Returns false only for legacy operator commands owned by cli.mjs. */
 export async function runManagedCommand(args) {
   const [command,...rest]=args;
+  if(command==='memory') return (await import('./memory-commands.mjs')).runMemoryCommand(rest);
+  if(command==='captures') return (await import('./capture-commands.mjs')).runCaptureCommand(rest);
+  if(command==='storage') return (await import('./storage-commands.mjs')).runStorageCommand(rest);
+  if(command==='guidance') return (await import('./guidance-commands.mjs')).runGuidanceCommand(rest);
   if(['connect','disconnect'].includes(command)) {
     const {options,positionals}=argumentsFor(rest,['--codex-home','--moment-home'],['--apply','--json']);
     if(positionals.length) throw new Error('Use explicit --codex-home and --moment-home options');

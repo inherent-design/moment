@@ -11,12 +11,14 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { bindingMap, exposedOperations, catalogIdentity, catalog } from '../runtime/bindings.mjs';
 import { createClient } from '../runtime/client.mjs';
 import { digest, bytesDigest } from '../runtime/json.mjs';
+import {installGuidance} from '../runtime/guidance-commands.mjs';
 import { installVerifier } from '../runtime/providers/bytes-runtime.mjs';
 import { recommendedLimits } from '../runtime/providers/bytes-definition.mjs';
 import { createService } from '../runtime/service.mjs';
 import { createManaged } from '../runtime/managed.mjs';
 import { managedMethods } from '../runtime/operations.mjs';
 import { promptSchema } from '../runtime/builtins.mjs';
+import { SessionMemory } from '../runtime/session-memory.mjs';
 import { issueCredential } from '../runtime/credentials.mjs';
 import { start, stop, cli } from './daemon-fixture.mjs';
 import { limits, incident } from './helpers.mjs';
@@ -70,6 +72,33 @@ test('SDK negotiates legacy and modern revisions and discovers the exact offline
     assert.equal(existsSync(root),false);
     await f.client.close();assert.equal(f.diagnostics(),'');
   }
+});
+
+test('historical initial states share evidence and retry semantics across actual MCP, native and CLI surfaces',async t=>{
+  const root=mkdtempSync(join(tmpdir(),'moment-mcp-history-')),child=await start(root);
+  t.after(async()=>{await stop(child);rmSync(root,{recursive:true,force:true});});
+  const {client}=await connect(t,root),native=createClient(root),contextId=randomUUID(),id=randomUUID();
+  const invoke=async(operation,input)=>client.callTool({name:bindingMap.get(operation).mcpName,arguments:input});
+  assert.equal((await native.call('context.create',{id:contextId,label:'Historical intake',bootstrapProfile:'owner-local',idempotencyKey:'bootstrap',limits})).ok,true);
+  const document={type:'string'},sourceSchema={name:'test.historical-intent',version:'1',digest:digest(document)};
+  assert.equal((await native.call('schema.publish',{contextId,expectedRevision:1,idempotencyKey:'source-schema',schema:sourceSchema,document})).ok,true);
+  const sourceRef={systemId:(await native.call('system.describe',{protocolVersion:'0.1'})).value.systemId,contextId,id:randomUUID()};
+  assert.equal((await native.call('graph.transact',{contextId,expectedRevision:2,idempotencyKey:'source',changes:[{kind:'record.put',record:{kind:'atom',id:sourceRef.id,schema:sourceSchema,value:'Fixture original intent reports completed prior work.'}}]})).ok,true);
+  const evidence={sources:[sourceRef],artifactDigests:[],method:'Retain the admitted historical source without replaying work'};
+  const input={contextId,expectedRevision:3,idempotencyKey:'historical-completion',id,incident:{...incident,status:'completed'},evidence};
+  const saved=await invoke('incident.create',input);assert.equal(saved.structuredContent.result.ok,true,JSON.stringify(saved));
+  assert.deepEqual(saved.structuredContent.result.value.evidence,evidence);
+  assert.deepEqual(saved.structuredContent.result,await native.call('incident.create',input));
+  assert.deepEqual(saved.structuredContent.result,cliResult(root,'incident.create',input));
+  const packet=await invoke('workspace.read',{target:{systemId:sourceRef.systemId,contextId,incidentId:id}});
+  assert.equal(packet.structuredContent.result.value.incident.value.status,'completed');
+  assert.deepEqual(packet.structuredContent.result.value.incident.evidence,evidence);
+  assert.equal((await native.call('incident.list',{contextId,statuses:['open','resting'],limit:10})).value.items.length,0);
+  const invalid={...input,expectedRevision:4,id:randomUUID(),idempotencyKey:'missing-history-evidence'};delete invalid.evidence;
+  const refused=await invoke('incident.create',invalid);
+  assert.equal(refused.structuredContent?.result.error.code,'INVALID_ARGUMENT');
+  assert.deepEqual(refused.structuredContent.result,await native.call('incident.create',invalid));
+  assert.deepEqual(refused.structuredContent.result,cliResult(root,'incident.create',invalid));
 });
 
 test('actual SDK bridge shares admitted kernel results and preserves its service after bridge exit',async t=>{
@@ -205,12 +234,14 @@ test('every continuity tool executes a connected admitted workflow with native-e
     if(operation==='events.read') {
       assert.equal(typeof result.value.nextCursor,'string');assert.equal(typeof other.value.nextCursor,'string');
       const {nextCursor:a,...first}=result.value,{nextCursor:b,...second}=other.value;assert.deepEqual(first,second);
-    } else assert.deepEqual(result,other);
+    } else if(['memory.configure','memory.focus'].includes(operation)) {const {replayed:a,...first}=result.value,{replayed:b,...second}=other.value;assert.equal(a,false);assert.equal(b,true);assert.deepEqual(first,second);}
+    else assert.deepEqual(result,other);
     if(!managedMethods.includes(operation)) {
       const cli=cliResult(root,operation,input);
       if(operation==='events.read') {
         const {nextCursor:a,...first}=result.value,{nextCursor:b,...second}=cli.value;assert.equal(typeof b,'string');assert.deepEqual(first,second);
-      } else assert.deepEqual(result,cli);
+      } else if(['memory.configure','memory.focus'].includes(operation)) {const {replayed:a,...first}=result.value,{replayed:b,...second}=cli.value;assert.equal(b,true);assert.deepEqual(first,second);}
+      else assert.deepEqual(result,cli);
     }
     seen.add(operation);return result.value;
   };
@@ -218,7 +249,7 @@ test('every continuity tool executes a connected admitted workflow with native-e
   const ref=id=>({systemId:system.systemId,contextId,id}),context=async()=>{const result=await native.call('context.get',{contextId});assert.equal(result.ok,true);return result.value;};
   const write=async(operation,input)=>equivalent(operation,{contextId,expectedRevision:(await context()).revision,idempotencyKey:randomUUID(),...input});
   await equivalent('bindings.discover',{operationId:'workspace.read'});
-  await equivalent('context.create',{id:contextId,label:'Complete continuity profile',bootstrapProfile:'owner-local',idempotencyKey:'create',limits});
+  await equivalent('context.create',{id:contextId,label:'Complete continuity profile',bootstrapProfile:'owner-local',idempotencyKey:'create',limits:{...limits,cpuMillis:300000,memoryBytes:268435456,outputBytes:1048576,modelTokens:100000}});
   await write('incident.create',{id:incidentId,incident});
   const document={type:'string'},schema={name:'fixture.continuity',version:'1',digest:digest(document)};
   assert.equal((await native.call('schema.publish',{contextId,expectedRevision:(await context()).revision,idempotencyKey:'schema',schema,document})).ok,true);
@@ -231,6 +262,7 @@ test('every continuity tool executes a connected admitted workflow with native-e
   await write('incident.update',{incidentId,incident:{...incident,continuation:[ref(sourceId)]},evidence:{...evidence,sources:[ref(sourceId)]}});
   await equivalent('workspace.attach',{contextId,incidentId});
   await equivalent('workspace.read',{target:{systemId:system.systemId,contextId,incidentId},detailRefs:[ref(sourceId)]});
+  await equivalent('captures.read',{target:{systemId:system.systemId,contextId,incidentId}});
   await equivalent('graph.query',{contextId,selector:{ids:[sourceId],assertionStatus:'asserted'},limit:20});
   const basis=await context(),proposalId=randomUUID(),reified=randomUUID();
   await write('transition.propose',{proposal:{id:proposalId,incidentId,basisRevision:basis.revision,policy:basis.policy,changes:[{kind:'record.put',record:{kind:'atom',id:reified,schema,value:'Admitted reification'}}],executions:[],evidence:{...evidence,sources:[ref(sourceId)]}}});
@@ -241,6 +273,45 @@ test('every continuity tool executes a connected admitted workflow with native-e
   await write('messages.ack',{messageIds:[messageId]});
   await equivalent('prompt.compose',{contextId,incidentId,template:ref(templateId),sourceRefs:[ref(sourceId)],outputSchema:schema,maximumInputBytes:16384});
   await equivalent('events.read',{contextId,limit:100,waitMillis:0});
+  const memorySession={runtimeId:'sdk-fixture',sessionId:randomUUID()};
+  const enrollment=await equivalent('memory.configure',{session:memorySession,expectedRevision:0,idempotencyKey:'sdk-enroll',enabled:true});
+  assert.equal(enrollment.subscription.enabled,true);assert.equal(enrollment.subscription.revision,1);
+  const memoryInput=await native.call('memory.observe',{session:memorySession,deliveryId:'sdk-source',message:{text:'Maybe preserve this wording as a proposal.',authorship:'human'}});
+  assert.equal(memoryInput.ok,true,JSON.stringify(memoryInput));
+  const memory=await equivalent('memory.read',{session:memorySession,sourceIds:memoryInput.value.sourceIds});
+  assert.equal(memory.sources[0].text,'Maybe preserve this wording as a proposal.');assert.equal(memory.pending.length,1);assert.equal(memory.worker.state,'disabled');
+  const component=new SessionMemory(join(root,'runtime/session-memory.sqlite'),system.systemId);
+  let assessedReceipt;
+  try {
+    const dispatch=component.claim({id:'owned-sdk-fixture',model:'scripted'});
+    assessedReceipt=component.finish(dispatch.id,{kind:'replace',entries:[{sourceId:memoryInput.value.sourceIds[0],weight:0.8}],explanation:'Retain the tentative qualification for later continuation.'});
+    assert.equal(assessedReceipt.status,'succeeded');
+  } finally {component.close();}
+  const assessed=await equivalent('memory.read',{session:memorySession});assert.deepEqual(assessed.lastAssessment,{dispatchId:assessedReceipt.dispatchId,sequence:1,explanation:assessedReceipt.explanation,workingSetId:assessed.focus.workingSetId,incomingSourceIds:memoryInput.value.sourceIds,basisAvailability:'retained'});assert.equal(assessed.pending.length,0);
+  const history=await equivalent('memory.assessments.read',{session:memorySession,assessmentId:assessedReceipt.dispatchId,maximumBytes:262144});assert.equal(history.assessment.request.sources[0].text,'Maybe preserve this wording as a proposal.');assert.equal(history.assessment.outcome.receipt.status,'succeeded');
+  const workTarget={systemId:system.systemId,contextId,incidentId};
+  const changed=await equivalent('memory.focus',{session:memorySession,expectedFocusRevision:0,idempotencyKey:'sdk-focus',action:{kind:'select',purposeKey:'bounded-sdk-work',seedFrom:assessed.focus.workingSetId,work:workTarget}});assert.equal(changed.focus.revision,1);
+  const selected=await equivalent('memory.read',{session:memorySession,includeWorkingSets:true});assert.equal(selected.focus.workingSetId,changed.focus.workingSetId);assert.equal(selected.workingSets.length,2);assert.equal(selected.entries[0].sourceId,memoryInput.value.sourceIds[0]);
+  assert.deepEqual(selected.bindings.work.target,workTarget);
+  const registeredId=randomUUID();
+  await write('guidance.register',{id:registeredId,definition:{label:'SDK guide',locator:{kind:'record',ref:ref(sourceId)},selection:{kind:'json-pointer',pointer:'/value'},locations:[root],classification:'private',evidence},active:true});
+  await write('guidance.refresh',{sourceId:registeredId});
+  const registration=await installGuidance(root,contextId,{additionalRefs:[ref(sourceId)]});assert.equal(registration.state,'ready');
+  const guidance=await equivalent('guidance.read',{contextId,location:root});assert.equal(guidance.captures[0].text,'Observed through the actual SDK bridge');
+  const sourceBinding={source:ref(registeredId),capture:guidance.captures[0].stored.ref,contentDigest:bytesDigest(guidance.captures[0].text),representation:'selected',applicability:'Only for this owned SDK bridge task.',materialOmissions:[]};
+  await equivalent('memory.focus',{session:memorySession,expectedFocusRevision:1,idempotencyKey:'sdk-guidance-binding',action:{kind:'select',purposeKey:'bounded-sdk-work',guidance:[sourceBinding]}});
+  const bound=await equivalent('memory.read',{session:memorySession});assert.deepEqual(bound.bindings.guidance[0].binding,sourceBinding);assert.deepEqual(bound.subscription,selected.subscription);
+  const review=()=>({id:randomUUID(),incidentId,task:{description:'Prepare a scoped native handoff.',location:root,sourceRefs:[ref(sourceId)]},capability:registration.capability,grant:registration.grant,limits:registration.limits});
+  const queued=await write('guidance.review',review());
+  await equivalent('guidance.read',{contextId,executionId:queued.intent.id});
+  const cancelled=await write('execution.cancel',{executionId:queued.intent.id,reason:'The native consumer withdrew this queued assessment'});assert.equal(cancelled.state,'cancelled');
+  const recoverable=await write('guidance.review',review()),nativeWrite=async(operation,input)=>{
+    const result=await native.call(operation,{contextId,expectedRevision:(await context()).revision,idempotencyKey:randomUUID(),...input});assert.equal(result.ok,true,JSON.stringify(result));return result.value;
+  };
+  const leased=await nativeWrite('execution.claim',{executionId:recoverable.intent.id,leaseMillis:30000}),lease={leaseId:leased.lease.id,fencingToken:leased.lease.fencingToken};
+  await nativeWrite('execution.heartbeat',{executionId:recoverable.intent.id,...lease,leaseMillis:30000});
+  const uncertain=await nativeWrite('execution.finish',{executionId:recoverable.intent.id,...lease,outcome:{kind:'unknown',detail:'Owned SDK protocol fixture',evidence:{...evidence,sources:[registration.capability]}},usage:{cpuMillis:0,memoryBytes:0,outputBytes:64,modelTokens:0,apiSpendMicrounits:0}});
+  const reconciled=await write('execution.reconcile',{executionId:uncertain.intent.id,attempt:1,resolution:{kind:'observed',outcome:{kind:'cancelled',evidence:{...evidence,sources:[registration.capability]}}},usage:uncertain.usage});assert.equal(reconciled.state,'cancelled');
   assert.deepEqual([...seen].sort(),exposedOperations().sort());
 });
 

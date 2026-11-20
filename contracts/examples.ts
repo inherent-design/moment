@@ -1,5 +1,13 @@
 import type { NativeConnection } from '../runtime/codex.mjs';
 export type NativeInvocation = NativeConnection['invoke'];
+/** The adapter reports its consumed API contract independently of schema export. */
+export function nativeApiBasis(connection: NativeConnection, result: Awaited<ReturnType<NativeInvocation>>): [string, string] {
+  // @ts-expect-error The runtime has no generated-schema digest property.
+  connection.schemaDigest;
+  // @ts-expect-error Invocation results use the consumed API contract identity.
+  result.schemaDigest;
+  return [connection.apiContractDigest, result.apiContractDigest];
+}
 /** Compile-only usage examples; these do not execute the proposed runtime. */
 import type {
   Atom, Change, Condition, ExecutionIntent, Input, Limits, MomentClient,
@@ -45,6 +53,16 @@ const ref: Ref = {
   id: incidentId,
 };
 const evidence = { sources: [ref], method: "fixture-observation", artifactDigests: [] };
+export const historicalIncidentCreation: Input<"incident.create"> = {
+  contextId, expectedRevision: 1, idempotencyKey: "historical-admission", id: incidentId,
+  incident: { purpose: "Retain completed prior work", completionCriteria: ["Inspect its admitted sources"], status: "completed", continuation: [ref] },
+  evidence,
+};
+// @ts-expect-error Non-open creation must supply its admission evidence.
+export const missingInitialStateEvidence: Input<"incident.create"> = {
+  contextId, expectedRevision: 1, idempotencyKey: "missing-evidence", id: incidentId,
+  incident: { purpose: "Deferred work", completionCriteria: [], status: "resting", continuation: [] },
+};
 const limits: Limits = {
   concurrentExecutions: 1,
   cpuMillis: 1000,
@@ -176,3 +194,17 @@ export const hiddenProjectionPayload = projected.value;
 
 import type { BytesVerifier } from '../runtime/providers/bytes-host.mjs';
 export const nativeVerifierPort = (adapter: BytesVerifier): HostPort => adapter;
+
+
+export const registerGuidance: Input<"guidance.register"> = {
+  contextId, expectedRevision: 11, idempotencyKey: "register-guide", id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", active: true,
+  definition: { label: "Canonical project guidance", locator: { kind: "file", path: "/canonical/project/AGENTS.md" },
+    selection: { kind: "whole" }, locations: ["/canonical/project"], classification: "private", evidence },
+};
+export const discoverGuidance: Input<"guidance.read"> = { contextId, location: "/canonical/project", maximumBytes: 16384 };
+export const selectedGuidance: Input<"guidance.read"> = { contextId, captureIds: [ref.id], representation: "whole", bodyRange: { offset: 0, byteLength: 4096 } };
+export const resourceRevision: Input<"context.limits"> = { contextId, expectedRevision: 12, idempotencyKey: "resource-revision", limits, evidence };
+// @ts-expect-error Reading neither invokes assessment nor changes execution policy.
+export const readCannotAssess: Input<"guidance.read"> = { contextId, invokeModel: true };
+// @ts-expect-error A ceiling revision cannot replace the context identity or policy.
+export const resourceCannotReparent: Input<"context.limits"> = { ...resourceRevision, policy: ref };

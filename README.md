@@ -2,11 +2,13 @@
 
 Moment is a local system for contextual incidents, governed reactions, and coordination between agents. It preserves the relationships, evidence, and intent needed to continue useful work across sessions, projects, and levels of detail.
 
+The complete proposed [purpose and guidance package](docs/reference/purpose.md) defines reusable consistency targets, contextual instruction discovery, ongoing reconciliation, bounded agent work, and goal generalization. Its [typed evolution API](contracts/evolution.ts) and [implementation/acceptance index](docs/development/implementation.md#purpose-and-guidance-package) distinguish the full system contract from installed capabilities. The package does not install new tools, providers, schedules, or policies.
+
 This repository contains a local daemon, typed client, CLI, and SQLite storage backend. It supports operator and grant-bound identities, contexts, schemas, incidents, graph operations, governed policy changes, semantic transitions, deterministic rules, field-selecting views, capability negotiation, execution control, durable event delivery, wake scheduling, a fixed local byte verifier, durable messages, and deterministic prompt composition. An opt-in isolated Codex connection can retrieve authorized context and submit validated observations; it does not automatically dispatch model work.
 
 Start with the [documentation map](docs/README.md), [semantic model](docs/reference/model.md), and [TypeScript API](contracts/index.ts). The [implementation sequence](docs/development/implementation.md) identifies bounded deliverables and their acceptance cases.
 
-The [managed integration](docs/reference/managed-integration.md) provides shared operation provenance, an SDK stdio MCP bridge, explicit context attachment, on-demand service startup and human commands. Actual isolated Codex parent/restart/resume/reload/child use is verified. Runnable goals live centrally under `~/.moment/intents`; real installation remains deferred.
+The [managed integration](docs/reference/managed-integration.md) provides shared operation provenance, an SDK stdio MCP bridge, explicit context attachment, on-demand service startup and human commands. Actual isolated Codex parent/restart/resume/reload/child use is verified. Runnable goals live centrally under `~/.moment/intents`; installation and per-context provider activation are explicit local operator steps.
 
 ## Contract checks
 
@@ -30,7 +32,9 @@ pnpm moment agents workspace.read
 pnpm moment status
 ```
 
-`pnpm moment mcp` serves the 15-tool continuity profile. Initialization/discovery is offline; its first domain call starts or connects to the shared service. Closing a bridge leaves that service and its pending work running. Native Codex owns model turns and child creation; Moment supplies admitted state, evidence and coordination. See [managed integration](docs/reference/managed-integration.md#running-the-implemented-surfaces) for attachment, credential selection and bounded context.
+`pnpm moment mcp` serves the 26-tool continuity profile. Initialization/discovery is offline; its first domain call starts or connects to the shared service. Closing a bridge leaves that service and its pending work running. Native Codex owns model turns and child creation; Moment supplies admitted state, evidence and coordination. Registered-source candidates add explicit refresh, bounded Luna assessment and source-verified reads; native agents retain instruction selection and goal writing/activation. See [guidance](docs/reference/guidance.md#source-backed-candidate-service) for the connected procedure. See [managed integration](docs/reference/managed-integration.md#running-the-implemented-surfaces) for attachment, credential selection and bounded context.
+
+Session conversational memory is optional. Ask the agent to enable memory for this actual session through `memory.configure`, or run `pnpm moment memory on` where `CODEX_THREAD_ID` is present. Use `memory status` to inspect configuration and observed intake separately; `memory off` stops future automatic capture while keeping history. One shared trusted and loaded native hook integration is required. New sessions default off, project adoption is unnecessary, and configuration alone does not establish working capture. See [session memory](docs/reference/integration.md#session-conversational-memory).
 
 For explicit foreground operation, run the service in one terminal:
 
@@ -58,7 +62,7 @@ The input is `{ "contentBase64": "...", "expectedDigest": "sha256:..." }`, with 
 
 Native agents can call the typed client or `pnpm moment call` to read an incident, compose a bounded prompt, exchange summaries, and submit schema-validated graph changes or transition proposals. `messages.ack` acknowledges delivery; it does not accept work. See [agent integration](docs/reference/integration.md#agent-adapter-and-prompts) for template admission and current detail access.
 
-The opt-in `pnpm test:codex-native --credential-file /absolute/private/auth.json` exercises the installed Codex 0.167.2 through a separate app-server, state root and workspace. It supplies only the existing unexpired access token through in-memory external authentication, has no refresh token, invokes one bounded turn, and removes its owned temporary processes and state. It requires an explicit private credential source and uses the existing subscription. Ordinary checks never invoke Codex. See [the Codex boundary](docs/reference/integration.md#codex-boundary) before using or changing it.
+The opt-in `pnpm test:codex-native --credential-file /absolute/private/auth.json` exercises the installed Codex through a separate app-server, state root and workspace. It supplies only the existing unexpired access token through in-memory external authentication, has no refresh token, invokes one bounded turn, and removes its owned temporary processes and state. It requires an explicit private credential source and uses the existing subscription. Ordinary checks never invoke Codex. See [the Codex boundary](docs/reference/integration.md#codex-boundary) before using or changing it.
 
 The managed MCP qualification is `pnpm exec node scripts/codex-mcp-native-check.mjs --protocol-only`. Its explicit `--credential-file /absolute/private/auth.json` variant runs a persisted parent, restarts owned components, resumes the same native thread, reloads tools and verifies exactly one child's own inherited MCP calls and admitted observation. `pnpm test:integration` exercises the installer without inference. Both use test-owned roots; neither installs into the real Codex environment. [Verification](docs/development/verification.md) records actual scope and limitations.
 
@@ -70,4 +74,17 @@ The tracked [implementation goal](docs/development/implementation-goal.md) is re
 
 ## Development and distribution
 
-Read [AGENTS.md](AGENTS.md) before changing contracts. No distribution license has been selected. The package is private and marked `UNLICENSED`; it is not published to npm.
+Moment is an inherent.design project, licensed under [Apache-2.0](LICENSE). Source and issues are hosted at [inherent-design/moment](https://github.com/inherent-design/moment). Read [AGENTS.md](AGENTS.md) before changing contracts.
+
+The public preview package is `@inherent.design/moment`. With the required Node.js version available, install the preview using pnpm:
+
+```sh
+pnpm add -g @inherent.design/moment@preview
+moment --help
+moment agents workspace.read
+moment status
+```
+
+Installation does not enroll memory, connect Codex, start the service or replace an existing checkout installation. Choose an explicit `MOMENT_HOME` for an independent store; retain the default central store for normal continuity. Native hooks and MCP installation remain explicit operator operations. The runtime uses Unix sockets; macOS and Linux are the service targets, with Darwin capture cloning separately optional. See [release procedures](docs/development/releasing.md) for artifact qualification and updates.
+
+The typed client is available from `@inherent.design/moment/client`; contract-only types are available from `@inherent.design/moment/contracts`. Programmatic calls use the same authenticated local service and permissions as the CLI.

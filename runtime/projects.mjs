@@ -1,6 +1,19 @@
 import { realpathSync } from 'node:fs';
-import { resolve, isAbsolute } from 'node:path';
+import { resolve, isAbsolute, join, sep } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import {readVersioned} from './home.mjs';
+import {fail} from './json.mjs';
+
+/** Central association metadata is routing evidence, independently of domain authority. */
+export function associatedProjectIds(home,contextId) {
+  try {
+    const base=realpathSync(join(home.root,'contexts')),path=realpathSync(join(base,contextId,'manifest.json'));
+    if(!path.startsWith(base+sep))fail('INVALID_ARGUMENT','Context manifest escapes central storage');
+    const manifest=readVersioned(path);
+    if(manifest.id!==contextId || !Array.isArray(manifest.projectIds))fail('INVALID_ARGUMENT','Invalid context association');
+    return manifest.projectIds;
+  }catch(error){if(error.code==='ENOENT')return [];throw error;}
+}
 
 const canonicalPath = value => { try { return realpathSync(value); } catch { return resolve(value); } };
 export function normalizeOrigin(value) {

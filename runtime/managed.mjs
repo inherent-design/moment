@@ -1,7 +1,7 @@
-import { realpathSync } from 'node:fs';
-import { join, sep } from 'node:path';
-import { inspectHome, readVersioned } from './home.mjs';
-import { identifyProject } from './projects.mjs';
+import {captureRead,retainedCapture} from './captures.mjs';
+import { join } from 'node:path';
+import { inspectHome } from './home.mjs';
+import { identifyProject,associatedProjectIds } from './projects.mjs';
 import { createClient } from './client.mjs';
 import { readCredential } from './credentials.mjs';
 import { createService } from './service.mjs';
@@ -32,16 +32,6 @@ export function createManaged({root,credentialFile=process.env.MOMENT_CREDENTIAL
     const home=inspectHome({override:ready.value.home});
     return {home,domain,description};
   }
-  function association(home,contextId) {
-    try {
-      const base=realpathSync(join(home.root,'contexts'));
-      const path=realpathSync(join(base,contextId,'manifest.json'));
-      if(!path.startsWith(base+sep)) fail('INVALID_ARGUMENT','Context manifest escapes central storage');
-      const manifest=readVersioned(path);
-      if(manifest.id!==contextId || !Array.isArray(manifest.projectIds)) fail('INVALID_ARGUMENT','Invalid context association');
-      return manifest.projectIds;
-    } catch(error) { if(error.code==='ENOENT') return [];throw error; }
-  }
   async function attach(s,input) {
     const {home,domain,description}=s,projects=home.registry.projects;
     const accessible=async id=>{
@@ -70,7 +60,7 @@ export function createManaged({root,credentialFile=process.env.MOMENT_CREDENTIAL
       if(context) contexts.push(context);
       else if(input.contextId) notFound();
     }
-    if(input.contextId && projectIds && !projectIds.some(id=>(projectById(id)?.contextIds??[]).includes(input.contextId) && association(home,input.contextId).includes(id))) fail('INVALID_ARGUMENT','Context and project associations disagree');
+    if(input.contextId && projectIds && !projectIds.some(id=>(projectById(id)?.contextIds??[]).includes(input.contextId) && associatedProjectIds(home,input.contextId).includes(id))) fail('INVALID_ARGUMENT','Context and project associations disagree');
     const options=[];
     for(const context of contexts) {
       let incident;
@@ -78,7 +68,7 @@ export function createManaged({root,credentialFile=process.env.MOMENT_CREDENTIAL
         try { incident=await domain('incident.get',{contextId:context.id,incidentId:input.incidentId}); }
         catch(error) { if(['NOT_FOUND','FORBIDDEN','POLICY_INDETERMINATE'].includes(error.code)) continue;throw error; }
       }
-      const associated=projectIds?.filter(id=>(projectById(id)?.contextIds??[]).includes(context.id) && association(home,context.id).includes(id));
+      const associated=projectIds?.filter(id=>(projectById(id)?.contextIds??[]).includes(context.id) && associatedProjectIds(home,context.id).includes(id));
       if(projectIds && !associated?.length) continue;
       const projectId=associated?.length===1?associated[0]:undefined;
       options.push({contextId:context.id,...(incident?{incidentId:incident.ref.id}:{}),...(projectId?{projectId}:{}),label:incident?.value.purpose??context.label});
@@ -101,10 +91,11 @@ export function createManaged({root,credentialFile=process.env.MOMENT_CREDENTIAL
     const {domain,description,home}=s,{target}=input;
     if(target.systemId!==description.systemId) notFound();
     const context=await domain('context.get',{contextId:target.contextId});
-    if(target.projectId && (!home.registry.projects.some(p=>p.id===target.projectId && p.contextIds?.includes(target.contextId)) || !association(home,target.contextId).includes(target.projectId))) notFound();
+    if(target.projectId && (!home.registry.projects.some(p=>p.id===target.projectId && p.contextIds?.includes(target.contextId)) || !associatedProjectIds(home,target.contextId).includes(target.projectId))) notFound();
     const incident=target.incidentId?await domain('incident.get',{contextId:target.contextId,incidentId:target.incidentId}):undefined;
     const attachment={...target,principalId:description.principalId,...(description.grants?.[target.contextId]?{grant:description.grants[target.contextId]}:{}),catalog:catalogIdentity};
     const packet={attachment,context,...(incident?{incident}:{}),records:[],messages:[],omittedRefs:[],instructions:{text:catalog.instructions,directives:bindingMap.get('workspace.read').directives},catalog:catalogIdentity};
+    if(target.incidentId){try{const retained=await retainedCapture(home.root,{systemId:target.systemId,contextId:target.contextId,incidentId:target.incidentId},domain);if(retained)packet.captureDisposition={availability:'registered',generation:retained.head.generation,manifestDigest:retained.head.digest,record:retained.head.record};}catch(error){if(!(error instanceof DomainError))throw error;packet.captureDisposition={availability:'unavailable',reason:error.code};}}
     const maximumBytes=input.maximumBytes??16384,limit=input.limit??20;
     const size=()=>Buffer.byteLength(canonical(packet));
     if(size()>maximumBytes) fail('LIMIT_EXCEEDED','Required context exceeds the byte budget; request a larger maximumBytes');
@@ -139,28 +130,31 @@ export function createManaged({root,credentialFile=process.env.MOMENT_CREDENTIAL
     }
     const continuation=(incident?.value.continuation??[]).filter(ref=>!explicit.some(item=>item.id===ref.id));
     const page=continuation.length?await query(continuation.slice(0,100)):explicit.length?{items:[]}:await domain('graph.query',{contextId:target.contextId,selector:{assertionStatus:'any'},limit});
-    const candidates=[...details,...page.items.filter(item=>!explicit.some(ref=>ref.id===item.record.ref.id)).map(item=>({ref:item.record.ref,item}))];
-    const added=new Set();
-    for(const {ref,item} of candidates) {
-      if(added.has(ref.id)) continue;added.add(ref.id);
-      if(!item) { packet.omittedRefs.push(ref);continue; }
+    const byId=new Map(page.items.map(item=>[item.record.ref.id,item])),seen=new Set();
+    const automatic=continuation.length?continuation.map(ref=>({ref,item:byId.get(ref.id)})):page.items.map(item=>({ref:item.record.ref,item}));
+    const candidates=[...details,...automatic].filter(({ref})=>{if(seen.has(ref.id))return false;seen.add(ref.id);return true;});
+    const messages=input.includeMessages?(await domain('messages.read',{contextId:target.contextId,limit,includeAcknowledged:false})).items.filter(message=>!target.incidentId || message.value.incidentId===target.incidentId):[];
+    // Reserve every visible omission before selecting bodies. Returning an item
+    // replaces its reference; later omissions cannot invalidate an earlier fit.
+    const omissionRefs=[...candidates.map(item=>item.ref),...messages.map(message=>message.ref)],included=new Set();
+    packet.omittedRefs=omissionRefs;
+    if(size()>maximumBytes) fail('LIMIT_EXCEEDED','Selected context and omission references exceed the byte budget; reduce detail or request a larger maximumBytes');
+    const include=(field,item,index)=>{
+      const previous=packet.omittedRefs;
+      packet.omittedRefs=omissionRefs.filter((_,i)=>!included.has(i) && i!==index);
+      packet[field].push(item);
+      if(size()>maximumBytes) {packet[field].pop();packet.omittedRefs=previous;}
+      else included.add(index);
+    };
+    for(const [index,{ref,item}] of candidates.entries()) {
+      if(!item) continue;
       if(!explicit.some(x=>x.id===ref.id)) {
-        try { await dependencies(item); } catch(error) { if(error.code==='NOT_FOUND') {packet.omittedRefs.push(ref);continue;}throw error; }
+        try { await dependencies(item); } catch(error) { if(error.code==='NOT_FOUND') continue;throw error; }
       }
-      if(packet.records.length>=limit) {packet.omittedRefs.push(ref);continue;}
-      packet.records.push(item);
-      if(size()>maximumBytes) {packet.records.pop();packet.omittedRefs.push(ref);}
+      if(packet.records.length<limit) include('records',item,index);
     }
-    // Continuation refs are authorized by incident.get, even if not semantic rows.
-    for(const ref of continuation) if(!added.has(ref.id)) packet.omittedRefs.push(ref);
-    if(input.includeMessages) {
-      const messages=await domain('messages.read',{contextId:target.contextId,limit,includeAcknowledged:false});
-      for(const message of messages.items) if(!target.incidentId || message.value.incidentId===target.incidentId) {
-        packet.messages.push(message);if(size()>maximumBytes) {packet.messages.pop();packet.omittedRefs.push(message.ref);}
-      }
-    }
-    // Omission metadata is part of the budget. Prefer a recoverable refusal over
-    // violating the declared bound or disclosing inaccessible counts.
+    for(const [index,message] of messages.entries()) include('messages',message,candidates.length+index);
+    // Keep the final bound explicit if the packet gains fields in the future.
     if(size()>maximumBytes) fail('LIMIT_EXCEEDED','Selected context and omission references exceed the byte budget; reduce detail or request a larger maximumBytes');
     return packet;
   }
@@ -175,7 +169,8 @@ export function createManaged({root,credentialFile=process.env.MOMENT_CREDENTIAL
       if(operation==='bindings.discover') value=discoverBindings(input,profile);
       else {
         const s=await session();
-        if(operation==='workspace.attach') value=await attach(s,input);
+        if(operation==='captures.read'){if(input.target.systemId!==s.description.systemId)notFound();value=await captureRead(s.home.root,input,s.domain);}
+        else if(operation==='workspace.attach') value=await attach(s,input);
         else if(operation==='workspace.read') value=await read(s,input);
         else value=await s.domain(operation,input);
       }

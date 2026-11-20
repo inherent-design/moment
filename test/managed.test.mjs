@@ -1,3 +1,5 @@
+import {publishCapture} from '../runtime/captures.mjs';
+import {DomainError} from '../runtime/json.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, renameSync } from 'node:fs';
@@ -44,7 +46,18 @@ test('offline bindings discovery does not initialize or start a personal store',
   const parent=mkdtempSync(join(tmpdir(),'moment-offline-'));t.after(()=>rmSync(parent,{recursive:true,force:true}));
   const root=join(parent,'absent');
   const result=await createManaged({root}).call('bindings.discover',{});
-  assert.equal(result.ok,true);assert.equal(result.value.exposedOperations.length,15);assert.equal(existsSync(root),false);
+  assert.equal(result.ok,true);assert.equal(result.value.exposedOperations.length,26);assert.ok(result.value.exposedOperations.includes('memory.read'));assert.ok(result.value.exposedOperations.includes('memory.assessments.read'));assert.ok(result.value.exposedOperations.includes('memory.focus'));assert.ok(result.value.exposedOperations.includes('memory.configure'));assert.ok(result.value.exposedOperations.includes('guidance.review'));assert.equal(existsSync(root),false);
+});
+
+test('native context reads discover capture disposition and deny its body under current delegated authority',async t=>{
+  const f=await fixture(t),created=await f.createIncident(),target={systemId:f.systemId,contextId:f.contextId,incidentId:created.ref.id},manifest={formatVersion:1,id:randomUUID(),target,generation:1,run:{id:'fixture',category:'checks',state:'completed',current:false,order:1,pins:[],dependencies:[]},provenance:{dirtyInputDigests:[],tools:[],commands:[],environment:[],outcomes:[],limitations:[]},claims:[],payloads:[],continuation:{summary:'Selected capture meaning',unresolved:[]},evidence};
+  const captureDomain=async(m,a)=>{const result=await f.client.call(m,a);if(!result.ok)throw new DomainError(result.error.code,result.error.message,result.error.retry);return result.value;};
+  await publishCapture(f.root,{contextId:f.contextId,expectedRevision:(await f.domain('context.get',{contextId:f.contextId})).revision,idempotencyKey:randomUUID(),manifest},captureDomain);
+  const packet=await f.managed.call('workspace.read',{target});assert.equal(packet.ok,true,JSON.stringify(packet));assert.equal(packet.value.captureDisposition.availability,'registered');
+  const read=await f.managed.call('captures.read',{target});assert.equal(read.ok,true,JSON.stringify(read));assert.deepEqual(read.value.manifest,manifest);
+  const delegate=await f.delegate([target.incidentId],[{systemId:f.systemId,contextId:f.contextId,id:randomUUID()}]);
+  const limited=await delegate.managed.call('workspace.read',{target});assert.equal(limited.ok,true,JSON.stringify(limited));assert.equal(limited.value.captureDisposition.availability,'unavailable');assert.equal(limited.value.captureDisposition.record,undefined);
+  const denied=await delegate.managed.call('captures.read',{target});assert.equal(denied.ok,false);assert.equal(denied.error.code,'NOT_FOUND');
 });
 
 test('explicit project/location/context selects central work without guessing the bridge directory',async t=>{
@@ -118,6 +131,71 @@ test('context packets preserve exact stored digests, enforce byte bounds and ref
   assert.equal((await missing.call('workspace.read',{target})).error.code,'UNAUTHENTICATED');
 });
 
+async function packetFixture(t,values) {
+  const f=await fixture(t),selected=await f.createIncident();
+  const document={type:'string'},schema={name:'fixture.packing',version:'1',digest:digest(document)};
+  await f.write('schema.publish',{schema,document});
+  const records=values.map(value=>({kind:'atom',id:randomUUID(),schema,value}));
+  await f.write('graph.transact',{changes:records.map(record=>({kind:'record.put',record}))});
+  const refs=records.map(record=>({systemId:f.systemId,contextId:f.contextId,id:record.id}));
+  await f.write('incident.update',{incidentId:selected.ref.id,incident:{...selected.value,continuation:refs},evidence});
+  const target={systemId:f.systemId,contextId:f.contextId,incidentId:selected.ref.id};
+  return {...f,selected,records,refs,target,read:options=>f.managed.call('workspace.read',{target,maximumBytes:65536,...options})};
+}
+
+test('context packing honors explicit details then writer continuation order under record and UTF-8 byte limits',async t=>{
+  const f=await packetFixture(t,['Older goal index. '.repeat(80),'🐟 Current resume state.\n'.repeat(500)]);
+  await f.write('incident.update',{incidentId:f.selected.ref.id,incident:{...f.selected.value,continuation:[f.refs[1],f.refs[0]]},evidence});
+  const full=await f.read();assert.equal(full.ok,true,JSON.stringify(full));
+  assert.deepEqual(full.value.records.map(item=>item.record.ref.id),[f.refs[1].id,f.refs[0].id]);
+  const limited=await f.read({limit:1});assert.equal(limited.ok,true,JSON.stringify(limited));
+  assert.deepEqual(limited.value.records.map(item=>item.record.ref.id),[f.refs[1].id]);
+  const explicit=await f.read({detailRefs:[f.refs[0]],limit:1});assert.equal(explicit.ok,true,JSON.stringify(explicit));
+  assert.deepEqual(explicit.value.records.map(item=>item.record.ref.id),[f.refs[0].id]);
+  const first=full.value.records[0],maximumBytes=Buffer.byteLength(canonical({...full.value,records:[first],omittedRefs:[f.refs[0]]}));
+  const tight=await f.read({maximumBytes});assert.equal(tight.ok,true,JSON.stringify(tight));
+  assert.deepEqual(tight.value.records,[first]);assert.deepEqual(tight.value.omittedRefs,[f.refs[0]]);
+  assert.equal(Buffer.byteLength(canonical(tight.value)),maximumBytes);
+  assert.equal(tight.value.records[0].record.value.value,f.records[1].value);
+});
+
+test('context packing reserves omission references and permits recoverable metadata-only results',async t=>{
+  const f=await packetFixture(t,['🐟'.repeat(2500),'Larger checkpoint. '.repeat(1000)]);
+  const full=await f.read();assert.equal(full.ok,true,JSON.stringify(full));
+  const first=full.value.records[0],maximumBytes=Buffer.byteLength(canonical({...full.value,records:[first],omittedRefs:[]}));
+  const partial=await f.read({maximumBytes});assert.equal(partial.ok,true,JSON.stringify(partial));
+  assert.deepEqual(partial.value.records,[]);assert.deepEqual(partial.value.omittedRefs,f.refs);
+  assert.ok(Buffer.byteLength(canonical(partial.value))<=maximumBytes);
+  const minimumBytes=Buffer.byteLength(canonical({...full.value,records:[],omittedRefs:f.refs}));
+  const minimum=await f.read({maximumBytes:minimumBytes});assert.equal(minimum.ok,true,JSON.stringify(minimum));
+  assert.equal(Buffer.byteLength(canonical(minimum.value)),minimumBytes);
+  assert.equal((await f.read({maximumBytes:minimumBytes-1})).error.code,'LIMIT_EXCEEDED');
+  const recovered=await f.read({detailRefs:[f.refs[0]],limit:1});assert.equal(recovered.ok,true,JSON.stringify(recovered));
+  assert.deepEqual(recovered.value.records,[first]);assert.deepEqual(recovered.value.omittedRefs,[f.refs[1]]);
+  const small={kind:'atom',id:randomUUID(),schema:f.records[0].schema,value:'Compact useful state.'},smallRef={...f.refs[0],id:small.id};
+  await f.write('graph.transact',{changes:[{kind:'record.put',record:small}]});
+  await f.write('incident.update',{incidentId:f.selected.ref.id,incident:{...f.selected.value,continuation:[f.refs[1],f.refs[0],smallRef]},evidence});
+  const laterFull=await f.read();assert.equal(laterFull.ok,true,JSON.stringify(laterFull));
+  const smallItem=laterFull.value.records.find(item=>item.record.ref.id===small.id);
+  const compactBytes=Buffer.byteLength(canonical({...laterFull.value,records:[smallItem],omittedRefs:[f.refs[1],f.refs[0]]}));
+  const compact=await f.read({maximumBytes:compactBytes,limit:1});assert.equal(compact.ok,true,JSON.stringify(compact));
+  assert.deepEqual(compact.value.records,[smallItem]);assert.deepEqual(compact.value.omittedRefs,[f.refs[1],f.refs[0]]);
+});
+
+test('context packing reserves optional-message omissions before selecting records and can retain a smaller message',async t=>{
+  const f=await packetFixture(t,['Record payload. '.repeat(1200)]),id=randomUUID();
+  await f.write('messages.send',{message:{id,incidentId:f.selected.ref.id,recipientId:f.owner.principalId,kind:'notice',summary:'m'.repeat(8192),detailRefs:[]}});
+  const full=await f.read({includeMessages:true});assert.equal(full.ok,true,JSON.stringify(full));
+  assert.equal(full.value.records.length,1);assert.equal(full.value.messages.length,1);
+  const maximumBytes=Buffer.byteLength(canonical({...full.value,messages:[],omittedRefs:[]}));
+  const partial=await f.read({maximumBytes,includeMessages:true});assert.equal(partial.ok,true,JSON.stringify(partial));
+  assert.deepEqual(partial.value.records,[]);assert.deepEqual(partial.value.messages,full.value.messages);
+  assert.deepEqual(partial.value.omittedRefs,f.refs);assert.ok(Buffer.byteLength(canonical(partial.value))<=maximumBytes);
+  const recovered=await f.read({detailRefs:f.refs,limit:1});assert.equal(recovered.ok,true,JSON.stringify(recovered));
+  assert.deepEqual(recovered.value.records,full.value.records);assert.deepEqual(recovered.value.messages,[]);
+});
+
+
 test('selected credential metadata cannot impersonate the authenticated owner or expand saved policy',async t=>{
   const f=await fixture(t),file=join(f.root,'claimed-principal.json');
   writeFileSync(file,JSON.stringify({...f.owner,principalId:randomUUID()}),{mode:0o600});
@@ -128,6 +206,34 @@ test('selected credential metadata cannot impersonate the authenticated owner or
   const narrowed=await f.write('policy.publish',{policy:{...policy.value,id:randomUUID(),parent:context.policy,rules:policy.value.rules.map(rule=>({...rule,actions:rule.actions.filter(action=>action!=='incident.list')}))}});
   await f.write('policy.activate',{policy:narrowed.ref,evidence});
   assert.equal((await m.call('workspace.attach',{contextId:f.contextId})).error.code,'FORBIDDEN');
+});
+
+test('owner discovery compatibility upgrade preserves delegated recovery and denied enumeration',async t=>{
+  const f=await fixture(t),visible=await f.createIncident(),hidden=await f.createIncident({purpose:'Outside delegated incident scope'});
+  const d=await f.delegate([visible.ref.id]);
+  const context=await f.domain('context.get',{contextId:f.contextId}),policy=await f.domain('control.get',{contextId:f.contextId,ref:context.policy});
+  const narrowed=await f.write('policy.publish',{policy:{...policy.value,id:randomUUID(),parent:context.policy,rules:policy.value.rules.map(rule=>({...rule,actions:rule.actions.filter(action=>action!=='incident.list')}))}});
+  await f.write('policy.activate',{policy:narrowed.ref,evidence});
+  assert.equal((await f.managed.call('workspace.attach',{location:f.location})).error.code,'FORBIDDEN');
+  assert.equal((await d.managed.call('workspace.attach',{contextId:f.contextId})).error.code,'FORBIDDEN');
+  const explicit=await d.managed.call('workspace.attach',{contextId:f.contextId,incidentId:visible.ref.id});
+  assert.equal(explicit.ok,true,JSON.stringify(explicit));
+  assert.equal(explicit.value.attachment.principalId,d.principalId);
+  assert.deepEqual(explicit.value.attachment.grant,d.grant.ref);
+  const selected=await d.managed.call('workspace.read',{target:{systemId:f.systemId,contextId:f.contextId,incidentId:visible.ref.id}});
+  assert.equal(selected.ok,true,JSON.stringify(selected));
+  assert.equal(selected.value.incident.ref.id,visible.ref.id);
+  assert.equal((await d.managed.call('workspace.attach',{contextId:f.contextId,incidentId:hidden.ref.id})).error.code,'NOT_FOUND');
+  const upgrade={...narrowed.value,id:randomUUID(),parent:narrowed.ref,rules:narrowed.value.rules.map(rule=>rule.id==='owner-local'?{...rule,actions:[...rule.actions,'incident.list']}:rule)};
+  assert.deepEqual(upgrade.authorityIssuers,narrowed.value.authorityIssuers);assert.deepEqual(upgrade.limits,narrowed.value.limits);
+  assert.deepEqual(upgrade.rules.filter(rule=>rule.id!=='owner-local'),narrowed.value.rules.filter(rule=>rule.id!=='owner-local'));
+  assert.deepEqual(upgrade.rules.find(rule=>rule.id==='owner-local').when,narrowed.value.rules.find(rule=>rule.id==='owner-local').when);
+  const published=await f.write('policy.publish',{policy:upgrade});await f.write('policy.activate',{policy:published.ref,evidence});
+  const discovered=await f.managed.call('workspace.attach',{location:f.location});assert.equal(discovered.ok,true,JSON.stringify(discovered));
+  assert.equal(discovered.value.reason,'ambiguous_incident');assert.deepEqual(new Set(discovered.value.candidates.map(x=>x.incidentId)),new Set([visible.ref.id,hidden.ref.id]));
+  assert.equal((await d.managed.call('workspace.attach',{contextId:f.contextId})).error.code,'FORBIDDEN');
+  assert.equal((await d.managed.call('workspace.attach',{contextId:f.contextId,incidentId:visible.ref.id})).value.attachment.principalId,d.principalId);
+  assert.equal((await d.managed.call('workspace.attach',{contextId:f.contextId,incidentId:hidden.ref.id})).error.code,'NOT_FOUND');
 });
 
 test('attachment preserves registered worktree identity and requires a confirmed clone/move association',async t=>{

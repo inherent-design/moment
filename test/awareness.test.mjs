@@ -99,3 +99,16 @@ test('optional prompt sources remain authorized and self-supported instructions 
   assert.equal(delegated(f,actor,bound,'graph.transact',{ changes:[{ kind:'assertion.put',assertion:{ ...f.assertion,id:randomUUID() } }] },true).ok,true);
   assert.equal(delegated(f,actor,bound,'prompt.compose',f.input).error.code,'FORBIDDEN');
 });
+
+test('prompt sources require top-level incident creation evidence, including historical incident detail',t=>{
+ const f=prompt(t);allowDelegated(f);
+ const hidden=atom(schema(f));assert.equal(f.write('graph.transact',{changes:[{kind:'record.put',record:hidden}]}).ok,true);
+ const hiddenRef=f.kernel.ref(f.contextId,hidden.id),dataId=randomUUID(),dataRef=f.kernel.ref(f.contextId,dataId),evidence={sources:[hiddenRef],artifactDigests:[],method:'Historical basis with independent access'};
+ assert.equal(f.write('incident.create',{id:dataId,incident:{...incident,status:'completed'},evidence}).ok,true);
+ const actor=randomUUID(),output=f.kernel.schema(f.store.read(f.contextId),f.input.outputSchema).ref;
+ const scope={actions:['prompt.compose'],incidentIds:'all',resourceRefs:[f.input.template,output,dataRef]};
+ const narrow=grant(f,actor,scope),input={...f.input,sourceRefs:[dataRef]};
+ assert.equal(delegated(f,actor,narrow,'prompt.compose',input).error.code,'NOT_FOUND');
+ const complete=grant(f,actor,{...scope,resourceRefs:[...scope.resourceRefs,hiddenRef]});
+ assert.equal(delegated(f,actor,complete,'prompt.compose',input).ok,true);
+});

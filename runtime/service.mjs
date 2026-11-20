@@ -7,6 +7,8 @@ import { credentials } from './server.mjs';
 import { request, createClient } from './client.mjs';
 import { catalogIdentity } from './bindings.mjs';
 import { Store, startupStatus } from './store.mjs';
+import {storageVersion} from './snapshot-values.mjs';
+import {assertMigrationReady} from './migration-state.mjs';
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const optionalStat = path => { try { return lstatSync(path); } catch (error) { if (error.code==='ENOENT') return;throw error; } };
@@ -30,7 +32,7 @@ function claimAt(root) {
     db.exec('PRAGMA busy_timeout=1000');
     const version=db.prepare('PRAGMA user_version').get().user_version;
     if(version===0) return; // Empty owned file; Store initializes under BEGIN IMMEDIATE.
-    if(version!==1) throw new Error('Unsupported database version');
+    if(version!==storageVersion) throw new Error('Unsupported database version; explicit storage migration may be required');
     const row=db.prepare("SELECT value FROM metadata WHERE key='daemonClaim'").get();
     const starting=db.prepare("SELECT value FROM metadata WHERE key='managedStartup'").get();
     const startup=starting?JSON.parse(starting.value):undefined;
@@ -55,6 +57,7 @@ export function createService({ root, credentialFile=process.env.MOMENT_CREDENTI
     try {runtimeSocket(home.root);} catch(error) {return health('incompatible',error.message);}
     if (!home.registry) return health('stopped','Moment is not initialized; a domain operation can initialize and start it');
     try {
+      assertMigrationReady(home.root);
       if(optionalStat(join(home.root,'runtime/store.sqlite'))?.size>0 && !optionalStat(join(home.root,'runtime/owner.json'))) return health('unavailable','Original owner credential is missing for retained state; restore its custody without resetting identity');
       const socket=optionalStat(join(home.root,'runtime/moment.sock'));
       if (socket && (!socket.isSocket() || socket.uid!==process.getuid() || socket.mode&0o077)) return health('incompatible','Socket path is not a private owned socket; inspect it explicitly');

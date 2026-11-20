@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { openHome } from './home.mjs';
 import { serve } from './server.mjs';
 import { request } from './client.mjs';
@@ -10,7 +11,7 @@ import { runManagedCommand } from './commands.mjs';
 try {
   const [command,method,raw,...extra]=process.argv.slice(2);
   if (command==='--help' || command==='help' || !command) {
-    console.log('moment agents [operation-id] [--limit N] [--cursor CURSOR]\nmoment mcp [--profile continuity|operator]\nmoment status [--context ID] [--details] [--json]\nmoment show INCIDENT --context ID [--details] [--json]\nmoment stop [--json]\nmoment connect|disconnect --codex-home PATH --moment-home PATH [--apply] [--json]\nmoment serve | moment call <method> <params-json> | moment call <method> --file <path|-> | moment describe | moment credential <principal-id> <grant-bindings-json> | moment verifier <context-id>');
+    console.log('moment captures read|record|plan|apply|reconcile (use moment captures --help)\nmoment agents [operation-id] [--limit N] [--cursor CURSOR]\nmoment mcp [--profile continuity|operator]\nmoment guidance setup --context ID [--actions-only|--read-only] [--refs FILE] [--json]\nmoment guidance read --context ID [--location PATH] [--execution ID] [--maximum-bytes N] [--json]\nmoment guidance register|refresh|review --file PATH|- [--json]\nmoment memory on|off [--runtime ID] [--session ID] [--json]\nmoment memory configure --file PATH|- [--json]\nmoment memory focus --file PATH|- [--json]\nmoment memory assessments [--runtime ID] [--session ID] [--maximum-bytes N] [--json]\nmoment memory assessments --file PATH|- [--json]\nmoment memory read|status [--runtime ID] [--session ID] [--maximum-bytes N] [--sources JSON] [--working-set ID] [--sets] [--json]\nmoment memory hooks [--runtime ID] [--session ID] [--codex-home PATH] [--moment-home PATH]\nmoment memory hook [--runtime ID] [--session ID] [--codex-home PATH]\nmoment memory select --file PATH|- [--codex-home PATH] [--runtime ID] [--json]\nmoment memory observe|rebuild|cancel|reconcile --file PATH|- [--json]\nmoment storage plan [--enroll FILE] [--out FILE] [--json]\nmoment storage migrate --file PLAN [--json]\nmoment storage resume [--json]\nmoment status [--context ID] [--details] [--json]\nmoment show INCIDENT --context ID [--details] [--json]\nmoment stop [--json]\nmoment connect|disconnect --codex-home PATH --moment-home PATH [--apply] [--json]\nmoment serve | moment call <method> <params-json> | moment call <method> --file <path|-> | moment describe | moment credential <principal-id> <grant-bindings-json> | moment verifier <context-id>');
   } else if(await runManagedCommand(process.argv.slice(2))) {
   } else {
     const fileMode=command==='call' && raw==='--file';

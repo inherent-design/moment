@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, writeFileSync, rmSync, cpSync, symlinkSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, rmSync, cpSync, symlinkSync, renameSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import {randomUUID} from 'node:crypto';
 import { generateBindings, outputPath } from '../scripts/generate-bindings.mjs';
 import { compileContract } from '../scripts/schema-compiler.mjs';
 import { canonical } from '../runtime/json.mjs';
@@ -29,6 +30,9 @@ test('generated shape schemas and admitted refinements reject incompatible data'
   assert.throws(() => validateBoundary('system.describe', 'input', { protocolVersion: '0.2' }), { code: 'INVALID_ARGUMENT' });
   assert.throws(() => validateBoundary('context.get', 'input', { contextId: 'not-a-uuid' }), { code: 'INVALID_ARGUMENT' });
   assert.throws(() => validateBoundary('context.get', 'output', { id: 'wrong', revision: 1 }), { code: 'INVALID_ARGUMENT' });
+  const capture={target:{systemId:randomUUID(),contextId:randomUUID(),incidentId:randomUUID()},availability:'unregistered',payloads:[],omittedPayloadIds:[],omittedFields:[]};
+  validateBoundary('captures.read','output',capture);
+  for(const key of ['systemId','contextId','incidentId'])assert.throws(()=>validateBoundary('captures.read','output',{...capture,target:{...capture.target,[key]:'invalid'}}),{code:'INVALID_ARGUMENT'});
   for (const operation of catalog.operations) {
     // Compiling all documents catches dangling/foreign refs and invalid schemas.
     assert.throws(() => validateBoundary(operation.id, 'output', undefined), { code: 'INVALID_ARGUMENT' });
@@ -37,7 +41,8 @@ test('generated shape schemas and admitted refinements reject incompatible data'
 
 test('unsupported and unresolved contract types fail generation rather than widening schemas', t => {
   const root = mkdtempSync(join(tmpdir(), 'moment-schema-'));t.after(() => rmSync(root, { recursive: true, force: true }));
-  const path = join(root, 'contract.ts'), source = readFileSync(new URL('../contracts/index.ts', import.meta.url), 'utf8');
+  const path = join(root, 'index.ts'), source = readFileSync(new URL('../contracts/index.ts', import.meta.url), 'utf8');
+  writeFileSync(join(root,'captures.ts'),readFileSync(new URL('../contracts/captures.ts',import.meta.url)));
   writeFileSync(path, source.replace('label: string;', 'label: unknown;'));
   assert.throws(() => compileContract(path), /Unsupported boundary type/);
   writeFileSync(path, source.replace('label: string;', 'label: MissingType;'));
@@ -60,11 +65,23 @@ test('the actual generator refuses stale sources, missing dispatch coverage and 
   symlinkSync(join(root,'node_modules'),join(directory,'node_modules'),'dir');
   const run=()=>execFileSync(process.execPath,[join(directory,'scripts/generate-bindings.mjs'),'--check'],{encoding:'utf8',stdio:'pipe',timeout:10000});
   assert.match(run(),/Checked deterministic/);
+  const lock=join(directory,'pnpm-lock.yaml'),copy=join(directory,'runtime/generated/source-lock.yaml'),lockBytes=readFileSync(lock);
+  const discover=()=>spawnSync(process.execPath,[join(directory,'runtime/cli.mjs'),'agents','workspace.read'],{env:{PATH:process.env.PATH,MOMENT_HOME:join(directory,'absent-state')},encoding:'utf8',timeout:10000});
+  assert.deepEqual(readFileSync(copy),lockBytes);
+  writeFileSync(lock,Buffer.concat([lockBytes,Buffer.from('\n')]));
+  assert.notEqual(discover().status,0,'A checkout cannot bypass its changed root lockfile');
+  writeFileSync(lock,lockBytes);renameSync(lock,lock+'.retained');
+  assert.equal(discover().status,0,'A distribution verifies the exact generated lock copy');
+  writeFileSync(copy,Buffer.concat([lockBytes,Buffer.from('\n')]));assert.notEqual(discover().status,0);
+  rmSync(copy);symlinkSync(lock+'.retained',copy);assert.notEqual(discover().status,0,'A symlink is not an admitted distribution source');
+  rmSync(copy);assert.notEqual(discover().status,0,'Missing root and distribution locks refuse');
+  writeFileSync(copy,lockBytes);renameSync(lock+'.retained',lock);
   const directive=join(directory,'runtime/directives.mjs'),before=readFileSync(directive,'utf8');writeFileSync(directive,before+'\n');
   assert.throws(run,/Bindings are stale/);
   const refused=spawnSync(process.execPath,[join(directory,'runtime/cli.mjs'),'agents'],{env:{PATH:process.env.PATH,MOMENT_HOME:join(directory,'absent-state')},encoding:'utf8',timeout:10000});
   assert.equal(refused.status,1);assert.equal(refused.stdout,'');assert.match(refused.stderr,/Bindings are stale/);
   writeFileSync(directive,before);
+  const captureContract=join(directory,'contracts/captures.ts'),captureBefore=readFileSync(captureContract,'utf8');writeFileSync(captureContract,captureBefore+'\n');assert.throws(run,/Bindings are stale/);writeFileSync(captureContract,captureBefore);
   const kernel=join(directory,'runtime/kernel.mjs'),dispatch=readFileSync(kernel,'utf8');writeFileSync(kernel,dispatch.replace("case 'graph.query'","case 'graph.missing'"));
   assert.throws(run,/dispatch\/registration mismatch/);writeFileSync(kernel,dispatch);
   const contract=join(directory,'contracts/index.ts'),source=readFileSync(contract,'utf8');

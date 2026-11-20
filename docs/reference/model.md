@@ -2,6 +2,8 @@
 
 This contract defines what the API's records mean. [API declarations](../../contracts/index.ts) own field names and types; [authority](authority.md) governs admissible interpretations and changes.
 
+The proposed [purpose model](purpose.md) defines finite and maintained purposes, consistency targets, local realizations, assessments, and adaptive responses on these foundations. Its [evolution declarations](../../contracts/evolution.ts) remain separate from installed methods; no new primitive, instruction authority, or implicit containment is acquired by a typed semantic record alone.
+
 ## Identity and atomicity
 
 An atom is an addressable semantic unit at a selected perspective. It may carry a scalar, structured content, or a reference to further structure. Atomicity does not require physically indivisible storage or a globally minimal meaning. An incident presents a purpose and continuity boundary; it can participate as a unit in one context while exposing many participants through a more detailed perspective.
@@ -26,7 +28,11 @@ A system is one identity and execution boundary with its own store and admitted 
 
 Context creation chooses an installed bootstrap profile; it cannot submit its own root authority. Parent relationships between contexts are ordinary typed relations unless an explicit policy attaches additional consequences. Sharing a context means participating in a specified interpretation and exchange scope; it does not imply shared credentials, equal visibility, or mutual mutation permission.
 
-An incident starts `open`, may become `resting`, and can end `completed` or `cancelled`. Creating it in any other state is invalid. `incident.update` may change purpose, completion criteria, continuation references, or status with evidence. Completing requires evidence for the stated criteria under the active policy. Reopening a terminal incident requires `incident.reopen` authority in addition to update authority, with a reason in the evidence method. Rest preserves intent and wake conditions. User cancellation remains effective regardless of an agent's preference to continue.
+An incident may be created `open`, `resting`, `completed` or `cancelled`. Non-open creation requires `Evidence` and both current `incident.create` and `incident.update` authority for that identity. Completing, at creation or update, additionally requires nonempty accessible source references under the active policy. Evidence identifies an admission basis; the service checks source existence and access, while source claims and satisfaction of completion criteria still need their applicable verification. Rest preserves intent and wake conditions. User cancellation remains effective regardless of an agent's preference to continue.
+
+`StoredIncident.evidence` retains the admitted revision's evidence separately from `Incident` purpose and status. Older snapshots may lack it. Every supplied source must resolve in the context and be readable. Reads and lists require access to the selected and current continuation/evidence dependencies; sharing work and evidence through the same admitted context or grants permits collaboration without separate agent isolation. `incident.update` revises intent, continuation or state with evidence and preserves the resulting basis across restart. The installed API refuses terminal-to-nonterminal reopening; it has no callable `incident.reopen` operation.
+
+Historical work is newly admitted evidence about earlier activity. Preserve exact original source identity/content and any attributed historical time; `recordedAt`, revisions and commit events describe current admission. A historical report does not rewrite service history or replay execution. Create a local incident only when a current addressable purpose/state is useful; a historical semantic record and its independent support need not instantiate control state. Direct non-open creation has one admitted initial state and no synthetic intermediate `open` revision.
 
 ## Structural relationships
 

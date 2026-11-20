@@ -25,7 +25,7 @@ export function compileContract(filename) {
   const errors = ts.getPreEmitDiagnostics(program);
   if (errors.length) throw new Error(ts.formatDiagnosticsWithColorAndContext(errors, { getCurrentDirectory: () => '.', getCanonicalFileName: x => x, getNewLine: () => '\n' }));
   const checker = program.getTypeChecker(), source = program.getSourceFile(filename);
-  const declarations = new Map(source.statements.filter(n => n.name).map(n => [n.name.text, n]));
+  const declarations = new Map(program.getSourceFiles().filter(file=>!file.isDeclarationFile).flatMap(file=>file.statements.filter(n=>n.name).map(n=>[n.name.text,n])));
   const interfaceType = name => {
     const declaration = declarations.get(name);
     if (!declaration) throw new Error(`Missing interface ${name}`);
@@ -55,8 +55,13 @@ export function compileContract(filename) {
         for (const prop of checker.getPropertiesOfType(t)) {
           let value = checker.getTypeOfSymbolAtLocation(prop, prop.valueDeclaration ?? source);
           const annotation=prop.valueDeclaration?.type;
-          const primitive=annotation && ts.isTypeReferenceNode(annotation)?primitives[annotation.typeName.getText(source)]:undefined;
+          const primitive=annotation && ts.isTypeReferenceNode(annotation)?primitives[annotation.typeName.getText()]:undefined;
           if (!(prop.flags & ts.SymbolFlags.Optional)) required.push(prop.name);
+          else if(value.flags & (ts.TypeFlags.Never | ts.TypeFlags.Undefined)) {
+            // Optional never (or undefined) means the key must be absent in JSON.
+            // Required undefined remains unsupported above, rather than becoming any.
+            properties[prop.name]=false;continue;
+          }
           else if (value.isUnion()) {
             const values = value.types.filter(x => !(x.flags & ts.TypeFlags.Undefined));
             properties[prop.name] = primitive ?? (values.length === 1 ? schema(values[0]) : { anyOf: values.map(schema) });continue;
@@ -87,6 +92,6 @@ export function compileContract(filename) {
     const member = name => checker.getTypeOfSymbolAtLocation(type.getProperty(name), prop.valueDeclaration);
     methods.set(prop.name, { input: document(member('input')), output: document(member('output')), envelope: document(member('output'), true) });
   }
-  methods.surfaces=Object.fromEntries(['AgentManifest','AgentRecord','StatusEnvelope','StopEnvelope','IntegrationEnvelope'].map(name=>[name,document(interfaceType(name))]));
+  methods.surfaces=Object.fromEntries(['AgentManifest','AgentRecord','StatusEnvelope','StopEnvelope','IntegrationEnvelope','CaptureManifest','CapturePublication','CapturePublicationResult','CaptureMaintenancePolicy','CaptureCustody','CaptureMaintenanceRequest','CaptureMaintenancePlan','CaptureMaintenanceReceipt'].map(name=>[name,document(interfaceType(name))]));
   return methods;
 }

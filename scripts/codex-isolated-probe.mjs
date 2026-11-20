@@ -1,9 +1,10 @@
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync, accessSync, constants } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, delimiter } from 'node:path';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { once } from 'node:events';
+import {observeCodexVersion,validateCodexResponse,codexApiError} from '../runtime/codex-api.mjs';
 
 const executable=(process.env.PATH ?? '').split(delimiter).map(directory=>join(directory,'codex')).find(path=>{
   try { accessSync(path,constants.X_OK);return true; } catch { return false; }
@@ -13,8 +14,9 @@ const binary=realpathSync(executable);
 const directory=realpathSync(mkdtempSync(join(tmpdir(),'moment-codex-')));
 const state=join(directory,'codex-state'), workspace=join(directory,'workspace');
 mkdirSync(state,{ mode:0o700 });mkdirSync(workspace,{ mode:0o700 });
-writeFileSync(join(state,'config.toml'),'cli_auth_credentials_store = "file"\n',{ mode:0o600 });
-const env=Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith('CODEX_') && !key.startsWith('OPENAI_') && !key.startsWith('CHATGPT_')));
+writeFileSync(join(state,'config.toml'),'cli_auth_credentials_store = "ephemeral"\nweb_search = "disabled"\n[features]\nhooks = false\napps = false\nshell_tool = false\n[agents]\nenabled = false\n',{ mode:0o600 });
+const env={PATH:process.env.PATH??'',HOME:join(directory,'home'),TMPDIR:join(directory,'tmp')};
+mkdirSync(env.HOME,{mode:0o700});mkdirSync(env.TMPDIR,{mode:0o700});
 // This override belongs only to the test child and uses Codex's supported state-root setting.
 env.CODEX_HOME=state;
 for (const [key,suffix] of [['XDG_CONFIG_HOME','config'],['XDG_DATA_HOME','data'],['XDG_CACHE_HOME','cache'],['XDG_RUNTIME_DIR','run']]) {
@@ -23,7 +25,7 @@ for (const [key,suffix] of [['XDG_CONFIG_HOME','config'],['XDG_DATA_HOME','data'
 let child;
 const pending=new Map();let nextId=0;
 try {
-  const version=execFileSync(binary,['--version'],{ cwd:workspace,env,encoding:'utf8',timeout:10000,stdio:['ignore','pipe','pipe'] }).trim();
+  const version=observeCodexVersion(binary,{cwd:workspace,env});
   child=spawn(binary,['app-server','--listen','stdio://'],{ cwd:workspace,env,stdio:['pipe','pipe','pipe'] });
   // Never forward account/config output or raw diagnostics into captures.
   child.stderr.on('data',()=>{});
@@ -32,13 +34,13 @@ try {
     let message;try { message=JSON.parse(line); } catch { return; }
     if (Object.hasOwn(message,'id') && pending.has(message.id)) {
       const waiter=pending.get(message.id);pending.delete(message.id);clearTimeout(waiter.timer);
-      if (message.error) waiter.reject(new Error(`Isolated Codex RPC failed (${message.error.code ?? 'unknown'})`));else waiter.resolve(message.result);
+      if(message.error)waiter.reject(codexApiError(waiter.method,'a supported request',version,message.error.code));else {try{waiter.resolve(validateCodexResponse(waiter.method,message.result,version))}catch(error){waiter.reject(error)}}
     }
   });
   const call=(method,params)=>new Promise((resolve,reject)=>{
     const id=++nextId;
     const timer=setTimeout(()=>{ pending.delete(id);reject(new Error(`Isolated Codex RPC timed out: ${method}`)); },15000);
-    pending.set(id,{ resolve,reject,timer });
+    pending.set(id,{ resolve,reject,timer,method });
     child.stdin.write(JSON.stringify({ id,method,params })+'\n');
   });
   child.on('error',()=>{ for (const waiter of pending.values()) { clearTimeout(waiter.timer);waiter.reject(new Error('Isolated Codex process failed')); }pending.clear(); });

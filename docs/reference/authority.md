@@ -47,3 +47,16 @@ Exact identity deduplication rejects conflicting content under one ID. Exact-con
 ## Policy development
 
 Begin with deterministic policy sufficient for the next real consumer. Agents can propose changes using observed failures, user steering, and measured resource use. Admit each change against retained positive and negative cases. Keep consequential outcomes inspectable through policy references and supporting facts. Once activated, a new policy governs future admission; it does not rewrite historical permission receipts or imply that earlier effects never occurred.
+
+## Instruction adoption and consistency guidance
+
+The proposed [guidance admission contract](guidance.md#adoption-exception-and-supersession) distinguishes accepted normative expectations from observed facts, inferred preferences, and operational permission. It requires the same semantic checks through dedicated adoption, graph, and transition paths. In-scope engineering defaults may be adopted under existing delegation; accepting a target never activates an authorization policy or broadens a grant. Current graph behavior does not implement this new schema-specific admission layer.
+
+Cross-context instruction reuse additionally requires the proposed [import projection boundary](work.md#cross-context-and-peer-operation), current source/local visibility, and explicit local adoption. A context import field, cached source, native thread label, or extracted instruction supplies no independent authority. Missing policy actions produce an actionable refusal and an admitted upgrade path, preserving old policies until actually changed.
+
+
+## Candidate and resource authority
+
+Source registration/locator revision and `context.limits` require the authenticated local operator plus current policy; neither a native agent name nor a model score grants this role. Resource revision requires nonempty accessible evidence and the observed revision/retry identity. It preserves all usage and queued/unknown reservations, refuses invalid reductions and changes no policy or grant. Explicit profile setup first admits precise actions under the old ceiling, then uses separately admitted ceiling/policy/grant updates. Selected delegated credentials never fall back to the owner during setup.
+
+Refresh requires access to the registered source and its dependencies plus a configured host capture root or authorized semantic record. Cached source/results, execution detail and exact retry recheck current access. Assessment additionally needs current execution/profile actions, its selected grant, task/source basis and capacity. Native inference returns candidates as evidence; adoption and effects retain their separate authority. Shared authorized work remains collaborative rather than requiring agent/incident/intent isolation.

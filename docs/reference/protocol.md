@@ -12,7 +12,7 @@ The initial socket is user-only. Agents needing distinct authority require separ
 
 The implemented transport accepts one RPC per connection. Send `Authorization: Bearer <token>` and a newline before the JSON-RPC frame. The native client reads this token from the user-only `runtime/owner.json` file or an explicitly selected private credential; it never places it in RPC parameters or command arguments. Incorrect authentication closes the connection without admitting a request. `createClient(root).call(method, input)` in `runtime/client.mjs` exposes the declared `MomentClient` Result interface; `request` exposes the raw RPC envelope. The sibling type declaration binds method names to their inputs and outputs.
 
-The `owner-local` bootstrap profile binds the context to the authenticated operator and records an initial policy and installed relation schemas atomically with context creation. Policy publication, activation, evaluation, grants, semantic transitions, deterministic rules, views, capability negotiation, execution control, durable events, wake scheduling, recipient mailboxes, and prompt composition are implemented. Permissions do not advertise capabilities: `system.describe` lists 42 implemented kernel methods and the owner-only service lifecycle method. The exact installed local byte-verifier profile dispatches to a fixed guarded process; generic shell, model, VM, and peer providers are not implemented. Completion requires attributable accessible source references and current admission; it does not independently judge textual completion criteria.
+The `owner-local` bootstrap profile binds the context to the authenticated operator and records an initial policy and installed relation schemas atomically with context creation. Policy publication, activation, evaluation, grants, semantic transitions, deterministic rules, views, capability negotiation, execution control, durable events, wake scheduling, recipient mailboxes, and prompt composition are implemented. Permissions do not advertise capabilities: `system.describe` lists 47 implemented kernel methods, the owner-only service lifecycle method and six owner-local session-memory methods. The exact installed local byte-verifier profile dispatches to a fixed guarded process; generic shell, model, VM, and peer providers are not implemented. Completion requires attributable accessible source references and current admission; it does not independently judge textual completion criteria.
 
 Previously created contexts keep their saved policy. Newly installed methods require an explicit admitted policy update if that policy lacks the corresponding action; a daemon upgrade does not silently expand authority.
 
@@ -24,6 +24,8 @@ Daemon ownership is claimed in SQLite under `BEGIN IMMEDIATE`. A second live own
 
 The CLI accepts inline JSON or `call <method> --file <path|->`; `-` selects stdin. File/stdin reads stop above 1 MiB, reject invalid UTF-8, and use the same strict JSON parser before opening a store or sending a request. The file is command input, with no shell expansion, interpolation, implicit environment loading, or retry-key replacement. Local parsing errors and unavailable files exit nonzero without admission.
 
+Owner-local `memory.*` operations use a separate session store. `memory.configure` uses its own subscription revision and `(session, idempotencyKey)` identity; its exact retry retains the original outcome while the enrollment projection always reflects current authoritative state. `memory.focus` instead guards `expectedFocusRevision`, independently of enrollment, set manifests and cache content. Exact focus replay returns its original receipt without restoring an older selection. `memory.read` reports configured and observed automation state separately from cache revision and the selected/active working sets. Intake/reconstruction retry identity is `(runtimeId, sessionId, deliveryId)`; retain exact input on replay. Native session IDs do not authorize access. Cancellation and uncertain-dispatch reconciliation act on their explicit input/dispatch identity; they do not advance a semantic context revision. [Session memory](integration.md#session-conversational-memory) owns the connected behavior.
+
 ## Scalar and content rules
 
 Object and principal IDs are lowercase UUIDs. A policy clause’s local `rules[].id` is a string label, matching the installed `owner-local` clause. Revisions, sequences, counters, sizes, and limits are nonnegative JavaScript-safe integers; fencing tokens and committed revisions start at one. Instants use RFC 3339 UTC with `Z` and up to three fractional digits for the initial runtime's millisecond clock. Digests are `sha256:` followed by 64 lowercase hexadecimal digits. Canonical JSON hashing follows RFC 8785; artifact digests hash decoded bytes. Binary artifacts use strict RFC 4648 base64 without whitespace. The maximum decoded artifact size through this API is 512 KiB; larger storage transport is deferred.
@@ -32,7 +34,7 @@ Object and principal IDs are lowercase UUIDs. A policy clause’s local `rules[]
 
 ## Consistency and retry
 
-Every mutation except context bootstrap includes `expectedRevision` and `idempotencyKey`. The kernel authenticates the principal, checks visibility of an existing receipt, then checks the idempotency record before performing new admission. The key scope is `(principal, context, method, key)`. An identical request digest returns the recorded response without repeating effects. Reusing a key with different input returns `IDEMPOTENCY_CONFLICT`. A revoked principal cannot use receipts to read data it can no longer access.
+Every kernel mutation except context bootstrap includes `expectedRevision` and `idempotencyKey`. The kernel authenticates the principal, checks visibility of an existing receipt, then checks the idempotency record before performing new admission. The key scope is `(principal, context, method, key)`. An identical request digest returns the recorded response without repeating effects. Reusing a key with different input returns `IDEMPOTENCY_CONFLICT`. A revoked principal cannot use receipts to read data it can no longer access.
 
 First-time writes require the exact current context revision, current permission, and all domain checks. Commit increments revision once and stores response, events, and outbox together. An expired or lost response is resolved by retrying the exact original request; a new key creates a new requested action. Receipts remain for the lifetime of the context in the initial implementation. Context bootstrap scopes its key to principal and system because no context exists yet.
 
@@ -54,13 +56,26 @@ Inputs and outputs are defined once in `Methods`. This table identifies the sema
 | --- | --- |
 | `system.describe` | Negotiates exact protocol version and reports implemented methods. It does not advertise unimplemented declarations. |
 | `service.stop` | Owner-only graceful stop request for an exact service instance; acknowledgment does not prove retirement. |
+| `memory.configure` | Changes future automatic memory enrollment for an explicit actual native session using the observed subscription revision; owner-local, inference-free, with exact retry and queued-automatic cancellation disposition. |
+| `memory.read` | Reads owner-local session memory, exact selected sources, pending/gap coverage, the latest successful checker assessment and explicit whole-source omissions. Reading invokes no checker. |
+| `memory.assessments.read` | Pages source-attributed assessment summaries or recovers one bounded basis/profile/outcome, with explicit retired/legacy qualification, component omissions and independently identified UTF-8 ranges. No inference or focus change. |
+| `memory.focus` | Selects, revises or releases a session-local working set using its focus revision and exact retry key. Optional work/guidance bindings verify current access and exact selected bytes. Retained selection values can be shared by explicit seeding; pending/unknown work retains its target. No inference, enrollment, authority or goal change. |
+| `memory.observe` | Owner-local lifecycle intake retains submitted evidence under its delivery identity and queues evaluation. Never a model tool. |
+| `memory.rebuild` | Queues bounded reconstruction from explicit earlier sources, using either the legacy default cache revision or an explicit working-set identity/revision. Original provenance and exact older intake targets remain preserved. |
+| `memory.cancel` | Cancels pending input; possible native dispatch remains unknown until observed or reconciled. |
+| `memory.reconcile` | Resolves the current unknown checker dispatch with observed output, observed cancellation, or evidence that dispatch did not start. |
 | `context.create` | Creates an open context from an installed bootstrap profile, subject to system authorization. |
 | `context.get` | Reads the context at the authorized snapshot. |
+| `context.limits` | Operator-only revision of an existing local resource ceiling with nonempty accessible evidence; preserves usage, reservations, identity, policy and grants. |
+| `guidance.register` | Operator registers/revises/withdraws a canonical source association. |
+| `guidance.refresh` | Explicit authorized capture/observation; no inference. |
+| `guidance.review` | Admit a bounded candidate assessment through the existing execution lifecycle. |
+| `guidance.read` | Read source/candidate/result detail and coverage without capture, inference or adoption. |
 | `control.get` | Reads an authorized policy, grant, rule, capability, schedule, or view snapshot by exact reference. |
 | `context.close` | Closes admission, requests cancellation, and retains recovery paths; see [reactions](reactions.md). |
 | `schema.publish` | Admits an immutable schema document after digest and bounded-schema checks. |
 | `schema.get` | Retrieves an admitted schema by exact name, version, and digest. |
-| `incident.create` | Creates an open incident with purpose and completion criteria. |
+| `incident.create` | Creates an incident in its stated initial status. Non-open admission requires evidence and both create/update authority; completion requires accessible source evidence. |
 | `incident.get` | Reads its current or historical snapshot. |
 | `incident.list` | Paginates incidents after current incident-read policy and grant filtering, including historical reads. |
 | `incident.update` | Revises its intent or state with evidence under [model](model.md) lifecycle rules. |
@@ -113,3 +128,7 @@ Revision conflicts and stale leases are not transient success. Policy evaluation
 `StorePort` is a trusted in-process interface. `Snapshot.controlState` and `DurableBatch.controlChanges` carry kernel-private versioned records; they are never accepted from untrusted wire requests. The initial implementation uses a single local writer and SQLite transactions. A commit stores state, revision, events, idempotency response, and outbox together. Blob staging precedes commit; committed artifact references remain recoverable after restart. Schema migrations, backup, and storage retention follow [storage](storage.md).
 
 Private event visibility alternatives can accompany trusted batch drafts. Public event serialization removes them. In-process commit notifications are advisory wake signals; durable event rows and scoped cursors own delivery and recovery. Losing a notification does not remove a retained event.
+
+## Complete proposed evolution boundary
+
+[Evolution declarations](../../contracts/evolution.ts) define seven additional proposed methods and their source, purpose, guidance, assessment, work, and handoff payloads. [Guidance](guidance.md#public-operation-contract) owns that method table; [purpose](purpose.md) and [work](work.md) own interpretation and effects. These types are deliberately outside the installed `Methods`/`ManagedMethods` and catalog until implementation. Existing request validation, authenticated admission, context revision/retry semantics, bounded output, and uncertainty handling continue to apply. Type checking or source publication cannot advertise callable availability.

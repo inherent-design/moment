@@ -1,10 +1,11 @@
 // Explicit opt-in only. Never imported by ordinary checks or the product runtime.
-import { accessSync,constants,realpathSync,mkdirSync,writeFileSync,readFileSync,existsSync } from 'node:fs';
-import { join,delimiter } from 'node:path';
+import { accessSync,constants,realpathSync,mkdirSync,writeFileSync,readFileSync,existsSync,readdirSync } from 'node:fs';
+import { join,delimiter,basename } from 'node:path';
 import { spawn,execFileSync } from 'node:child_process';
 import { once } from 'node:events';
 import { digest } from '../runtime/json.mjs';
 import { compileDocument } from '../runtime/validation.mjs';
+import {observeCodexVersion,codexApiError} from '../runtime/codex-api.mjs';
 
 export function nativeEnvironment(root) {
   const env={PATH:process.env.PATH??'',HOME:join(root,'home'),CODEX_HOME:join(root,'state'),TMPDIR:join(root,'tmp')};
@@ -17,11 +18,15 @@ export function qualifyNative(root,env,workspace) {
   const executable=(env.PATH??'').split(delimiter).map(path=>join(path,'codex')).find(path=>{try{accessSync(path,constants.X_OK);return true;}catch{return false;}});
   if(!executable) throw Error('Installed Codex is unavailable');
   const binary=realpathSync(executable),run=args=>execFileSync(binary,args,{cwd:workspace,env,encoding:'utf8',timeout:15000,maxBuffer:1048576,stdio:['ignore','pipe','pipe']});
-  const version=run(['--version']).trim();
-  if(version!=='codex-cli 0.167.2') throw Error('Requalify installed Codex before inference: '+version);
+  const version=observeCodexVersion(binary,{cwd:workspace,env});
   run(['app-server','generate-json-schema','--experimental','--out',join(root,'schema')]);
   const names=['LoginAccountParams','ThreadStartParams','ThreadResumeParams','TurnStartParams','ThreadReadResponse','ListMcpServerStatusParams','ListMcpServerStatusResponse','McpServerToolCallParams'];
-  const schemas=Object.fromEntries(names.map(name=>[name,JSON.parse(readFileSync(join(root,'schema/v2',name+'.json')))]));
+  const files=readdirSync(join(root,'schema'),{recursive:true}).filter(path=>path.endsWith('.json'));
+  const schemas=Object.fromEntries(names.map(name=>{
+    const candidates=files.filter(path=>basename(path)===name+'.json'),selected=candidates.find(path=>path.startsWith('v2/'))??(candidates.length===1?candidates[0]:undefined);
+    if(!selected)throw codexApiError('generated schema '+name,'an identifiable schema for this explicit qualification',version);
+    return [name,JSON.parse(readFileSync(join(root,'schema',selected)))];
+  }));
   if(!schemas.LoginAccountParams.oneOf.some(item=>item.properties?.type?.enum?.includes('chatgptAuthTokens'))) throw Error('External-token login is unavailable');
   for(const [name,fields] of [['ThreadStartParams',['ephemeral','historyMode']],['ThreadResumeParams',['threadId']],['TurnStartParams',['threadId','input']],['ListMcpServerStatusParams',['threadId']]]) {
     if(fields.some(field=>!Object.hasOwn(schemas[name].properties,field))) throw Error('Installed protocol changed: '+name);

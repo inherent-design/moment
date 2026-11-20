@@ -4,7 +4,7 @@ import { resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import generated from './generated/bindings.json' with { type: 'json' };
 import { canonical, digest, bytesDigest, fail } from './json.mjs';
-import { continuityProfile, kernelMethods, managedMethods, serviceMethods } from './operations.mjs';
+import { continuityProfile, kernelMethods, managedMethods, serviceMethods, internalOperations } from './operations.mjs';
 
 function freeze(value) { if (value && typeof value === 'object') { Object.values(value).forEach(freeze);Object.freeze(value); }return value; }
 export const catalog = freeze(generated);
@@ -14,7 +14,10 @@ const { digest: expected, ...identity } = catalog.identity;
 if (expected !== digest({ ...catalog, identity })) throw new Error('Corrupt installed binding catalog');
 const sourceRoot=fileURLToPath(new URL('../',import.meta.url));
 for(const source of catalog.sources) {
-  const path=resolve(sourceRoot,source.path);
+  let path=resolve(sourceRoot,source.path);
+  // Package managers omit the root lockfile. The generated distribution copy
+  // preserves its exact bytes; an existing checkout lockfile is never bypassed.
+  if(source.path==='pnpm-lock.yaml' && !lstatSync(path,{throwIfNoEntry:false})) path=resolve(sourceRoot,'runtime/generated/source-lock.yaml');
   if(!path.startsWith(sourceRoot.endsWith(sep)?sourceRoot:sourceRoot+sep) || !lstatSync(path).isFile() || lstatSync(path).isSymbolicLink() || bytesDigest(readFileSync(path))!==source.digest) throw new Error('Bindings are stale; run pnpm generate:bindings before starting this build');
 }
 const implemented = catalog.operations.filter(o => o.availability === 'implemented').map(o => o.id).sort();
@@ -39,7 +42,7 @@ export function validateBoundary(id, kind, value) {
 export function exposedOperations(profile = 'continuity') {
   if (!['continuity', 'operator'].includes(profile)) fail('INVALID_ARGUMENT', 'Unknown tool profile');
   const ids = profile === 'operator' ? implemented : continuityProfile;
-  return ids.filter(id => bindingMap.get(id)?.availability === 'implemented' && id !== 'service.stop');
+  return ids.filter(id => bindingMap.get(id)?.availability === 'implemented' && !internalOperations.includes(id));
 }
 export function publicBinding(binding) {
   const { mcpName, envelopeSchema, ...record } = binding;return record;

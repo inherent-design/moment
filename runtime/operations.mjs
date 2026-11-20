@@ -6,8 +6,11 @@ kernelMethods.push(...executionMethods);
 kernelMethods.push('events.read','schedule.put','schedule.cancel','schedule.get');
 kernelMethods.push('messages.send','messages.read','messages.ack','prompt.compose');
 kernelMethods.push('incident.list');
+kernelMethods.push('context.limits');
+kernelMethods.push('guidance.register','guidance.refresh','guidance.review','guidance.read');
 Object.freeze(kernelMethods);
 
-export const managedMethods = Object.freeze(['bindings.discover','workspace.attach','workspace.read']);
-export const serviceMethods = Object.freeze(['service.stop']);
-export const continuityProfile = Object.freeze(['bindings.discover','workspace.attach','workspace.read','context.create','incident.create','incident.update','graph.query','graph.transact','transition.propose','transition.commit','messages.send','messages.read','messages.ack','events.read','prompt.compose']);
+export const managedMethods = Object.freeze(['bindings.discover','workspace.attach','workspace.read','captures.read']);
+export const serviceMethods = Object.freeze(['service.stop','memory.read','memory.assessments.read','memory.focus','memory.configure','memory.observe','memory.rebuild','memory.cancel','memory.reconcile']);
+export const internalOperations=Object.freeze(['service.stop','memory.observe','memory.rebuild','memory.cancel','memory.reconcile']);
+export const continuityProfile = Object.freeze(['bindings.discover','workspace.attach','workspace.read','captures.read','context.create','incident.create','incident.update','graph.query','graph.transact','transition.propose','transition.commit','messages.send','messages.read','messages.ack','events.read','prompt.compose','memory.read','memory.assessments.read','memory.focus','memory.configure','guidance.register','guidance.refresh','guidance.review','guidance.read','execution.cancel','execution.reconcile']);

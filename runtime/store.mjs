@@ -1,4 +1,5 @@
 import { applyGraph } from './graph.mjs';
+import {storageVersion,assertStorageFormat,createSnapshotTables,writeSnapshot,readSnapshot} from './snapshot-values.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, chmodSync, openSync, closeSync, lstatSync, constants } from 'node:fs';
 import { dirname } from 'node:path';
@@ -35,16 +36,15 @@ export class Store {
       this.db.exec(`PRAGMA busy_timeout=${busyTimeoutMillis}; PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;`);
       this.db.exec('BEGIN IMMEDIATE');
       const version = this.db.prepare('PRAGMA user_version').get().user_version;
-      if (version !== 0 && version !== 1) fail('UNSUPPORTED_VERSION', `Unsupported database version ${version}`);
-      if (version === 0) this.db.exec(`
+      if (version !== 0 && version !== storageVersion) fail('UNSUPPORTED_VERSION', version===1?'Legacy snapshot storage requires an explicit qualified migration':`Unsupported database version ${version}`);
+      if (version === 0) {this.db.exec(`
         CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
-        CREATE TABLE snapshots(context_id TEXT NOT NULL, revision INTEGER NOT NULL, value TEXT NOT NULL, PRIMARY KEY(context_id, revision));
         CREATE TABLE receipts(principal_id TEXT NOT NULL, context_id TEXT NOT NULL, method TEXT NOT NULL, key TEXT NOT NULL, digest TEXT NOT NULL, response TEXT NOT NULL, commit_value TEXT NOT NULL, PRIMARY KEY(principal_id, context_id, method, key));
         CREATE TABLE events(context_id TEXT NOT NULL, sequence INTEGER NOT NULL, event_id TEXT NOT NULL UNIQUE, value TEXT NOT NULL, PRIMARY KEY(context_id, sequence));
         CREATE TABLE outbox(context_id TEXT NOT NULL, execution_id TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(context_id, execution_id));
         CREATE TABLE imports(id TEXT PRIMARY KEY, digest TEXT NOT NULL, value TEXT NOT NULL);
-        PRAGMA user_version=1;
-      `);
+        PRAGMA user_version=2;
+      `);createSnapshotTables(this.db);}
       const identity = this.db.prepare("SELECT value FROM metadata WHERE key='systemId'").get();
       if (identity && identity.value !== systemId) fail('IDENTITY_CONFLICT', 'Database belongs to another system');
       if (!identity) this.db.prepare('INSERT INTO metadata VALUES (?, ?)').run('systemId', systemId);
@@ -58,6 +58,7 @@ export class Store {
     const claim = { pid: process.pid, nonce: randomUUID() };
     try {
       this.db.exec('BEGIN IMMEDIATE');
+      assertStorageFormat(this.db);
       const row = this.db.prepare("SELECT value FROM metadata WHERE key='daemonClaim'").get();
       if (row) {
         const prior = JSON.parse(row.value);
@@ -73,6 +74,7 @@ export class Store {
   startupTransaction(change) {
     try {
       this.db.exec('BEGIN IMMEDIATE');
+      assertStorageFormat(this.db);
       const row=this.db.prepare("SELECT value FROM metadata WHERE key='managedStartup'").get(),prior=row?JSON.parse(row.value):undefined;
       const {next=prior,result}=change(prior);
       if(next!==prior) {
@@ -120,15 +122,11 @@ export class Store {
   integrity() { return this.db.prepare('PRAGMA integrity_check').get().integrity_check; }
 
   read(contextId, revision) {
-    const row = revision === undefined
-      ? this.db.prepare('SELECT value FROM snapshots WHERE context_id=? ORDER BY revision DESC LIMIT 1').get(contextId)
-      : this.db.prepare('SELECT value FROM snapshots WHERE context_id=? AND revision=?').get(contextId, revision);
-    if (!row) fail('NOT_FOUND', 'Context snapshot not found');
-    return JSON.parse(row.value);
+    return readSnapshot(this.db,contextId,revision);
   }
 
   contextIds() {
-    return this.db.prepare('SELECT DISTINCT context_id FROM snapshots').all().map(row=>row.context_id);
+    return this.db.prepare('SELECT DISTINCT context_id FROM context_revisions ORDER BY context_id').all().map(row=>row.context_id);
   }
 
   receipt(principalId, contextId, method, key, requestDigest) {
@@ -141,12 +139,13 @@ export class Store {
   create(context, principalId, key, requestDigest, controlState = {}) {
     try {
       this.db.exec('BEGIN IMMEDIATE');
+      assertStorageFormat(this.db);
       const prior = this.receipt(principalId, this.systemId, 'context.create', key, requestDigest);
       if (prior) { this.db.exec('COMMIT'); return { ok: true, value: prior.response }; }
-      if (this.db.prepare('SELECT 1 FROM snapshots WHERE context_id=?').get(context.id)) fail('IDENTITY_CONFLICT', 'Context already exists');
+      if (this.db.prepare('SELECT 1 FROM context_revisions WHERE context_id=?').get(context.id)) fail('IDENTITY_CONFLICT', 'Context already exists');
       const value = { ...context, systemId: this.systemId, revision: 1, state: 'open' };
       const snapshot = { context: value, records: [], assertions: [], controlState };
-      this.db.prepare('INSERT INTO snapshots VALUES (?, ?, ?)').run(context.id, 1, canonical(snapshot));
+      writeSnapshot(this.db,snapshot);
       const event = { id: randomUUID(), contextId: context.id, sequence: 1, revision: 1, type: 'context.created', subjectRefs: [{ systemId:this.systemId,contextId:context.id,id:context.id }], causeIds: [], recordedAt: new Date().toISOString(), payload: null };
       this.db.prepare('INSERT INTO events VALUES (?, ?, ?, ?)').run(context.id, 1, event.id, canonical(event));
       const commit = { transitionId: randomUUID(), contextId: context.id, previousRevision: 0, revision: 1, eventIds: [event.id] };
@@ -160,6 +159,7 @@ export class Store {
   commit(batch, method = 'graph.transact') {
     try {
       this.db.exec('BEGIN IMMEDIATE');
+      assertStorageFormat(this.db);
       const { mutation: m, principalId } = batch;
       const prior = this.receipt(principalId, m.contextId, method, m.idempotencyKey, batch.requestDigest);
       if (prior) { this.db.exec('COMMIT'); return { ok: true, value: prior.commit }; }
@@ -183,11 +183,11 @@ export class Store {
         this.db.prepare('INSERT INTO outbox VALUES (?, ?, ?)').run(m.contextId, intent.id, canonical(intent));
       }
       for (const [key, value] of Object.entries(snapshot.controlState.contextMetadata ?? {})) {
-        if (!['policy', 'state'].includes(key)) fail('INVALID_ARGUMENT', 'Unsupported context metadata change');
+        if (!['policy', 'state','limits'].includes(key)) fail('INVALID_ARGUMENT', 'Unsupported context metadata change');
         snapshot.context[key] = value;
       }
       snapshot.context.revision = revision;
-      this.db.prepare('INSERT INTO snapshots VALUES (?, ?, ?)').run(m.contextId, revision, canonical(snapshot));
+      writeSnapshot(this.db,snapshot);
       const commit = { transitionId: batch.commitId ?? randomUUID(), contextId: m.contextId, previousRevision: m.expectedRevision, revision, eventIds: events.map(event => event.id) };
       this.db.prepare('INSERT INTO receipts VALUES (?, ?, ?, ?, ?, ?, ?)').run(principalId, m.contextId, method, m.idempotencyKey, batch.requestDigest, canonical(batch.response), canonical(commit));
       this.db.exec('COMMIT');

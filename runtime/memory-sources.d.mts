@@ -1,0 +1,4 @@
+import type {MemoryMessage,MemoryCapture} from '../contracts/index.js';
+export function readCodexExchange(input?:{codexHome?:string;transcriptPath?:string;sessionId?:string;maximumBytes?:number;maximumTextBytes?:number}):{exchange:MemoryMessage[];coverage:{kind:'not-requested'|'unavailable'|'bounded-tail';code?:string;sessionVerified?:boolean;selectedBytes?:number;sourceBytes?:number;incompleteFinalLine?:boolean}};
+export interface MemoryHistorySelection {transcriptPath:string;sessionId:string}
+export function readCodexHistory(input:{runtimeId:string;codexHome:string;selections:MemoryHistorySelection[];maximumBytes?:number;maximumCaptures?:number;maximumTextBytes?:number}):{captures:MemoryCapture[];coverage:{kind:'selected-history';ordering:'supplied-files-then-source-order';files:object[];omittedCaptures:number;excludedHarnessParts:number;oversizeParts:number;missingExchange:number}};

@@ -39,7 +39,7 @@ defs.Change = { anyOf: [
 defs.View = object({ id, selector: reference('Selector'), fields: array(string) }, { groupBy: enumeration('record', 'schema') });
 defs.Rule = object({ id, triggerEventTypes: array(string), condition: reference('Condition'), operation: string, literalInput: true, inputBindings: { type: 'object', additionalProperties: string, maxProperties:64 }, limits: reference('Limits') });
 defs.ExecutionIntent=object({ id,incidentId:id,capability:reference('Ref'),grant:reference('Ref'),input:true,limits:reference('Limits') });
-defs.Usage=object(Object.fromEntries(['cpuMillis','memoryBytes','outputBytes','modelTokens','apiSpendMicrounits'].map(key=>[key,integer])));
+defs.Usage=object(Object.fromEntries(['cpuMillis','memoryBytes','outputBytes','modelTokens','apiSpendMicrounits'].map(key=>[key,integer])),{unmeasured:{...array(enumeration('cpuMillis','memoryBytes','modelTokens','apiSpendMicrounits')),uniqueItems:true,maxItems:4}});
 const isolation=enumeration('none','process','container','vm');
 defs.Capability=object({ id,providerId:id,name:string,version:string,inputSchema:reference('SchemaRef'),outputSchema:reference('SchemaRef'),features:array(string),platform:object({ os:string,architecture:string }),isolation,reconciliation:enumeration('lookup','idempotent','manual'),evidence:reference('Evidence'),expiresAt:instant });
 defs.Requirement=object({ name:string,versions:array(string),inputSchema:reference('SchemaRef'),outputSchema:reference('SchemaRef'),features:array(string),acceptableIsolation:array(isolation) });
@@ -47,7 +47,19 @@ defs.Outcome={ anyOf:[object({ kind:{ const:'succeeded' },output:true,evidence:r
 defs.Reconciliation={ anyOf:[object({ kind:{ const:'observed' },outcome:reference('Outcome') }),object({ kind:{ const:'retry' },basis:enumeration('not_started','idempotent'),evidence:reference('Evidence') })] };
 defs.Wake={ anyOf:[object({ kind:{ const:'event' },eventTypes:array(string),selector:reference('Selector'),mode:enumeration('edge','each') }),object({ kind:{ const:'at' },instant }),object({ kind:{ const:'after' },eventId:id,durationMillis:integer }),object({ kind:{ const:'capacity' },resource:string,atLeast:{ ...integer,minimum:1 } })] };
 defs.Schedule=object({ id,incidentId:id,rule:reference('Ref'),wake:reference('Wake'),recurrence:enumeration('once','rearmAfterCompletion'),coalesce:{ type:'boolean' } });
+defs.MemorySession=object({runtimeId:{...string,maxLength:256},sessionId:{...string,maxLength:256}});
+defs.AttachmentTarget=object({systemId:id,contextId:id},{projectId:id,incidentId:id});
+defs.MemoryGuidanceBinding=object({source:reference('Ref'),capture:reference('Ref'),contentDigest:hash,representation:enumeration('whole','selected'),applicability:{...string,maxLength:2048},materialOmissions:{...array({...string,maxLength:512}),maxItems:8}},{bodyRange:object({offset:integer,byteLength:{...integer,maximum:131072}})});
+defs.MemorySelection=object({kind:{const:'codex-rollout'},path:string,offset:integer,byteLength:integer,digest:hash,contentIndex:integer,headerVersion:{...string,maxLength:128}},{nativeTimestamp:{...string,maxLength:128},ordinal:integer,clientAuthored:{type:'boolean'},provenanceType:{...string,maxLength:128},contentKind:{...string,maxLength:128}});
+defs.MemoryMessage=object({text,authorship:enumeration('human','assistant','harness','unknown')},{nativeItemId:{...string,maxLength:256},turnId:{...string,maxLength:256},selection:reference('MemorySelection')});
+defs.MemoryEntry=object({sourceId:string,weight:{type:'number',minimum:0,maximum:1}},{generality:{type:'number',minimum:0,maximum:1},note:{type:'string',maxLength:2048}});
+defs.MemoryCheckResult={anyOf:[object({kind:{const:'unchanged'}}),object({kind:{const:'replace'},entries:{...array(reference('MemoryEntry')),maxItems:32}})]};
+defs.MemoryUsage=object({},Object.fromEntries(['latencyMillis','modelTokens','inputTokens','outputTokens','cachedInputTokens'].map(key=>[key,integer])));
+defs.MemoryResolution={anyOf:[object({kind:{const:'observed'},output:reference('MemoryCheckResult')},{usage:reference('MemoryUsage'),rawOutput:{type:'string',maxLength:65536}}),object({kind:enumeration('not_started','cancelled'),evidence:{...string,maxLength:2048}}),object({kind:{const:'failed'},code:{...string,maxLength:128},message:{...string,maxLength:2048},evidence:{...string,maxLength:2048}},{usage:reference('MemoryUsage'),rawOutput:{type:'string',maxLength:65536}})]};
 defs.Proposal=object({ id,incidentId:id,basisRevision:integer,policy:reference('Ref'),changes:array(reference('Change')),executions:array(reference('ExecutionIntent')),evidence:reference('Evidence') },{ rule:reference('Ref') });
+defs.SourceSelection={anyOf:[object({kind:{const:'whole'}}),object({kind:{const:'lines'},first:{...integer,minimum:1},last:{...integer,minimum:1}}),object({kind:{const:'utf8-range'},offset:integer,byteLength:integer}),object({kind:{const:'json-pointer'},pointer:{type:'string',maxLength:4096}})]};
+defs.GuidanceSourceDefinition=object({label:{...string,maxLength:512},locator:{anyOf:[object({kind:{const:'file'},path:string}),object({kind:{const:'record'},ref:reference('Ref')})]},selection:reference('SourceSelection'),locations:{...array(string),minItems:1,maxItems:32,uniqueItems:true},classification:enumeration('public','private','sensitive','unknown'),evidence:reference('Evidence')});
+defs.GuidanceTask=object({description:{...string,maxLength:16384},location:string,sourceRefs:{...array(reference('Ref')),maxItems:32,uniqueItems:true}});
 const read = { contextId: id };
 const readOptional = { atRevision: integer };
 const mutation = { contextId: id, expectedRevision: integer, idempotencyKey: string };
@@ -56,13 +68,26 @@ export const primitives={Id:id,Digest:hash,Revision:integer,Instant:instant,Curs
 export const inputSchemas = {
   'system.describe': object({ protocolVersion: { const: '0.1' } }),
   'service.stop': object({ expectedInstanceId: id }),
+  'memory.read':object({session:reference('MemorySession')},{sourceIds:{...array(string),maxItems:100,uniqueItems:true},maximumBytes:{type:'integer',minimum:1,maximum:262144},workingSetId:{...string,maxLength:128},includeWorkingSets:{type:'boolean'}}),
+  'memory.assessments.read':object({session:reference('MemorySession')},{assessmentId:{...string,maxLength:128},maximumBytes:{type:'integer',minimum:1,maximum:262144},limit:{type:'integer',minimum:1,maximum:32},cursor:{...string,maxLength:1024},part:enumeration('basis','profile','nativeProfile','preparation','request','renderedInput','nativeSchema','outcome','rawOutput'),bodyRange:object({offset:integer,byteLength:{type:'integer',minimum:1,maximum:131072}})}),
+  'memory.configure':object({session:reference('MemorySession'),expectedRevision:integer,idempotencyKey:{...string,maxLength:128},enabled:{type:'boolean'}}),
+  'memory.focus':object({session:reference('MemorySession'),expectedFocusRevision:integer,idempotencyKey:{...string,maxLength:128},action:{anyOf:[object({kind:{const:'select'},purposeKey:{...string,maxLength:256}},{label:{...string,maxLength:512},purpose:{type:'string',maxLength:4096},returnPoint:{type:'string',maxLength:2048},basisSourceIds:{...array({...string,maxLength:128}),maxItems:16,uniqueItems:true},seedFrom:{...string,maxLength:128},work:{anyOf:[reference('AttachmentTarget'),{type:'null'}]},guidance:{...array(reference('MemoryGuidanceBinding')),maxItems:8}}),object({kind:{const:'release'},workingSetId:{...string,maxLength:128}},{replacementId:{...string,maxLength:128}})]}}),
+  'memory.observe':object({session:reference('MemorySession'),deliveryId:{...string,maxLength:128},message:reference('MemoryMessage')},{exchange:{...array(reference('MemoryMessage')),maxItems:16},automatic:object({subscriptionRevision:{...integer,minimum:1}}),workingSetId:{...string,maxLength:128}}),
+  'memory.rebuild':object({session:reference('MemorySession'),deliveryId:{...string,maxLength:128},sourceIds:{...array(string),maxItems:64,uniqueItems:true}},{expectedRevision:integer,workingSetId:{...string,maxLength:128},expectedWorkingSetRevision:integer,captures:{...array(object({session:reference('MemorySession'),message:reference('MemoryMessage')},{exchange:{...array(reference('MemoryMessage')),maxItems:16}})),maxItems:64}}),
+  'memory.cancel':object({session:reference('MemorySession'),sequence:{...integer,minimum:1}}),
+  'memory.reconcile':object({dispatchId:string,resolution:reference('MemoryResolution')}),
   'context.create': object({ idempotencyKey: string, id, label: string, bootstrapProfile: string, limits: reference('Limits') }),
   'context.get': object(read, readOptional),
+  'context.limits': object({ ...mutation,limits:reference('Limits'),evidence:reference('Evidence') }),
+  'guidance.register':object({...mutation,id,definition:reference('GuidanceSourceDefinition'),active:{type:'boolean'}}),
+  'guidance.refresh':object({...mutation,sourceId:id}),
+  'guidance.review':object({...mutation,id,incidentId:id,task:reference('GuidanceTask'),capability:reference('Ref'),grant:reference('Ref'),limits:reference('Limits')},{sourceIds:{...array(id),minItems:1,maxItems:32,uniqueItems:true}}),
+  'guidance.read':object({contextId:id},{location:string,sourceIds:{...array(id),maxItems:32,uniqueItems:true},captureIds:{...array(id),maxItems:32,uniqueItems:true},executionId:id,maximumBytes:{type:'integer',minimum:1024,maximum:262144},limit:{type:'integer',minimum:1,maximum:32},cursor:string,representation:enumeration('whole','selected'),bodyRange:object({offset:integer,byteLength:{...integer,maximum:131072}})}),
   'context.close': object({ ...mutation, reason: string }),
   'control.get': object({ ...read, ref: reference('Ref') }, readOptional),
   'schema.publish': object({ ...mutation, schema: reference('SchemaRef'), document: true }),
   'schema.get': object({ ...read, schema: reference('SchemaRef') }, readOptional),
-  'incident.create': object({ ...mutation, id, incident: reference('Incident') }),
+  'incident.create': object({ ...mutation, id, incident: reference('Incident') }, { evidence: reference('Evidence') }),
   'incident.get': object({ ...read, incidentId: id }, readOptional),
   'incident.list': object({ ...read,limit:page },{ ...readOptional,statuses:{...array(enumeration('open','resting','completed','cancelled')),maxItems:4,uniqueItems:true},cursor:string }),
   'incident.update': object({ ...mutation, incidentId: id, incident: reference('Incident'), evidence: reference('Evidence') }),
@@ -99,5 +124,6 @@ export const inputSchemas = {
   'prompt.compose':object({ ...read,incidentId:id,template:reference('Ref'),sourceRefs:{ ...array(reference('Ref')),maxItems:32 },outputSchema:reference('SchemaRef'),maximumInputBytes:{ type:'integer',minimum:1,maximum:262144 } },readOptional),
   'bindings.discover':object({}, {operationId:string,cursor:string,limit:page}),
   'workspace.attach':object({}, {projectId:id,location:string,contextId:id,incidentId:id}),
+  'captures.read':object({target:object({systemId:id,contextId:id,incidentId:id})},{payloadIds:{...array({...string,maxLength:128}),maxItems:64,uniqueItems:true},maximumBytes:{type:'integer',minimum:1024,maximum:65536}}),
   'workspace.read':object({target:object({systemId:id,contextId:id},{incidentId:id,projectId:id})}, {maximumBytes:{type:'integer',minimum:1,maximum:65536},limit:page,detailRefs:{...array(reference('Ref')),maxItems:100},includeMessages:{type:'boolean'}}),
 };

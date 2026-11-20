@@ -9,11 +9,13 @@ export class Awareness {
   detail(snapshot,ref,access) {
     if (!access.canRead(ref)) fail('NOT_FOUND','Detail is not accessible');
     const stored=this.k.lookup(snapshot,ref);
+    if(snapshot.controlState.guidanceSources?.[ref.id])this.k.guidance.source(snapshot,ref.id,access);
+    if(snapshot.controlState.guidanceCaptures?.[ref.id])this.k.guidance.capture(snapshot,ref.id,access);
     // Message bodies have their own recipient boundary. Internal runtime state is never a prompt source.
     if (snapshot.controlState.messages?.[ref.id]) fail('NOT_FOUND','Use the recipient mailbox for message bodies');
     if (stored.value.kind==='relation' && Object.values(stored.value.roles).flat().some(item=>!access.canRead(item))) fail('NOT_FOUND','Relation detail is not accessible');
     if (snapshot.controlState.incidents?.[ref.id] && !access.canIncident(ref.id)) fail('NOT_FOUND','Incident detail is not accessible');
-    for (const source of [...(stored.value.evidence?.sources ?? []),...(stored.value.continuation ?? [])]) if (!access.canRead(source)) fail('NOT_FOUND','Detail dependencies are not accessible');
+    for (const source of [...(stored.evidence?.sources ?? []),...(stored.value.evidence?.sources ?? []),...(stored.value.continuation ?? [])]) if (!access.canRead(source)) fail('NOT_FOUND','Detail dependencies are not accessible');
     return stored;
   }
   visible(snapshot,stored,principal,access) {

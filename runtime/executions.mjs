@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { canonical, digest, fail, DomainError } from './json.mjs';
 import { sameRef, boundLimits, grantChain } from './authority.mjs';
 import { validateVerifier } from './providers/bytes-definition.mjs';
+import {guidanceProfile} from './guidance.mjs';
+import {matchesGuidance,guidanceCapabilityName} from './guidance-profile.mjs';
 
 import { executionMethods } from './operations.mjs';
 export { executionMethods } from './operations.mjs';
@@ -74,6 +76,12 @@ export class Executions {
     if (intent.limits.deadline && Date.parse(intent.limits.deadline)<=this.k.clock.wall()) fail('LIMIT_EXCEEDED','Execution deadline passed');
     if (!this.k.compiled(this.k.schema(snapshot,cap.inputSchema))(intent.input)) fail('INVALID_ARGUMENT','Execution input does not satisfy the capability schema');
     validateVerifier(cap,this.k.ownerId,intent);
+    if(cap.name===guidanceCapabilityName) {
+      if(!matchesGuidance(cap,this.k.ownerId) || intent.input.profile!==guidanceProfile)fail('CAPABILITY_UNAVAILABLE','Guidance provider contract does not match the installed profile');
+      this.k.authorize(snapshot,'guidance.review',requester,{incidentId:intent.incidentId,resourceRefs:[intent.capability]},intent.grant);
+      this.k.guidance.inputAccess(snapshot,intent.input,access);
+      if(this.k.guidance.stale(snapshot,intent.input).length)fail('REVISION_CONFLICT','Guidance source/task/policy basis changed; read and explicitly request a new assessment','refresh');
+    }
     this.capacity(snapshot,{ limits:{ ...zeroUsage(),concurrentExecutions:0 } },access.chain);
     return { cap,access };
   }
@@ -83,7 +91,8 @@ export class Executions {
       if (grantId && !snapshot.controlState.executionOrigins[id].grantIds.includes(grantId)) continue;
       const value=stored.value,active=!terminal(value.state);
       for (const key of cumulative) {
-        const sum=result[key]+(active?Math.max(value.intent.limits[key],value.usage[key]):value.usage[key]);
+        const reserved=active || value.usage.unmeasured?.includes(key);
+        const sum=result[key]+(reserved?Math.max(value.intent.limits[key],value.usage[key]):value.usage[key]);
         result[key]=Number.isSafeInteger(sum)?sum:Infinity;
       }
       const memory=result.memoryBytes+(active?Math.max(value.intent.limits.memoryBytes,value.usage.memoryBytes):0);
@@ -114,6 +123,7 @@ export class Executions {
     const own=origin.principalId===principal && access.chain.some(grant=>grant.id===origin.grantIds[0]);
     const provider=origin.providerId===principal && access.canRead(stored.value.intent.capability);
     if (!access.operator && !own && !provider && !access.canRead(stored.ref)) fail('NOT_FOUND','Execution not found');
+    if(stored.value.intent.input?.profile===guidanceProfile)this.k.guidance.inputAccess(snapshot,stored.value.intent.input,access);
     return stored;
   }
   expired(value,meta) {
@@ -123,7 +133,7 @@ export class Executions {
     if (!value.lease || value.lease.holderId!==principal || value.lease.id!==input.leaseId || value.lease.fencingToken!==input.fencingToken || this.expired(value,snapshot.controlState.executionLeases?.[value.intent.id])) fail('LEASE_STALE','Execution lease is stale','reconcile');
   }
   usage(value,usage,outcome,observed=false) {
-    for (const key of Object.keys(usage)) if (usage[key]<value.usage[key] || (!observed && usage[key]>value.intent.limits[key])) fail('LIMIT_EXCEEDED','Cumulative execution usage is outside its reservation');
+    for (const key of [...cumulative,'memoryBytes']) if (usage[key]<value.usage[key] || (!observed && usage[key]>value.intent.limits[key])) fail('LIMIT_EXCEEDED','Cumulative execution usage is outside its reservation');
     const bytes=outcome?.kind==='succeeded'?Buffer.byteLength(canonical(outcome.output)):outcome?.detail?Buffer.byteLength(outcome.detail):0;
     if (usage.outputBytes<bytes) fail('INVALID_ARGUMENT','Reported output usage does not cover the outcome');
   }
@@ -135,7 +145,7 @@ export class Executions {
       if (!this.k.compiled(this.k.schema(snapshot,cap.outputSchema))(outcome.output)) fail('INVALID_ARGUMENT','Outcome does not satisfy capability output schema');
     }
     value.state=outcome.kind;value.outcome=outcome;value.usage=usage;delete value.lease;
-    const violations=Object.keys(usage).filter(key=>usage[key]>value.intent.limits[key]);
+    const violations=[...cumulative,'memoryBytes'].filter(key=>usage[key]>value.intent.limits[key]);
     if (violations.length) value.limitViolations=violations;
   }
   update(snapshot,method,input,principal,access) {

@@ -11,6 +11,7 @@ import { Executions, executionMethods } from './executions.mjs';
 import { Events,mutationEvents } from './events.mjs';
 import { Scheduler } from './scheduler.mjs';
 import { Awareness } from './awareness.mjs';
+import { Guidance } from './guidance.mjs';
 
 import { kernelMethods as methods } from './operations.mjs';
 
@@ -20,7 +21,7 @@ const ok = value => ({ ok: true, value });
 
 /** In-process API. principalId must come from an authenticated transport binding. */
 export class Kernel {
-  constructor(store, { ownerId, cursorKey, clock, catalog, instanceId }) {
+  constructor(store, { ownerId, cursorKey, clock, catalog, instanceId,guidance }) {
     if (!ownerId || !cursorKey || Buffer.byteLength(cursorKey) < 32) throw new Error('An operator identity and cursor encryption key are required');
     this.store = store;
     this.catalog=catalog;this.instanceId=instanceId;
@@ -32,6 +33,7 @@ export class Kernel {
     this.events=new Events(this);
     this.scheduler=new Scheduler(this);
     this.awareness=new Awareness(this);
+    this.guidance=new Guidance(this,guidance);
   }
   ref(contextId, id) { return { systemId: this.store.systemId, contextId, id }; }
   stored(contextId, value, revision, principalId, id=value.id) {
@@ -106,8 +108,9 @@ export class Kernel {
     const access = this.admission(snapshot, principalId, boundGrant);
     if (!access.operator && access.chain.some(grant => !grant.actions.includes(method))) fail('FORBIDDEN', 'Action is outside delegated authority');
     if (method==='schema.publish' && !access.operator) fail('FORBIDDEN','Schema admission requires operator authority');
+    if (method==='context.limits' && !access.operator) fail('FORBIDDEN','Context resource ceilings require the authenticated local operator');
     if (['context.close','policy.activate'].includes(method) && !access.operator && !access.chain.every(grant=>grant.incidentIds==='all' && includesRef(grant.resourceRefs,this.ref(snapshot.context.id,snapshot.context.id)))) fail('FORBIDDEN','Operation requires context-wide delegation');
-    const incidentId=input.incidentId ?? input.message?.incidentId ?? input.schedule?.incidentId ?? snapshot.controlState.schedules?.[input.scheduleId]?.value.incidentId ?? input.execution?.incidentId ?? input.proposal?.incidentId ?? snapshot.controlState.transitions?.[input.proposalId]?.value.proposal.incidentId ?? snapshot.controlState.executions?.[input.executionId]?.value.intent.incidentId;
+    const incidentId=(method==='incident.create'?input.id:undefined) ?? input.incidentId ?? input.message?.incidentId ?? input.schedule?.incidentId ?? snapshot.controlState.schedules?.[input.scheduleId]?.value.incidentId ?? input.execution?.incidentId ?? input.proposal?.incidentId ?? snapshot.controlState.transitions?.[input.proposalId]?.value.proposal.incidentId ?? snapshot.controlState.executions?.[input.executionId]?.value.intent.incidentId;
     if (incidentId && !access.canIncident(incidentId)) fail('NOT_FOUND', 'Incident is not accessible');
     const resources=input.resourceRefs ?? (input.changes ?? []).map(change=>change.kind==='record.put'?this.ref(snapshot.context.id,change.record.id):change.kind==='assertion.put'?change.assertion.record:snapshot.assertions.find(item=>item.assertion.value.id===change.assertionId)?.assertion.value.record).filter(Boolean);
     if (method!=='policy.evaluate' && resources.some(ref=>!access.canRead(ref))) fail('FORBIDDEN','Resources are outside delegated authority');
@@ -127,11 +130,29 @@ export class Kernel {
       this.executions.maintain(input.contextId);
       const current = this.store.read(input.contextId);
       const access = this.authorize(current, method, principalId, input, boundGrant);
+      if(method.startsWith('guidance.'))this.guidance.requestAccess(current,method,input,access);
+      if(method==='guidance.review') {
+        if(!access.operator && !sameRef(input.grant,boundGrant))fail('FORBIDDEN','Guidance assessment requires the selected bound grant');
+        if(!access.canRead(input.capability))fail('NOT_FOUND','Guidance capability is inaccessible');
+        const scope={incidentId:input.incidentId,resourceRefs:[input.capability]};
+        this.authorize(current,'execution.request',principalId,scope,boundGrant);
+        this.authorize(current,this.executions.capability(current,input.capability).value.name,principalId,scope,input.grant);
+      }
+      if(input.executionId && current.controlState.executions?.[input.executionId]?.value.intent.input?.profile==='moment-guidance/1')this.executions.get(current,input.executionId,principalId,access);
+      if (method==='context.limits') this.executions.evidence(current,input.evidence,access,true);
+      if (method==='incident.create' || method==='incident.update') {
+        if ([...input.incident.continuation,...(input.evidence?.sources ?? [])].some(ref=>!access.canRead(ref))) fail('NOT_FOUND','Incident dependencies are not accessible');
+        // Recheck both authorities before receipt replay as well as first admission.
+        if (method==='incident.create' && input.incident.status!=='open') this.authorize(current,'incident.update',principalId,{...input,incidentId:input.id},boundGrant);
+      }
       const snapshot = input.atRevision === undefined ? current : this.store.read(input.contextId, input.atRevision);
       const mutation = Object.hasOwn(input, 'expectedRevision');
       if (mutation) {
         const receipt = this.store.receipt(principalId, input.contextId, method, input.idempotencyKey, digest(input));
-        if (receipt) return ok(receipt.response.kind === 'commit-receipt' ? receipt.commit : receipt.response);
+        if (receipt) {
+          if(receipt.response.intent?.input?.profile==='moment-guidance/1')this.guidance.inputAccess(current,receipt.response.intent.input,access);
+          return ok(receipt.response.kind === 'commit-receipt' ? receipt.commit : receipt.response);
+        }
         if (current.context.revision !== input.expectedRevision) fail('REVISION_CONFLICT', 'Context changed since observation', 'refresh');
         if (current.context.state !== 'open' && !['context.close','execution.finish','execution.reconcile','execution.cancel'].includes(method)) fail('FORBIDDEN', 'Context is closed');
       }
@@ -140,7 +161,29 @@ export class Kernel {
       const revision = current.context.revision + 1;
       const control = (namespace, key, value) => batch.controlChanges.push({ namespace, key, value });
       switch (method) {
+        case 'guidance.register': batch.response=this.guidance.register(current,input,principalId,access,control);break;
+        case 'guidance.refresh': batch.response=this.guidance.refresh(current,input,principalId,access,control);break;
+        case 'guidance.read': return ok(this.guidance.read(current,input,principalId,access));
+        case 'guidance.review': {
+          const execution=this.guidance.review(current,input,principalId,access);
+          this.authorize(current,'execution.request',principalId,{incidentId:input.incidentId,resourceRefs:[input.capability]},boundGrant);
+          const prepared=this.executions.prepare(current,execution,principalId,access);
+          control('executions',execution.id,this.stored(input.contextId,prepared.execution,revision,principalId,execution.id));
+          control('executionOrigins',execution.id,prepared.origin);batch.outbox.push(execution);batch.response=prepared.execution;break;
+        }
         case 'context.get': return ok(snapshot.context);
+        case 'context.limits': {
+          const totals=this.executions.totals(current);
+          if (input.limits.currency!==current.context.limits.currency) fail('FORBIDDEN','A resource revision cannot redenominate retained accounting');
+          for (const key of Object.keys(totals)) if (totals[key]>input.limits[key]) fail('LIMIT_EXCEEDED','Resource revision is below retained usage or reservations');
+          // Existing policy/grants can be broader after a reduction, but every new
+          // request is still bounded by all three. Preserve actual unknown work.
+          if (input.limits.deadline) for (const stored of Object.values(current.controlState.executions ?? {})) {
+            if (!['succeeded','failed','cancelled'].includes(stored.value.state) && (!stored.value.intent.limits.deadline || Date.parse(stored.value.intent.limits.deadline)>Date.parse(input.limits.deadline))) fail('LIMIT_EXCEEDED','New deadline would invalidate a retained execution');
+          }
+          control('contextMetadata','limits',input.limits);
+          control('contextLimitRevisions',String(revision),{previous:current.context.limits,limits:input.limits,evidence:input.evidence,recordedBy:principalId});break;
+        }
         case 'messages.send': {
           const stored=this.awareness.prepare(current,input.message,principalId,access);
           control('messages',input.message.id,stored);break;
@@ -222,8 +265,10 @@ export class Kernel {
           this.executions.cancelMatching(current,()=>true,'Context closed',principalId,control);break;
         case 'control.get': {
           if (!access.operator && !sameRef(input.ref,boundGrant) && !access.canRead(input.ref)) fail('NOT_FOUND','Control object is not accessible');
+          if(current.controlState.guidanceSources?.[input.ref.id])this.guidance.source(current,input.ref.id,access);
+          if(current.controlState.guidanceCaptures?.[input.ref.id])this.guidance.capture(current,input.ref.id,access);
           const item = this.lookup(snapshot, input.ref);
-          if (!['policies', 'grants', 'rules', 'capabilities', 'schedules', 'views'].some(namespace => snapshot.controlState[namespace]?.[input.ref.id])) fail('NOT_FOUND', 'Control object not found');
+          if (!['policies', 'grants', 'rules', 'capabilities', 'schedules', 'views','guidanceSources','guidanceCaptures'].some(namespace => snapshot.controlState[namespace]?.[input.ref.id])) fail('NOT_FOUND', 'Control object not found');
           return ok(item);
         }
         case 'schema.publish': {
@@ -242,15 +287,16 @@ export class Kernel {
         case 'schema.get': { const schema=this.schema(snapshot,input.schema);if (!access.canRead(schema.ref)) fail('NOT_FOUND','Schema is not accessible');return ok(schema.value.document); }
         case 'incident.create':
           if (!access.canIncident(input.id)) fail('FORBIDDEN','Incident is outside delegated authority');
-          if (input.incident.status !== 'open') fail('INVALID_ARGUMENT', 'An incident must start open');
+          this.incidentEvidence(current,input.incident,input.evidence,access);
           this.ensureNewId(current,input.id);
           const stored = this.stored(input.contextId, { id: input.id, ...input.incident }, revision, principalId);
           stored.value = { ...input.incident }; stored.digest = digest(stored.value);
+          if (input.evidence) stored.evidence=input.evidence;
           control('incidents', input.id, stored); batch.response = stored; break;
         case 'incident.get': {
           const item = snapshot.controlState.incidents?.[input.incidentId];
           if (!item) fail('NOT_FOUND', 'Incident not found');
-          if (item.value.continuation.some(ref=>!access.canRead(ref))) fail('NOT_FOUND','Incident continuation dependencies are not accessible');
+          if (!this.incidentVisible(item,access) || !this.incidentVisible(current.controlState.incidents?.[input.incidentId],access)) fail('NOT_FOUND','Incident dependencies are not accessible');
           return ok(item);
         }
         case 'incident.list': return ok(this.listIncidents(snapshot,current,input,principalId,access,boundGrant));
@@ -258,13 +304,11 @@ export class Kernel {
           const item = current.controlState.incidents?.[input.incidentId];
           if (!item) fail('NOT_FOUND', 'Incident not found');
           if (['completed', 'cancelled'].includes(item.value.status) && !['completed', 'cancelled'].includes(input.incident.status)) fail('FORBIDDEN', 'Reopening requires a separately admitted operation');
-          if (input.incident.status === 'completed') {
-            if (!input.evidence.sources.length) fail('INVALID_ARGUMENT', 'Completion requires attributable evidence');
-            for (const ref of input.evidence.sources) { if (!access.canRead(ref)) fail('NOT_FOUND','Evidence is not accessible');this.lookup(current, ref); }
-          }
+          this.incidentEvidence(current,input.incident,input.evidence,access);
           const stored = this.stored(input.contextId, { id: input.incidentId, ...input.incident }, revision, principalId);
           stored.value = { ...input.incident };
           stored.digest = digest(stored.value);
+          stored.evidence=input.evidence;
           control('incidents', input.incidentId, stored);
           if (['completed','cancelled'].includes(input.incident.status)) this.executions.cancelMatching(current,value=>value.intent.incidentId===input.incidentId,'Incident ended',principalId,control);
           batch.response = stored; break;
@@ -458,6 +502,17 @@ export class Kernel {
       }
     }
   }
+  incidentEvidence(snapshot,incident,evidence,access) {
+    if (incident.status!=='open' && !evidence) fail('INVALID_ARGUMENT','Non-open creation requires attributable evidence');
+    if (incident.status==='completed' && !evidence?.sources.length) fail('INVALID_ARGUMENT','Completion requires attributable evidence');
+    for (const ref of evidence?.sources ?? []) {
+      if (!access.canRead(ref)) fail('NOT_FOUND','Evidence is not accessible');
+      this.lookup(snapshot,ref);
+    }
+  }
+  incidentVisible(item,access) {
+    return !!item && [...item.value.continuation,...(item.evidence?.sources ?? [])].every(access.canRead);
+  }
   listIncidents(snapshot,current,input,principalId,access,boundGrant) {
     const selection=digest(input.statuses??null);
     const scope={scope:'incident.list',principalId,authority:access.scopeKey,contextId:input.contextId,selection};
@@ -472,7 +527,7 @@ export class Kernel {
       try {
         const latest=current.controlState.incidents?.[item.ref.id];
         this.authorize(current,'incident.get',principalId,{contextId:input.contextId,incidentId:item.ref.id},boundGrant);
-        return !!latest && item.value.continuation.every(access.canRead) && latest.value.continuation.every(access.canRead);
+        return this.incidentVisible(item,access) && this.incidentVisible(latest,access);
       } catch(error) { if(!(error instanceof DomainError)) throw error;return false; }
     }).sort((a,b)=>a.ref.id.localeCompare(b.ref.id));
     return {items:selected.slice(offset,offset+input.limit),snapshotRevision:snapshot.context.revision,...(offset+input.limit<selected.length?{nextCursor:sealCursor({...scope,revision:snapshot.context.revision,offset:offset+input.limit},this.cursorKey)}:{})};
