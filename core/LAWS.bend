@@ -10,6 +10,8 @@ import ./control.bend as Control
 import ./awareness.bend as Aware
 import ./guidance.bend as Guide
 import ./memory.bend as Mem
+import ./memory-adapters.bend as MA
+import ./memory-retention.bend as MR
 
 law deny_precedence:
   for permits: Core.Truth
@@ -772,3 +774,142 @@ law memory_empty_heads_do_not_invent_work:
 
 law memory_full_signed_row_order_is_preserved:
   {Core.memory_next_head(Con{Mem.MemoryHead{0, Mem.MemoryOrdinal{4294967295, 4294967295}, "pending", Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 0}}, Con{Mem.MemoryHead{1, Mem.MemoryOrdinal{0, 0}, "pending", Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 0}}, Nil{}}}) == Mem.MemoryNextHead{1, Mem.MemoryOrdinal{0, 0}} : Mem.NextHead}
+
+
+law adapter_reasoning_is_not_visible:
+  {Core.memory_adapter_visible_assistant("assistant", True{}, "analysis") == False{} : Bool}
+
+
+law adapter_absent_phase_remains_visible:
+  {Core.memory_adapter_visible_assistant("assistant", False{}, "") == True{} : Bool}
+
+
+law adapter_user_is_not_assistant:
+  {Core.memory_adapter_frame("user", False{}, "") == MA.MemoryUserFrame{} : MA.FrameAction}
+
+
+law adapter_latest_visible_exchange_is_selected:
+  {Core.memory_adapter_exchange(Con{MA.MemoryFrame{0, "assistant", True{}, "final", Budget.BudgetCount{0, 1}}, Con{MA.MemoryFrame{1, "assistant", True{}, "analysis", Budget.BudgetCount{0, 1}}, Con{MA.MemoryFrame{2, "assistant", True{}, "commentary", Budget.BudgetCount{0, 1}}, Nil{}}}}) == MA.MemoryLatestExchange{2} : MA.Exchange}
+
+
+law adapter_empty_exchange_is_absent:
+  {Core.memory_adapter_exchange(Nil{}) == MA.MemoryNoExchange{} : MA.Exchange}
+
+
+law adapter_harness_keeps_authorship:
+  for bytes: Budget.Count
+  for maximum: Budget.Count
+  {Core.memory_adapter_history_part("harness", bytes, maximum) == MA.MemoryHarnessPart{} : MA.HistoryPart}
+
+
+law adapter_unknown_history_stays_unknown:
+  {Core.memory_adapter_history_part("human", Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 1}) == MA.MemoryUnknownUserPart{} : MA.HistoryPart}
+
+
+law adapter_oversize_history_is_explicit:
+  {Core.memory_adapter_history_part("unknown", Budget.BudgetCount{0, 2}, Budget.BudgetCount{0, 1}) == MA.MemoryOversizePart{} : MA.HistoryPart}
+
+
+law adapter_part_count_is_bounded:
+  {Core.memory_adapter_parts(Budget.BudgetCount{0, 17}, Nil{}, Budget.BudgetCount{0, 99}) == False{} : Bool}
+
+
+law adapter_foreign_project_is_not_bound:
+  {Core.memory_adapter_project("foreign", "system", "p", "c", Con{MA.MemoryProject{"p", Con{"c", Nil{}}}, Nil{}}, Con{"p", Nil{}}) == False{} : Bool}
+
+
+law adapter_dual_project_association_is_useful:
+  {Core.memory_adapter_project("system", "system", "p", "c", Con{MA.MemoryProject{"p", Con{"c", Nil{}}}, Nil{}}, Con{"p", Nil{}}) == True{} : Bool}
+
+
+law adapter_identity_error_is_not_an_omission:
+  {Core.memory_adapter_binding_error("IDENTITY_CONFLICT") == MA.MemoryBindingIntegrity{} : MA.BindingError}
+
+
+law adapter_active_worker_keeps_uncertainty:
+  for provider: Bool
+  for unavailable: Bool
+  {Core.memory_adapter_worker_mode(provider, unavailable, True{}) == "unknown" : String}
+
+
+law adapter_restarted_running_worker_needs_reconciliation:
+  {Core.memory_adapter_worker_bootstrap(True{}, False{}, True{}, True{}, "running") == MA.MemoryWorkerBootstrap{"unknown", True{}} : MA.WorkerBootstrap}
+
+
+law adapter_closed_worker_does_not_wake:
+  for provider: Bool
+  for unavailable: Bool
+  {Core.memory_adapter_worker_enabled(True{}, provider, unavailable) == False{} : Bool}
+
+
+law adapter_busy_wake_is_not_a_second_dispatch:
+  {Core.memory_adapter_worker_wake("ready", False{}, True{}, True{}, False{}) == MA.MemoryWorkerWake{True{}, MA.MemoryWakeBusy{}} : MA.WorkerWake}
+
+
+law adapter_active_demand_recovers_before_queue:
+  for pending: Bool
+  {Core.memory_adapter_worker_demand(True{}, pending) == MA.MemoryWorkerRecover{} : MA.WorkerDemand}
+
+
+law adapter_uncertain_fault_keeps_custody:
+  {Core.memory_adapter_worker_fault(True{}, True{}, False{}) == MA.MemoryWorkerUnknown{} : MA.WorkerFault}
+
+
+law adapter_settled_fault_cannot_become_unknown:
+  {Core.memory_adapter_worker_fault(True{}, False{}, False{}) == MA.MemoryWorkerCleanup{} : MA.WorkerFault}
+
+
+law adapter_closed_worker_cannot_continue:
+  for continuing: Bool
+  for requested: Bool
+  for state: String
+  for reconciled: Bool
+  {Core.memory_adapter_worker_again(continuing, requested, state, reconciled, True{}) == False{} : Bool}
+
+
+law retention_unknown_kind_refuses_collection:
+  {Core.memory_retention_collect(Con{MR.RetentionIdentity{0, "future", "k"}, Nil{}}, Nil{}, Nil{}) == MR.RetentionCollectionKind{} : MR.Collection}
+
+
+law retention_pin_preserves_known_value:
+  {Core.memory_retention_collect(Con{MR.RetentionIdentity{0, "raw", "k"}, Nil{}}, Con{"k", Nil{}}, Con{"succeeded", Nil{}}) == MR.RetentionCollection{Nil{}} : MR.Collection}
+
+
+law retention_unreferenced_known_value_can_collect:
+  {Core.memory_retention_collect(Con{MR.RetentionIdentity{0, "raw", "k"}, Nil{}}, Nil{}, Con{"succeeded", Nil{}}) == MR.RetentionCollection{Con{0, Nil{}}} : MR.Collection}
+
+
+law retention_unknown_state_refuses_collection:
+  {Core.memory_retention_collect(Nil{}, Nil{}, Con{"future", Nil{}}) == MR.RetentionCollectionState{} : MR.Collection}
+
+
+law retention_uncertain_assessment_is_protected:
+  {Core.memory_retention_retire(Con{MR.RetentionAssessmentRow{0, Mem.MemoryOrdinal{0, 0}, "a", True{}, "unknown"}, Nil{}}, Nil{}) == MR.RetentionNoCandidate{} : MR.Retirement}
+
+
+law retention_unknown_state_is_not_completed:
+  {Core.memory_retention_retire(Con{MR.RetentionAssessmentRow{0, Mem.MemoryOrdinal{0, 0}, "a", True{}, "future"}, Nil{}}, Nil{}) == MR.RetentionUnknownState{} : MR.Retirement}
+
+
+law retention_protected_assessment_keeps_details:
+  {Core.memory_retention_retire(Con{MR.RetentionAssessmentRow{0, Mem.MemoryOrdinal{0, 0}, "a", True{}, "succeeded"}, Nil{}}, Con{"a", Nil{}}) == MR.RetentionNoCandidate{} : MR.Retirement}
+
+
+law retention_completed_unprotected_details_can_retire:
+  {Core.memory_retention_retire(Con{MR.RetentionAssessmentRow{0, Mem.MemoryOrdinal{0, 0}, "a", True{}, "succeeded"}, Nil{}}, Nil{}) == MR.RetentionCandidate{0, Mem.MemoryOrdinal{0, 0}} : MR.Retirement}
+
+
+law retention_actual_raw_output_is_retained:
+  {Core.memory_retention_availability(True{}, "retained", True{}, "not-supplied", "succeeded") == MR.RetentionNativeAvailable{"retained"} : MR.Availability}
+
+
+law retention_working_capacity_cannot_evict_working_sets:
+  {Core.memory_retention_pressure(MR.RetentionWorking{}, Budget.BudgetFinite{Budget.BudgetCount{0, 1}}, Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 1}) == MR.RetentionFull{} : MR.Pressure}
+
+
+law retention_working_metadata_is_charged:
+  {Core.memory_retention_usage(MR.RetentionWorking{}, Nil{}, Nil{}, Con{Budget.BudgetCount{0, 1}, Nil{}}, Con{Budget.BudgetCount{0, 2}, Nil{}}, Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 0}) == MR.RetentionUsage{Budget.BudgetFinite{Budget.BudgetCount{0, 515}}} : MR.Usage}
+
+
+law retention_pool_overflow_does_not_fit:
+  {Core.memory_retention_usage(MR.RetentionProfile{}, Con{MR.RetentionValue{"profile", Budget.BudgetCount{2097151, 4294967295}}, Nil{}}, Nil{}, Nil{}, Nil{}, Budget.zero(), Budget.zero()) == MR.RetentionUsage{Budget.BudgetOverflow{}} : MR.Usage}

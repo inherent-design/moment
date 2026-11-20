@@ -1462,6 +1462,165 @@ theorem mem_selected_head_is_observed (heads : List MemHead) (selected : Option 
 #print axioms queued_cancel_needs_no_effect
 #print axioms terminal_cancel_unchanged
 #print axioms uncertain_claim_trace
+-- Native adapters observe text/roles and effects; these models decide their use.
+def maVisible (role : String) (phase : Option String) : Bool :=
+  role == "assistant" && phase.all ["commentary","final","final_answer"].contains
+def maFrame (role : String) (phase : Option String) : String :=
+  if maVisible role phase then "MemoryExchangeFrame" else if role == "user" then "MemoryUserFrame" else "MemoryIgnoredFrame"
+structure MaFrame where
+  index : Nat
+  role : String
+  phase : Option String
+  parts : Nat
+  deriving Repr
+def maExchange (frames : List MaFrame) : Option Nat :=
+  frames.foldl (fun previous frame => if maVisible frame.role frame.phase && frame.parts > 0 then some frame.index else previous) none
+def maParts (bytes : List Nat) (maximum : Nat) : Bool := bytes.length ≤ 16 && bytes.all (· ≤ maximum)
+def maHistory (provenance : String) (bytes maximum : Nat) : String :=
+  if provenance == "harness" then "MemoryHarnessPart" else if bytes > maximum then "MemoryOversizePart" else "MemoryUnknownUserPart"
+def maProject (registrySystem system project context : String) (projects : List (String × List String)) (associated : List String) : Bool :=
+  registrySystem == system && projects.any (fun p => p.1 == project && p.2.contains context) && associated.contains project
+def maBindingError (code : String) : String :=
+  if code == "IDENTITY_CONFLICT" then "MemoryBindingIntegrity" else if ["NOT_FOUND","FORBIDDEN","POLICY_INDETERMINATE","GRANT_EXPIRED","CONTEXT_CLOSED"].contains code then "MemoryBindingUnavailable" else "MemoryBindingComponent"
+def maWorkerMode (provider unavailable active : Bool) : String :=
+  if active then "unknown" else if !provider then "disabled" else if unavailable then "unavailable" else "ready"
+def maWorkerBootstrap (provider unavailable active recover : Bool) (status : String) : String × Bool :=
+  (maWorkerMode provider unavailable active, active && recover && status == "running")
+def maWorkerEnabled (closed provider unavailable : Bool) : Bool := !closed && provider && !unavailable
+def maWorkerQueue (state : String) (active : Bool) : Bool := state == "ready" && !active
+def maWorkerWake (state : String) (active pending busy scheduled : Bool) : Bool × String :=
+  (maWorkerQueue state active && pending, if busy then "MemoryWakeBusy" else if scheduled then "MemoryWakeScheduled" else "MemoryWakeSchedule")
+def maWorkerDemand (active pending : Bool) : String :=
+  if active then "MemoryWorkerRecover" else if pending then "MemoryWorkerPrepare" else "MemoryWorkerIdle"
+def maWorkerFault (dispatched current notStarted : Bool) : String :=
+  if !dispatched then "MemoryWorkerUnavailable" else if !current then "MemoryWorkerCleanup" else if notStarted then "MemoryWorkerNotStarted" else "MemoryWorkerUnknown"
+def maWorkerAgain (continuing requested : Bool) (state : String) (reconciled closed : Bool) : Bool :=
+  !closed && (continuing || (requested && (state == "ready" || reconciled)))
+def maWorkerCancel (present sameSession : Bool) (actual requested : Nat) (result : String) : Bool :=
+  present && sameSession && actual == requested && result == "unknown"
+
+def retKinds : List String := ["profile","entries","basis","outcome","raw"]
+def retStatuses : List String := ["running","unknown","succeeded","failed","cancelled","not-started","skipped"]
+def retCategory (kind : String) : Option String :=
+  if !retKinds.contains kind then none else some (if kind == "profile" then "profile" else if kind == "entries" then "working" else "assessment")
+def retIncluded (category kind : String) : Bool := retCategory kind == some category
+def retUsage (category : String) (values : List (String × Nat)) (assessments working receipts : List Nat) (focus bindings : Nat) : String :=
+  if !(values.all (fun value => retKinds.contains value.1)) then "unknown-kind" else
+  let payload := ((values.filter (fun value => retIncluded category value.1)).map (fun value => value.2 + 128)).sum
+  let overhead := if category == "working" then ((working ++ receipts).map (· + 192)).sum + 128*focus
+    else if category == "assessment" then (assessments.map (· + 192)).sum + 256*bindings else 0
+  if payload + overhead ≤ budgetMaximum then toString (payload + overhead) else "overflow"
+def retPressure (category : String) (usage : Option Nat) (extra ceiling : Nat) : String :=
+  if usage.any (fun n => n+extra ≤ budgetMaximum && n+extra ≤ ceiling) then "RetentionFits"
+  else if category == "working" then "RetentionFull" else "RetentionRetire"
+def retCollect (values live : List (String × String)) (states : List String) : String :=
+  if !(states.all retStatuses.contains) then "state" else if !(values.all (fun value => retKinds.contains value.1)) then "kind" else
+  "ok:" ++ String.intercalate "," (((values.zipIdx).filter (fun value => !live.contains value.1)).reverse.map (fun value => toString value.2))
+structure RetRow where
+  index : Nat
+  order : Int
+  id : String
+  basis : Bool
+  status : String
+  deriving DecidableEq, Repr
+def retEligible (row : RetRow) (protectedIds : List String) : Bool :=
+  row.basis && !protectedIds.contains row.id && !["running","unknown"].contains row.status
+def retChoose (selected : Option RetRow) (row : RetRow) : Option RetRow :=
+  match selected with
+  | none => some row
+  | some old => if row.order < old.order then some row else some old
+def retSelect (rows : List RetRow) (protectedIds : List String) : Option RetRow :=
+  (rows.filter (retEligible · protectedIds)).foldl retChoose none
+def retRetire (rows : List RetRow) (protectedIds : List String) : String :=
+  if !(rows.all (fun row => retStatuses.contains row.status)) then "state" else
+  (retSelect rows protectedIds).map (fun row => toString row.index) |>.getD "none"
+def retAvailability (raw : Bool) (basis : String) (reason : Option String) (status : String) : String :=
+  if !retStatuses.contains status || !["retained","legacy","retired"].contains basis then "unsupported" else if raw then "retained" else if basis == "legacy" then "legacy" else if basis == "retired" then "retired"
+  else reason.getD (if ["cancelled","not-started"].contains status then "not-supplied" else "pending")
+
+theorem ma_reasoning_is_not_visible : maVisible "assistant" (some "analysis") = false := rfl
+theorem ma_absent_phase_is_visible : maVisible "assistant" none = true := rfl
+theorem ma_non_assistant_is_invisible (role : String) (phase : Option String) (h : role ≠ "assistant") : maVisible role phase = false := by simp [maVisible,h]
+theorem ma_empty_exchange_is_absent : maExchange [] = none := rfl
+theorem ma_harness_authorship_is_preserved (bytes maximum : Nat) : maHistory "harness" bytes maximum = "MemoryHarnessPart" := rfl
+theorem ma_unknown_history_is_not_human : maHistory "human" 1 1 = "MemoryUnknownUserPart" := rfl
+theorem ma_parts_fit_their_bound (bytes : List Nat) (maximum : Nat) (h : maParts bytes maximum = true) : bytes.length ≤ 16 ∧ bytes.all (· ≤ maximum) = true := by
+  simpa [maParts] using h
+theorem ma_project_needs_both_associations (rs s p c : String) (projects : List (String × List String)) (associated : List String)
+    (h : maProject rs s p c projects associated = true) : rs = s ∧ projects.any (fun value => value.1 == p && value.2.contains c) = true ∧ associated.contains p = true := by
+  simpa [maProject, Bool.and_eq_true, and_assoc] using h
+theorem ma_active_worker_keeps_custody (provider unavailable : Bool) : maWorkerMode provider unavailable true = "unknown" := rfl
+theorem ma_closed_worker_cannot_enable (provider unavailable : Bool) : maWorkerEnabled true provider unavailable = false := rfl
+theorem ma_active_worker_recovers_first (pending : Bool) : maWorkerDemand true pending = "MemoryWorkerRecover" := rfl
+theorem ma_settled_fault_is_cleanup (notStarted : Bool) : maWorkerFault true false notStarted = "MemoryWorkerCleanup" := rfl
+theorem ma_closed_worker_cannot_continue (continuing requested reconciled : Bool) (state : String) : maWorkerAgain continuing requested state reconciled true = false := rfl
+theorem ma_uncertain_cancel_needs_same_session (a b : Nat) : maWorkerCancel true false a b "unknown" = false := rfl
+
+theorem ret_unknown_kind_cannot_collect : retCollect [("future","digest")] [] [] = "kind" := rfl
+theorem ret_unknown_state_cannot_collect : retCollect [] [] ["future"] = "state" := rfl
+theorem ret_known_pin_keeps_value : retCollect [("raw","digest")] [("raw","digest")] ["succeeded"] = "ok:" := rfl
+theorem ret_known_orphan_can_collect : retCollect [("raw","digest")] [] ["succeeded"] = "ok:0" := rfl
+theorem ret_unknown_state_is_not_completed : retRetire [{index:=0,order:=0,id:="a",basis:=true,status:="future"}] [] = "state" := rfl
+theorem ret_protected_row_is_not_eligible (row : RetRow) (protectedIds : List String) (h : protectedIds.contains row.id = true) : retEligible row protectedIds = false := by
+  unfold retEligible
+  rw [h]
+  cases row.basis <;> rfl
+theorem ret_uncertain_row_is_not_eligible (row : RetRow) (protectedIds : List String) (h : row.status = "unknown") : retEligible row protectedIds = false := by simp [retEligible,h]
+theorem ret_candidate_step_is_observed (selected : Option RetRow) (row chosen : RetRow) (h : retChoose selected row = some chosen) : chosen = row ∨ selected = some chosen := by
+  cases selected with
+  | none => exact Or.inl (Option.some.inj h).symm
+  | some old =>
+    by_cases earlier : row.order < old.order
+    · have same : row = chosen := by simpa [retChoose,earlier] using h
+      exact Or.inl same.symm
+    · exact Or.inr (by simpa [retChoose,earlier] using h)
+theorem ret_fold_candidate_is_observed (rows : List RetRow) (selected : Option RetRow) (chosen : RetRow) (h : rows.foldl retChoose selected = some chosen) : chosen ∈ rows ∨ selected = some chosen := by
+  induction rows generalizing selected with
+  | nil => exact Or.inr h
+  | cons row tail ih =>
+    rcases ih (retChoose selected row) h with ht | hs
+    · exact Or.inl (List.mem_cons_of_mem row ht)
+    · rcases ret_candidate_step_is_observed selected row chosen hs with he | ho
+      · exact Or.inl (by simp [he])
+      · exact Or.inr ho
+theorem ret_selected_candidate_is_eligible (rows : List RetRow) (protectedIds : List String) (chosen : RetRow) (h : retSelect rows protectedIds = some chosen) : chosen ∈ rows ∧ retEligible chosen protectedIds = true := by
+  have selected := ret_fold_candidate_is_observed (rows.filter (retEligible · protectedIds)) none chosen h
+  rcases selected with inside | impossible
+  · exact List.mem_filter.mp inside
+  · contradiction
+theorem ret_working_pressure_cannot_retire : retPressure "working" (some 1) 1 1 = "RetentionFull" := rfl
+theorem ret_overflow_cannot_fit (category : String) (extra ceiling : Nat) : retPressure category none extra ceiling ≠ "RetentionFits" := by simp [retPressure]; split <;> simp_all
+theorem ret_raw_evidence_has_precedence (reason : Option String) : retAvailability true "retained" reason "succeeded" = "retained" := rfl
+theorem ret_working_metadata_is_charged : retUsage "working" [] [] [1] [2] 1 0 = "515" := rfl
+
+#print axioms ma_reasoning_is_not_visible
+#print axioms ma_absent_phase_is_visible
+#print axioms ma_non_assistant_is_invisible
+#print axioms ma_empty_exchange_is_absent
+#print axioms ma_harness_authorship_is_preserved
+#print axioms ma_unknown_history_is_not_human
+#print axioms ma_parts_fit_their_bound
+#print axioms ma_project_needs_both_associations
+#print axioms ma_active_worker_keeps_custody
+#print axioms ma_closed_worker_cannot_enable
+#print axioms ma_active_worker_recovers_first
+#print axioms ma_settled_fault_is_cleanup
+#print axioms ma_closed_worker_cannot_continue
+#print axioms ma_uncertain_cancel_needs_same_session
+#print axioms ret_unknown_kind_cannot_collect
+#print axioms ret_unknown_state_cannot_collect
+#print axioms ret_known_pin_keeps_value
+#print axioms ret_known_orphan_can_collect
+#print axioms ret_unknown_state_is_not_completed
+#print axioms ret_protected_row_is_not_eligible
+#print axioms ret_uncertain_row_is_not_eligible
+#print axioms ret_candidate_step_is_observed
+#print axioms ret_fold_candidate_is_observed
+#print axioms ret_selected_candidate_is_eligible
+#print axioms ret_working_pressure_cannot_retire
+#print axioms ret_overflow_cannot_fit
+#print axioms ret_raw_evidence_has_precedence
+#print axioms ret_working_metadata_is_charged
 end Moment
 
 def schLives : List (Moment.SchLife × String) := [(.active,"active"),(.completed,"completed"),(.cancelled,"cancelled")]
@@ -1686,7 +1845,7 @@ def awGraph (size mask missing foreign group : Nat) : List Moment.AwEvent :=
     identity:="e"++toString i,context:=if foreign / 2^i % 2 == 1 then "foreign" else "context",groups:=(awGroups[group]?).getD [],
     causes:=(List.range size).filterMap (fun j => if mask / 2^(i*size+j) % 2 == 1 then some ("e"++toString j) else none)})
 
-def main : IO Unit := do
+def foundationalCases : IO Unit := do
   let values : List Moment.Truth := [.yes,.no,.unknown]
   for a in values do
     IO.println s!"case|not|{truthLabel a}|{truthLabel (Moment.negation a)}"
@@ -2418,3 +2577,102 @@ def main : IO Unit := do
       for status in memStatuses do
         for preparing in [false,true] do
           IO.println s!"case|memDispatch|{present}|{same}|{status}|{preparing}|{Moment.memDispatch present "d" (if same then "d" else "other") status preparing}"
+
+def memoryAdapterCases : IO Unit := do
+  let maPhases : List (Option String) := [none,some "",some "commentary",some "final",some "analysis",some "final_answer"]
+  for role in ["assistant","user","system","tool",""] do
+    for (phase,index) in maPhases.zipIdx do
+      IO.println s!"case|maFrame|{role}|{index}|{Moment.maVisible role phase}:{Moment.maFrame role phase}"
+  let maVariants : List (String × Option String × Nat) := [("assistant",some "final",1),("assistant",some "analysis",1),("assistant",none,1),("user",none,1),("assistant",some "final",0),("assistant",some "commentary",1),("system",none,0),("assistant",some "",1)]
+  for size in List.range 4 do
+    for code in List.range (8^size) do
+      let frames := ((fromCode maVariants size code).zipIdx).map (fun (value,index) => {index,role:=value.1,phase:=value.2.1,parts:=value.2.2 : Moment.MaFrame})
+      IO.println s!"case|maExchange|{size}|{code}|{(Moment.maExchange frames).map toString |>.getD "none"}"
+  for size in [0,1,16,17] do
+    for bytes in [0,1,2,9007199254740991] do
+      for maximum in [0,1,9007199254740991] do
+        IO.println s!"case|maParts|{size}|{bytes}|{maximum}|{Moment.maParts (List.replicate size bytes) maximum}"
+  for provenance in ["harness","user","unknown","","assistant"] do
+    for bytes in [0,1,9007199254740991] do
+      for maximum in [0,1,9007199254740991] do
+        IO.println s!"case|maHistory|{provenance}|{bytes}|{maximum}|{Moment.maHistory provenance bytes maximum}"
+  for count in [0,1,9007199254740991] do
+    for maximum in [0,1,9007199254740991] do
+      IO.println s!"case|maFull|{count}|{maximum}|{decide (count > maximum)}"
+      IO.println s!"case|retExcess|{count}|{maximum}|{decide (count > maximum)}"
+  for mask in List.range 16 do
+    let flag := fun index => mask/2^index%2 == 1
+    IO.println s!"case|maProject|{mask}|{Moment.maProject (if flag 0 then "system" else "foreign") "system" "p" "c" [(if flag 1 then "p" else "other",if flag 2 then ["c"] else [])] (if flag 3 then ["p"] else [])}"
+  for code in ["IDENTITY_CONFLICT","NOT_FOUND","FORBIDDEN","POLICY_INDETERMINATE","GRANT_EXPIRED","CONTEXT_CLOSED","LIMIT_EXCEEDED",""] do
+    IO.println s!"case|maError|{code}|{Moment.maBindingError code}"
+  for provider in [false,true] do
+    for unavailable in [false,true] do
+      for active in [false,true] do
+        for recover in [false,true] do
+          for status in ["running","unknown","succeeded",""] do
+            let result := Moment.maWorkerBootstrap provider unavailable active recover status
+            IO.println s!"case|maBootstrap|{provider}|{unavailable}|{active}|{recover}|{status}|{result.1}:{result.2}"
+      for closed in [false,true] do
+        IO.println s!"case|maEnabled|{closed}|{provider}|{unavailable}|{Moment.maWorkerEnabled closed provider unavailable}"
+  for state in ["ready","unknown","unavailable","disabled"] do
+    for active in [false,true] do
+      IO.println s!"case|maQueue|{state}|{active}|{Moment.maWorkerQueue state active}"
+      for pending in [false,true] do
+        for busy in [false,true] do
+          for scheduled in [false,true] do
+            let result := Moment.maWorkerWake state active pending busy scheduled
+            IO.println s!"case|maWake|{state}|{active}|{pending}|{busy}|{scheduled}|{result.1}:{result.2}"
+    for continuing in [false,true] do
+      for requested in [false,true] do
+        for reconciled in [false,true] do
+          for closed in [false,true] do
+            IO.println s!"case|maAgain|{continuing}|{requested}|{state}|{reconciled}|{closed}|{Moment.maWorkerAgain continuing requested state reconciled closed}"
+  for active in [false,true] do
+    for pending in [false,true] do
+      IO.println s!"case|maDemand|{active}|{pending}|{Moment.maWorkerDemand active pending}"
+      for notStarted in [false,true] do
+        IO.println s!"case|maFault|{active}|{pending}|{notStarted}|{Moment.maWorkerFault active pending notStarted}"
+  for present in [false,true] do
+    for sessionCode in List.range 3 do
+      for sameSequence in [false,true] do
+        for actual in [0,9007199254740991] do
+          for result in ["unknown","cancelled","pending"] do
+            let requested := if sameSequence then actual else if actual == 0 then 1 else 0
+            IO.println s!"case|maCancel|{present}|{sessionCode}|{sameSequence}|{actual}|{result}|{Moment.maWorkerCancel present (sessionCode == 0) actual requested result}"
+def memoryRetentionCases : IO Unit := do
+  for kind in ["profile","entries","basis","outcome","raw","future",""] do
+    IO.println s!"case|retCategory|{kind}|{(Moment.retCategory kind).getD "unknown"}"
+  let retPools : List (List String) := [[],["profile"],["entries"],["basis","raw"],["profile","entries","outcome"],["future"]]
+  let retMeta : List (List Nat × List Nat × List Nat × Nat × Nat) := [([],[],[],0,0),([1],[2],[3],1,2),([9007199254740991],[9007199254740991],[],0,0),([],[],[],9007199254740991,9007199254740991)]
+  for category in ["profile","working","assessment"] do
+    for (pool,pi) in retPools.zipIdx do
+      for bytes in [0,1,9007199254740863,9007199254740991] do
+        for (metaValues,mi) in retMeta.zipIdx do
+          IO.println s!"case|retUsage|{category}|{pi}|{bytes}|{mi}|{Moment.retUsage category (pool.map (fun kind => (kind,bytes))) metaValues.1 metaValues.2.1 metaValues.2.2.1 metaValues.2.2.2.1 metaValues.2.2.2.2}"
+    for (usage,ui) in ([none,some 0,some 1,some 9007199254740991] : List (Option Nat)).zipIdx do
+      for extra in [0,1,9007199254740991] do
+        for ceiling in [0,1,2,9007199254740991] do
+          IO.println s!"case|retPressure|{category}|{ui}|{extra}|{ceiling}|{Moment.retPressure category usage extra ceiling}"
+  for size in List.range 4 do
+    for code in List.range (4^size) do
+      let values := ((fromCode ["profile","entries","raw","future"] size code).zipIdx).map (fun (kind,index) => (kind,"v" ++ toString index))
+      for mask in List.range 8 do
+        let live := (values.zipIdx).filterMap (fun (value,index) => if mask/2^index%2 == 1 then some value else none)
+        for (states,si) in ([[],["succeeded"],["unknown"],["future"]] : List (List String)).zipIdx do
+          IO.println s!"case|retCollect|{size}|{code}|{mask}|{si}|{Moment.retCollect values live states}"
+    for code in List.range (8^size) do
+      let variants : List (String × Bool × Int) := [("succeeded",true,9223372036854775807),("failed",true,-9223372036854775808),("unknown",true,-1),("running",true,1),("future",true,0),("succeeded",false,0),("succeeded",true,9223372036854775807),("succeeded",true,-9223372036854775808)]
+      let rows := ((fromCode variants size code).zipIdx).map (fun (value,index) => {index,order:=value.2.2,id:="r" ++ toString index,basis:=value.2.1,status:=value.1 : Moment.RetRow})
+      for mask in List.range 8 do
+        let protectedIds := ((List.range size).filter (fun index => mask/2^index%2 == 1)).map (fun index => "r" ++ toString index)
+        IO.println s!"case|retRetire|{size}|{code}|{mask}|{Moment.retRetire rows protectedIds}"
+  for raw in [false,true] do
+    for basis in ["retained","legacy","retired","future"] do
+      for (reason,ri) in ([none,some "not-supplied",some "oversize"] : List (Option String)).zipIdx do
+        for status in Moment.retStatuses ++ ["future"] do
+          IO.println s!"case|retAvailability|{raw}|{basis}|{ri}|{status}|{Moment.retAvailability raw basis reason status}"
+
+def main : IO Unit := do
+  foundationalCases
+  memoryAdapterCases
+  memoryRetentionCases

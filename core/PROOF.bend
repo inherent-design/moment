@@ -637,3 +637,131 @@ def Laws.memory_empty_heads_do_not_invent_work():
 
 def Laws.memory_full_signed_row_order_is_preserved():
   {==}
+
+
+def Laws.adapter_reasoning_is_not_visible():
+  {==}
+
+
+def Laws.adapter_absent_phase_remains_visible():
+  {==}
+
+
+def Laws.adapter_user_is_not_assistant():
+  {==}
+
+
+def Laws.adapter_latest_visible_exchange_is_selected():
+  {==}
+
+
+def Laws.adapter_empty_exchange_is_absent():
+  {==}
+
+
+def Laws.adapter_harness_keeps_authorship(bytes, maximum):
+  {==}
+
+
+def Laws.adapter_unknown_history_stays_unknown():
+  {==}
+
+
+def Laws.adapter_oversize_history_is_explicit():
+  {==}
+
+
+def Laws.adapter_part_count_is_bounded():
+  {==}
+
+
+def Laws.adapter_foreign_project_is_not_bound():
+  {==}
+
+
+def Laws.adapter_dual_project_association_is_useful():
+  {==}
+
+
+def Laws.adapter_identity_error_is_not_an_omission():
+  {==}
+
+
+def Laws.adapter_active_worker_keeps_uncertainty(provider, unavailable):
+  {==}
+
+
+def Laws.adapter_restarted_running_worker_needs_reconciliation():
+  {==}
+
+
+def Laws.adapter_closed_worker_does_not_wake(provider, unavailable):
+  {==}
+
+
+def Laws.adapter_busy_wake_is_not_a_second_dispatch():
+  {==}
+
+
+def Laws.adapter_active_demand_recovers_before_queue(pending):
+  {==}
+
+
+def Laws.adapter_uncertain_fault_keeps_custody():
+  {==}
+
+
+def Laws.adapter_settled_fault_cannot_become_unknown():
+  {==}
+
+
+def Laws.adapter_closed_worker_cannot_continue(continuing, requested, state, reconciled):
+  {==}
+
+
+def Laws.retention_unknown_kind_refuses_collection():
+  {==}
+
+
+def Laws.retention_pin_preserves_known_value():
+  {==}
+
+
+def Laws.retention_unreferenced_known_value_can_collect():
+  {==}
+
+
+def Laws.retention_unknown_state_refuses_collection():
+  {==}
+
+
+def Laws.retention_uncertain_assessment_is_protected():
+  {==}
+
+
+def Laws.retention_unknown_state_is_not_completed():
+  {==}
+
+
+def Laws.retention_protected_assessment_keeps_details():
+  {==}
+
+
+def Laws.retention_completed_unprotected_details_can_retire():
+  {==}
+
+
+def Laws.retention_actual_raw_output_is_retained():
+  {==}
+
+
+def Laws.retention_working_capacity_cannot_evict_working_sets():
+  {==}
+
+
+def Laws.retention_working_metadata_is_charged():
+  {==}
+
+
+def Laws.retention_pool_overflow_does_not_fit():
+  {==}

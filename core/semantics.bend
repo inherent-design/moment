@@ -10,6 +10,8 @@ import ./control.bend as Control
 import ./awareness.bend as Aware
 import ./guidance.bend as Guide
 import ./memory.bend as Mem
+import ./memory-adapters.bend as MA
+import ./memory-retention.bend as Ret
 
 def execution_step(state: Run.State, action: Run.Action) -> Run.Step:
   Run.step(state, action)
@@ -1121,3 +1123,107 @@ def memory_rebuild_basis(explicit: Bool, cache: Budget.Count, expected_cache: Bu
 
 def memory_dispatch(present: Bool, actual: String, expected: String, status: String, preparing: Bool) -> Bool:
   Mem.dispatch(present, actual, expected, status, preparing)
+
+
+def memory_adapter_visible_assistant(role: String, phase_present: Bool, phase: String) -> Bool:
+  MA.visible_assistant(role, phase_present, phase)
+
+
+def memory_adapter_frame(+role: String, phase_present: Bool, phase: String) -> MA.FrameAction:
+  MA.frame(role, phase_present, phase)
+
+
+def memory_adapter_exchange(frames: +List<MA.Frame>) -> MA.Exchange:
+  MA.exchange(frames)
+
+
+def memory_adapter_parts(count: Budget.Count, bytes: +List<Budget.Count>, maximum: Budget.Count) -> Bool:
+  MA.parts(count, bytes, maximum)
+
+
+def memory_adapter_history_part(provenance: String, bytes: Budget.Count, maximum: Budget.Count) -> MA.HistoryPart:
+  MA.history_part(provenance, bytes, maximum)
+
+
+def memory_adapter_history_full(count: Budget.Count, maximum: Budget.Count) -> Bool:
+  MA.history_full(count, maximum)
+
+
+def memory_adapter_project(registry_system: String, system: String, +project: String, context: String, projects: +List<MA.Project>, associated: +List<String>) -> Bool:
+  MA.project(registry_system, system, project, context, projects, associated)
+
+
+def memory_adapter_binding_error(+code: String) -> MA.BindingError:
+  MA.binding_error(code)
+
+
+def memory_adapter_worker_mode(provider: Bool, unavailable: Bool, active: Bool) -> String:
+  MA.worker_mode(provider, unavailable, active)
+
+
+def memory_adapter_worker_bootstrap(provider: Bool, unavailable: Bool, +active: Bool, recover: Bool, status: String) -> MA.WorkerBootstrap:
+  MA.worker_bootstrap(provider, unavailable, active, recover, status)
+
+
+def memory_adapter_worker_enabled(closed: Bool, provider: Bool, unavailable: Bool) -> Bool:
+  MA.worker_enabled(closed, provider, unavailable)
+
+
+def memory_adapter_worker_queue_needed(state: String, active: Bool) -> Bool:
+  MA.worker_queue_needed(state, active)
+
+
+def memory_adapter_worker_wake(state: String, active: Bool, pending: Bool, busy: Bool, scheduled: Bool) -> MA.WorkerWake:
+  MA.worker_wake(state, active, pending, busy, scheduled)
+
+
+def memory_adapter_worker_demand(active: Bool, pending: Bool) -> MA.WorkerDemand:
+  MA.worker_demand(active, pending)
+
+
+def memory_adapter_worker_fault(dispatched: Bool, current: Bool, not_started: Bool) -> MA.WorkerFault:
+  MA.worker_fault(dispatched, current, not_started)
+
+
+def memory_adapter_worker_again(continuing: Bool, requested: Bool, state: String, reconciled: Bool, closed: Bool) -> Bool:
+  MA.worker_again(continuing, requested, state, reconciled, closed)
+
+
+def memory_adapter_worker_cancel(present: Bool, actual_session: String, requested_session: String, actual_sequence: Budget.Count, requested_sequence: Budget.Count, result: String) -> Bool:
+  MA.worker_cancel(present, actual_session, requested_session, actual_sequence, requested_sequence, result)
+
+
+def memory_retention_known_kind(kind: String) -> Bool:
+  Ret.known_kind(kind)
+
+
+def memory_retention_known_status(status: String) -> Bool:
+  Ret.known_status(status)
+
+
+def memory_retention_usage(+category: Ret.Category, values: +List<Ret.Value>, assessments: +List<Budget.Count>, working: +List<Budget.Count>, receipts: +List<Budget.Count>, focus: Budget.Count, bindings: Budget.Count) -> Ret.Usage:
+  Ret.usage(category, values, assessments, working, receipts, focus, bindings)
+
+
+def memory_retention_pressure(+category: Ret.Category, usage: Budget.Amount, extra: Budget.Count, profile: Budget.Count, working: Budget.Count, assessment: Budget.Count) -> Ret.Pressure:
+  Ret.pressure(category, usage, extra, profile, working, assessment)
+
+
+def memory_retention_collect(values: +List<Ret.Identity>, live: +List<String>, states: +List<String>) -> Ret.Collection:
+  Ret.collect(values, live, states)
+
+
+def memory_retention_retire(rows: +List<Ret.Assessment>, protected: +List<String>) -> Ret.Retirement:
+  Ret.retire(rows, protected)
+
+
+def memory_retention_excess(count: Budget.Count, maximum: Budget.Count) -> Bool:
+  Ret.excess(count, maximum)
+
+
+def memory_retention_availability(raw: Bool, +basis: String, reason_present: Bool, reason: String, status: String) -> Ret.Availability:
+  Ret.availability(raw, basis, reason_present, reason, status)
+
+
+def memory_retention_classify(+kind: String) -> Ret.ValueClass:
+  Ret.classify(kind)

@@ -2869,6 +2869,408 @@ function $memory_dispatch(_present_0, _actual_0, _expected_0, _status_0, _prepar
   return $Bool_and(_present_0, $$Bool_and($$String_eq(_actual_0, _expected_0), (_x_0 || _x_1)));
 }
 
+function $memory_adapters_visible_assistant(_role_0, _phase_present_0, _phase_0) {
+  const _x_0 = $$Bool_not(_phase_present_0);
+  const _x_1 = $$collections_contains({$: "Con", "head": "commentary", "tail": {$: "Con", "head": "final", "tail": {$: "Con", "head": "final_answer", "tail": {$: "Nil"}}}}, _phase_0);
+  return $Bool_and($$String_eq(_role_0, "assistant"), (_x_0 || _x_1));
+}
+
+function $memory_adapters_frame(_role_0, _phase_present_0, _phase_0) {
+  return $Bool_pick($$memory_adapters_visible_assistant(_role_0, _phase_present_0, _phase_0), {$: "MemoryExchangeFrame"}, $$Bool_pick($$String_eq(_role_0, "user"), {$: "MemoryUserFrame"}, {$: "MemoryIgnoredFrame"}));
+}
+
+function $memory_adapters_exchange_step(_value_0, _previous_0) {
+  const _index_0 = _value_0["index"];
+  const _role_0 = _value_0["role"];
+  const _phase_present_0 = _value_0["phase_present"];
+  const _phase_0 = _value_0["phase"];
+  const _output_parts_0 = _value_0["output_parts"];
+  return $Bool_pick($$Bool_and($$memory_adapters_visible_assistant(_role_0, _phase_present_0, _phase_0), $$Bool_not($$accounting_equal(_output_parts_0, $$accounting_zero()))), {$: "MemoryLatestExchange", "index": _index_0}, _previous_0);
+}
+
+function $memory_adapters_exchange_fold($0, $1) {
+  for (;;) {
+    {
+      const _frames_0 = $0;
+      const _previous_0 = $1;
+      if (_frames_0.$ === "Nil") {
+        return _previous_0;
+      } else {
+        const _head_0 = _frames_0["head"];
+        const _tail_0 = _frames_0["tail"];
+        $0 = _tail_0;
+        $1 = $$memory_adapters_exchange_step(_head_0, _previous_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $memory_adapters_exchange(_frames_0) {
+  return $memory_adapters_exchange_fold(_frames_0, {$: "MemoryNoExchange"});
+}
+
+function $memory_adapters_parts_fold($0, $1, $2) {
+  for (;;) {
+    {
+      const _parts_0 = $0;
+      const _maximum_0 = $1;
+      const _accepted_0 = $2;
+      if (_parts_0.$ === "Nil") {
+        return _accepted_0;
+      } else {
+        const _head_0 = _parts_0["head"];
+        const _tail_0 = _parts_0["tail"];
+        $0 = _tail_0;
+        $1 = _maximum_0;
+        $2 = $$Bool_and(_accepted_0, $$accounting_le(_head_0, _maximum_0));
+        continue;
+      }
+    }
+  }
+}
+
+function $memory_adapters_parts(_count_0, _bytes_0, _maximum_0) {
+  return $Bool_and($$accounting_le(_count_0, {$: "BudgetCount", "high": 0, "low": 16}), $$memory_adapters_parts_fold(_bytes_0, _maximum_0, true));
+}
+
+function $memory_adapters_history_part(_provenance_0, _bytes_0, _maximum_0) {
+  return $Bool_pick($$String_eq(_provenance_0, "harness"), {$: "MemoryHarnessPart"}, $$Bool_pick($$accounting_le(_bytes_0, _maximum_0), {$: "MemoryUnknownUserPart"}, {$: "MemoryOversizePart"}));
+}
+
+function $memory_adapters_history_full(_count_0, _maximum_0) {
+  return $Bool_not($$accounting_le(_count_0, _maximum_0));
+}
+
+function $memory_adapters_project_fold($0, $1, $2, $3) {
+  for (;;) {
+    {
+      const _projects_0 = $0;
+      const _project_0 = $1;
+      const _context_0 = $2;
+      const _accepted_0 = $3;
+      if (_projects_0.$ === "Nil") {
+        return _accepted_0;
+      } else {
+        const _t_0 = _projects_0["head"];
+        const _id_0 = _t_0["id"];
+        const _contexts_0 = _t_0["contexts"];
+        const _tail_0 = _projects_0["tail"];
+        const _x_0 = $$Bool_and($$String_eq(_id_0, _project_0), $$collections_contains(_contexts_0, _context_0));
+        $0 = _tail_0;
+        $1 = _project_0;
+        $2 = _context_0;
+        $3 = (_accepted_0 || _x_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $memory_adapters_project(_registry_system_0, _system_0, _project_0, _context_0, _projects_0, _associated_0) {
+  return $Bool_and($$String_eq(_registry_system_0, _system_0), $$Bool_and($$memory_adapters_project_fold(_projects_0, _project_0, _context_0, false), $$collections_contains(_associated_0, _project_0)));
+}
+
+function $memory_adapters_binding_error(_code_0) {
+  return $Bool_pick($$String_eq(_code_0, "IDENTITY_CONFLICT"), {$: "MemoryBindingIntegrity"}, $$Bool_pick($$collections_contains({$: "Con", "head": "NOT_FOUND", "tail": {$: "Con", "head": "FORBIDDEN", "tail": {$: "Con", "head": "POLICY_INDETERMINATE", "tail": {$: "Con", "head": "GRANT_EXPIRED", "tail": {$: "Con", "head": "CONTEXT_CLOSED", "tail": {$: "Nil"}}}}}}, _code_0), {$: "MemoryBindingUnavailable"}, {$: "MemoryBindingComponent"}));
+}
+
+function $memory_adapters_worker_mode(_provider_0, _unavailable_0, _active_0) {
+  return $Bool_pick(_active_0, "unknown", $$Bool_pick(_provider_0, $$Bool_pick(_unavailable_0, "unavailable", "ready"), "disabled"));
+}
+
+function $memory_adapters_worker_bootstrap(_provider_0, _unavailable_0, _active_0, _recover_0, _status_0) {
+  return {$: "MemoryWorkerBootstrap", "state": $$memory_adapters_worker_mode(_provider_0, _unavailable_0, _active_0), "mark_unknown": $$Bool_and(_active_0, $$Bool_and(_recover_0, $$String_eq(_status_0, "running")))};
+}
+
+function $memory_adapters_worker_enabled(_closed_0, _provider_0, _unavailable_0) {
+  return $Bool_and($$Bool_not(_closed_0), $$Bool_and(_provider_0, $$Bool_not(_unavailable_0)));
+}
+
+function $memory_adapters_worker_queue_needed(_state_0, _active_0) {
+  return $Bool_and($$String_eq(_state_0, "ready"), $$Bool_not(_active_0));
+}
+
+function $memory_adapters_worker_wake(_state_0, _active_0, _pending_0, _busy_0, _scheduled_0) {
+  return {$: "MemoryWorkerWake", "queued": $$Bool_and($$memory_adapters_worker_queue_needed(_state_0, _active_0), _pending_0), "action": $$Bool_pick(_busy_0, {$: "MemoryWakeBusy"}, $$Bool_pick(_scheduled_0, {$: "MemoryWakeScheduled"}, {$: "MemoryWakeSchedule"}))};
+}
+
+function $memory_adapters_worker_demand(_active_0, _pending_0) {
+  return $Bool_pick(_active_0, {$: "MemoryWorkerRecover"}, $$Bool_pick(_pending_0, {$: "MemoryWorkerPrepare"}, {$: "MemoryWorkerIdle"}));
+}
+
+function $memory_adapters_worker_fault(_dispatched_0, _current_0, _not_started_0) {
+  return $Bool_pick(_dispatched_0, $$Bool_pick(_current_0, $$Bool_pick(_not_started_0, {$: "MemoryWorkerNotStarted"}, {$: "MemoryWorkerUnknown"}), {$: "MemoryWorkerCleanup"}), {$: "MemoryWorkerUnavailable"});
+}
+
+function $memory_adapters_worker_again(_continuing_0, _requested_0, _state_0, _reconciled_0, _closed_0) {
+  const _x_0 = $$String_eq(_state_0, "ready");
+  const _x_1 = $$Bool_and(_requested_0, (_x_0 || _reconciled_0));
+  return $Bool_and($$Bool_not(_closed_0), (_continuing_0 || _x_1));
+}
+
+function $memory_adapters_worker_cancel(_present_0, _actual_session_0, _requested_session_0, _actual_sequence_0, _requested_sequence_0, _result_0) {
+  return $Bool_and(_present_0, $$Bool_and($$String_eq(_result_0, "unknown"), $$Bool_and($$String_eq(_actual_session_0, _requested_session_0), $$accounting_equal(_actual_sequence_0, _requested_sequence_0))));
+}
+
+function $memory_retention_known_kind(_kind_0) {
+  return $collections_contains({$: "Con", "head": "profile", "tail": {$: "Con", "head": "entries", "tail": {$: "Con", "head": "basis", "tail": {$: "Con", "head": "outcome", "tail": {$: "Con", "head": "raw", "tail": {$: "Nil"}}}}}}, _kind_0);
+}
+
+function $memory_retention_known_status(_status_0) {
+  return $collections_contains({$: "Con", "head": "running", "tail": {$: "Con", "head": "unknown", "tail": {$: "Con", "head": "succeeded", "tail": {$: "Con", "head": "failed", "tail": {$: "Con", "head": "cancelled", "tail": {$: "Con", "head": "not-started", "tail": {$: "Con", "head": "skipped", "tail": {$: "Nil"}}}}}}}}, _status_0);
+}
+
+function $memory_retention_states_fold($0, $1) {
+  for (;;) {
+    {
+      const _values_0 = $0;
+      const _accepted_0 = $1;
+      if (_values_0.$ === "Nil") {
+        return _accepted_0;
+      } else {
+        const _head_0 = _values_0["head"];
+        const _tail_0 = _values_0["tail"];
+        $0 = _tail_0;
+        $1 = $$Bool_and(_accepted_0, $$memory_retention_known_status(_head_0));
+        continue;
+      }
+    }
+  }
+}
+
+function $memory_retention_included(_category_0, _kind_0) {
+  if (_category_0.$ === "RetentionProfile") {
+    return $String_eq(_kind_0, "profile");
+  } else if (_category_0.$ === "RetentionWorking") {
+    return $String_eq(_kind_0, "entries");
+  } else {
+    return $collections_contains({$: "Con", "head": "basis", "tail": {$: "Con", "head": "outcome", "tail": {$: "Con", "head": "raw", "tail": {$: "Nil"}}}}, _kind_0);
+  }
+}
+
+function $memory_retention_category(_kind_0) {
+  return $Bool_pick($$String_eq(_kind_0, "profile"), {$: "RetentionProfile"}, $$Bool_pick($$String_eq(_kind_0, "entries"), {$: "RetentionWorking"}, {$: "RetentionAssessment"}));
+}
+
+function $memory_retention_combine(_left_0, _right_0) {
+  if (_left_0.$ === "BudgetOverflow") {
+    return {$: "BudgetOverflow"};
+  } else {
+    const _count_0 = _left_0["count"];
+    return $accounting_accumulate(_right_0, _count_0);
+  }
+}
+
+function $memory_retention_double(_value_0) {
+  if (_value_0.$ === "BudgetOverflow") {
+    return {$: "BudgetOverflow"};
+  } else {
+    const _count_0 = _value_0["count"];
+    return $accounting_add(_count_0, _count_0);
+  }
+}
+
+function $memory_retention_scale($0, $1) {
+  for (;;) {
+    {
+      const _times_0 = $0;
+      const _value_0 = $1;
+      if (_times_0 == 0) {
+        return _value_0;
+      } else {
+        const _previous_0 = (_times_0 - 1);
+        $0 = _previous_0;
+        $1 = $$memory_retention_double(_value_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $memory_retention_rows($0, $1, $2) {
+  for (;;) {
+    {
+      const _values_0 = $0;
+      const _overhead_0 = $1;
+      const _total_0 = $2;
+      if (_values_0.$ === "Nil") {
+        return _total_0;
+      } else {
+        const _head_0 = _values_0["head"];
+        const _tail_0 = _values_0["tail"];
+        $0 = _tail_0;
+        $1 = _overhead_0;
+        $2 = $$accounting_accumulate($$accounting_accumulate(_total_0, _head_0), _overhead_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $memory_retention_value_step(_value_0, _category_0, _total_0) {
+  const _kind_0 = _value_0["kind"];
+  const _bytes_0 = _value_0["bytes"];
+  if (_total_0.$ === "RetentionUnknownKind") {
+    return {$: "RetentionUnknownKind"};
+  } else {
+    const _amount_0 = _total_0["amount"];
+    return $Bool_pick($$memory_retention_known_kind(_kind_0), {$: "RetentionUsage", "amount": $$Bool_pick($$memory_retention_included(_category_0, _kind_0), $$accounting_accumulate($$accounting_accumulate(_amount_0, _bytes_0), {$: "BudgetCount", "high": 0, "low": 128}), _amount_0)}, {$: "RetentionUnknownKind"});
+  }
+}
+
+function $memory_retention_values_fold($0, $1, $2) {
+  for (;;) {
+    {
+      const _values_0 = $0;
+      const _category_0 = $1;
+      const _total_0 = $2;
+      if (_values_0.$ === "Nil") {
+        return _total_0;
+      } else {
+        const _head_0 = _values_0["head"];
+        const _tail_0 = _values_0["tail"];
+        $0 = _tail_0;
+        $1 = _category_0;
+        $2 = $$memory_retention_value_step(_head_0, _category_0, _total_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $memory_retention_metadata(_value_0, _category_0, _assessments_0, _working_0, _receipts_0, _focus_0, _bindings_0) {
+  if (_value_0.$ === "RetentionUnknownKind") {
+    return {$: "RetentionUnknownKind"};
+  } else {
+    const _amount_0 = _value_0["amount"];
+    if (_category_0.$ === "RetentionProfile") {
+      return {$: "RetentionUsage", "amount": _amount_0};
+    } else if (_category_0.$ === "RetentionWorking") {
+      return {$: "RetentionUsage", "amount": $$memory_retention_combine($$memory_retention_rows(_receipts_0, {$: "BudgetCount", "high": 0, "low": 192}, $$memory_retention_rows(_working_0, {$: "BudgetCount", "high": 0, "low": 192}, _amount_0)), $$memory_retention_scale(7, {$: "BudgetFinite", "count": _focus_0}))};
+    } else {
+      return {$: "RetentionUsage", "amount": $$memory_retention_combine($$memory_retention_rows(_assessments_0, {$: "BudgetCount", "high": 0, "low": 192}, _amount_0), $$memory_retention_scale(8, {$: "BudgetFinite", "count": _bindings_0}))};
+    }
+  }
+}
+
+function $memory_retention_usage(_category_0, _values_0, _assessments_0, _working_0, _receipts_0, _focus_0, _bindings_0) {
+  return $memory_retention_metadata($$memory_retention_values_fold(_values_0, _category_0, {$: "RetentionUsage", "amount": {$: "BudgetFinite", "count": $$accounting_zero()}}), _category_0, _assessments_0, _working_0, _receipts_0, _focus_0, _bindings_0);
+}
+
+function $memory_retention_pressure_result(_fits_0, _retirable_0) {
+  return $Bool_pick(_fits_0, {$: "RetentionFits"}, $$Bool_pick(_retirable_0, {$: "RetentionRetire"}, {$: "RetentionFull"}));
+}
+
+function $memory_retention_pressure(_category_0, _usage_0, _extra_0, _profile_0, _working_0, _assessment_0) {
+  if (_category_0.$ === "RetentionProfile") {
+    return $memory_retention_pressure_result($$accounting_fits($$accounting_accumulate(_usage_0, _extra_0), _profile_0), true);
+  } else if (_category_0.$ === "RetentionWorking") {
+    return $memory_retention_pressure_result($$accounting_fits($$accounting_accumulate(_usage_0, _extra_0), _working_0), false);
+  } else {
+    return $memory_retention_pressure_result($$accounting_fits($$accounting_accumulate(_usage_0, _extra_0), _assessment_0), true);
+  }
+}
+
+function $memory_retention_collect_step(_value_0, _live_0, _selected_0) {
+  const _index_0 = _value_0["index"];
+  const _kind_0 = _value_0["kind"];
+  const _key_0 = _value_0["key"];
+  if (_selected_0.$ === "RetentionCollection") {
+    const _indices_0 = _selected_0["indices"];
+    return $Bool_pick($$memory_retention_known_kind(_kind_0), {$: "RetentionCollection", "indices": $$Bool_pick($$collections_contains(_live_0, _key_0), _indices_0, {$: "Con", "head": _index_0, "tail": _indices_0})}, {$: "RetentionCollectionKind"});
+  } else if (_selected_0.$ === "RetentionCollectionKind") {
+    return {$: "RetentionCollectionKind"};
+  } else {
+    return {$: "RetentionCollectionState"};
+  }
+}
+
+function $memory_retention_collect_fold($0, $1, $2) {
+  for (;;) {
+    {
+      const _values_0 = $0;
+      const _live_0 = $1;
+      const _selected_0 = $2;
+      if (_values_0.$ === "Nil") {
+        return _selected_0;
+      } else {
+        const _head_0 = _values_0["head"];
+        const _tail_0 = _values_0["tail"];
+        $0 = _tail_0;
+        $1 = _live_0;
+        $2 = $$memory_retention_collect_step(_head_0, _live_0, _selected_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $memory_retention_collect(_values_0, _live_0, _states_0) {
+  return $Bool_pick($$memory_retention_states_fold(_states_0, true), $$memory_retention_collect_fold(_values_0, _live_0, {$: "RetentionCollection", "indices": {$: "Nil"}}), {$: "RetentionCollectionState"});
+}
+
+function $memory_retention_selected(_index_0, _order_0, _previous_0) {
+  if (_previous_0.$ === "RetentionNoCandidate") {
+    return {$: "RetentionCandidate", "index": _index_0, "order": _order_0};
+  } else if (_previous_0.$ === "RetentionCandidate") {
+    const _old_index_0 = _previous_0["index"];
+    const _old_order_0 = _previous_0["order"];
+    return $Bool_pick($$Bool_and($$memory_ordinal_le(_order_0, _old_order_0), $$Bool_not($$memory_ordinal_equal(_order_0, _old_order_0))), {$: "RetentionCandidate", "index": _index_0, "order": _order_0}, {$: "RetentionCandidate", "index": _old_index_0, "order": _old_order_0});
+  } else {
+    return {$: "RetentionUnknownState"};
+  }
+}
+
+function $memory_retention_retire_step(_row_0, _protected_0, _previous_0) {
+  const _index_0 = _row_0["index"];
+  const _order_0 = _row_0["order"];
+  const _id_0 = _row_0["id"];
+  const _basis_0 = _row_0["basis"];
+  const _status_0 = _row_0["status"];
+  return $Bool_pick($$memory_retention_known_status(_status_0), $$Bool_pick($$Bool_and(_basis_0, $$Bool_and($$Bool_not($$collections_contains(_protected_0, _id_0)), $$Bool_not($$collections_contains({$: "Con", "head": "running", "tail": {$: "Con", "head": "unknown", "tail": {$: "Nil"}}}, _status_0)))), $$memory_retention_selected(_index_0, _order_0, _previous_0), _previous_0), {$: "RetentionUnknownState"});
+}
+
+function $memory_retention_retire_fold($0, $1, $2) {
+  for (;;) {
+    {
+      const _rows_0 = $0;
+      const _protected_0 = $1;
+      const _previous_0 = $2;
+      if (_rows_0.$ === "Nil") {
+        return _previous_0;
+      } else {
+        const _head_0 = _rows_0["head"];
+        const _tail_0 = _rows_0["tail"];
+        $0 = _tail_0;
+        $1 = _protected_0;
+        $2 = $$memory_retention_retire_step(_head_0, _protected_0, _previous_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $memory_retention_retire(_rows_0, _protected_0) {
+  return $memory_retention_retire_fold(_rows_0, _protected_0, {$: "RetentionNoCandidate"});
+}
+
+function $memory_retention_excess(_count_0, _maximum_0) {
+  return $Bool_not($$accounting_le(_count_0, _maximum_0));
+}
+
+function $memory_retention_known_basis(_basis_0) {
+  return $collections_contains({$: "Con", "head": "retained", "tail": {$: "Con", "head": "legacy", "tail": {$: "Con", "head": "retired", "tail": {$: "Nil"}}}}, _basis_0);
+}
+
+function $memory_retention_availability(_raw_0, _basis_0, _reason_present_0, _reason_0, _status_0) {
+  return $Bool_pick($$Bool_and($$memory_retention_known_status(_status_0), $$memory_retention_known_basis(_basis_0)), {$: "RetentionNativeAvailable", "value": $$Bool_pick(_raw_0, "retained", $$Bool_pick($$String_eq(_basis_0, "legacy"), "legacy", $$Bool_pick($$String_eq(_basis_0, "retired"), "retired", $$Bool_pick(_reason_present_0, _reason_0, $$Bool_pick($$collections_contains({$: "Con", "head": "cancelled", "tail": {$: "Con", "head": "not-started", "tail": {$: "Nil"}}}, _status_0), "not-supplied", "pending")))))}, {$: "RetentionNativeUnsupported"});
+}
+
+function $memory_retention_classify(_kind_0) {
+  return $Bool_pick($$memory_retention_known_kind(_kind_0), {$: "RetentionValueClass", "category": $$memory_retention_category(_kind_0)}, {$: "RetentionValueUnknown"});
+}
+
 function $execution_step_1(_state_0, _action_0) {
   return $execution_step(_state_0, _action_0);
 }
@@ -4160,6 +4562,110 @@ function $memory_dispatch_1(_present_0, _actual_0, _expected_0, _status_0, _prep
   return $memory_dispatch(_present_0, _actual_0, _expected_0, _status_0, _preparing_0);
 }
 
+function $memory_adapter_visible_assistant(_role_0, _phase_present_0, _phase_0) {
+  return $memory_adapters_visible_assistant(_role_0, _phase_present_0, _phase_0);
+}
+
+function $memory_adapter_frame(_role_0, _phase_present_0, _phase_0) {
+  return $memory_adapters_frame(_role_0, _phase_present_0, _phase_0);
+}
+
+function $memory_adapter_exchange(_frames_0) {
+  return $memory_adapters_exchange(_frames_0);
+}
+
+function $memory_adapter_parts(_count_0, _bytes_0, _maximum_0) {
+  return $memory_adapters_parts(_count_0, _bytes_0, _maximum_0);
+}
+
+function $memory_adapter_history_part(_provenance_0, _bytes_0, _maximum_0) {
+  return $memory_adapters_history_part(_provenance_0, _bytes_0, _maximum_0);
+}
+
+function $memory_adapter_history_full(_count_0, _maximum_0) {
+  return $memory_adapters_history_full(_count_0, _maximum_0);
+}
+
+function $memory_adapter_project(_registry_system_0, _system_0, _project_0, _context_0, _projects_0, _associated_0) {
+  return $memory_adapters_project(_registry_system_0, _system_0, _project_0, _context_0, _projects_0, _associated_0);
+}
+
+function $memory_adapter_binding_error(_code_0) {
+  return $memory_adapters_binding_error(_code_0);
+}
+
+function $memory_adapter_worker_mode(_provider_0, _unavailable_0, _active_0) {
+  return $memory_adapters_worker_mode(_provider_0, _unavailable_0, _active_0);
+}
+
+function $memory_adapter_worker_bootstrap(_provider_0, _unavailable_0, _active_0, _recover_0, _status_0) {
+  return $memory_adapters_worker_bootstrap(_provider_0, _unavailable_0, _active_0, _recover_0, _status_0);
+}
+
+function $memory_adapter_worker_enabled(_closed_0, _provider_0, _unavailable_0) {
+  return $memory_adapters_worker_enabled(_closed_0, _provider_0, _unavailable_0);
+}
+
+function $memory_adapter_worker_queue_needed(_state_0, _active_0) {
+  return $memory_adapters_worker_queue_needed(_state_0, _active_0);
+}
+
+function $memory_adapter_worker_wake(_state_0, _active_0, _pending_0, _busy_0, _scheduled_0) {
+  return $memory_adapters_worker_wake(_state_0, _active_0, _pending_0, _busy_0, _scheduled_0);
+}
+
+function $memory_adapter_worker_demand(_active_0, _pending_0) {
+  return $memory_adapters_worker_demand(_active_0, _pending_0);
+}
+
+function $memory_adapter_worker_fault(_dispatched_0, _current_0, _not_started_0) {
+  return $memory_adapters_worker_fault(_dispatched_0, _current_0, _not_started_0);
+}
+
+function $memory_adapter_worker_again(_continuing_0, _requested_0, _state_0, _reconciled_0, _closed_0) {
+  return $memory_adapters_worker_again(_continuing_0, _requested_0, _state_0, _reconciled_0, _closed_0);
+}
+
+function $memory_adapter_worker_cancel(_present_0, _actual_session_0, _requested_session_0, _actual_sequence_0, _requested_sequence_0, _result_0) {
+  return $memory_adapters_worker_cancel(_present_0, _actual_session_0, _requested_session_0, _actual_sequence_0, _requested_sequence_0, _result_0);
+}
+
+function $memory_retention_known_kind_1(_kind_0) {
+  return $memory_retention_known_kind(_kind_0);
+}
+
+function $memory_retention_known_status_1(_status_0) {
+  return $memory_retention_known_status(_status_0);
+}
+
+function $memory_retention_usage_1(_category_0, _values_0, _assessments_0, _working_0, _receipts_0, _focus_0, _bindings_0) {
+  return $memory_retention_usage(_category_0, _values_0, _assessments_0, _working_0, _receipts_0, _focus_0, _bindings_0);
+}
+
+function $memory_retention_pressure_1(_category_0, _usage_0, _extra_0, _profile_0, _working_0, _assessment_0) {
+  return $memory_retention_pressure(_category_0, _usage_0, _extra_0, _profile_0, _working_0, _assessment_0);
+}
+
+function $memory_retention_collect_1(_values_0, _live_0, _states_0) {
+  return $memory_retention_collect(_values_0, _live_0, _states_0);
+}
+
+function $memory_retention_retire_1(_rows_0, _protected_0) {
+  return $memory_retention_retire(_rows_0, _protected_0);
+}
+
+function $memory_retention_excess_1(_count_0, _maximum_0) {
+  return $memory_retention_excess(_count_0, _maximum_0);
+}
+
+function $memory_retention_availability_1(_raw_0, _basis_0, _reason_present_0, _reason_0, _status_0) {
+  return $memory_retention_availability(_raw_0, _basis_0, _reason_present_0, _reason_0, _status_0);
+}
+
+function $memory_retention_classify_1(_kind_0) {
+  return $memory_retention_classify(_kind_0);
+}
+
 function $Bool_not(_b_0) {
   if (!_b_0) {
     return true;
@@ -4529,6 +5035,28 @@ const $$memory_ordinal_equal = $memory_ordinal_equal;
 const $$memory_head_due = $memory_head_due;
 const $$memory_choose_head = $memory_choose_head;
 const $$memory_head_step = $memory_head_step;
+const $$memory_adapters_visible_assistant = $memory_adapters_visible_assistant;
+const $$memory_adapters_exchange_step = $memory_adapters_exchange_step;
+const $$memory_adapters_parts_fold = $memory_adapters_parts_fold;
+const $$memory_adapters_project_fold = $memory_adapters_project_fold;
+const $$memory_adapters_worker_mode = $memory_adapters_worker_mode;
+const $$memory_adapters_worker_queue_needed = $memory_adapters_worker_queue_needed;
+const $$memory_retention_known_status = $memory_retention_known_status;
+const $$memory_retention_double = $memory_retention_double;
+const $$memory_retention_known_kind = $memory_retention_known_kind;
+const $$memory_retention_included = $memory_retention_included;
+const $$memory_retention_value_step = $memory_retention_value_step;
+const $$memory_retention_rows = $memory_retention_rows;
+const $$memory_retention_scale = $memory_retention_scale;
+const $$memory_retention_combine = $memory_retention_combine;
+const $$memory_retention_values_fold = $memory_retention_values_fold;
+const $$memory_retention_collect_step = $memory_retention_collect_step;
+const $$memory_retention_states_fold = $memory_retention_states_fold;
+const $$memory_retention_collect_fold = $memory_retention_collect_fold;
+const $$memory_retention_selected = $memory_retention_selected;
+const $$memory_retention_retire_step = $memory_retention_retire_step;
+const $$memory_retention_known_basis = $memory_retention_known_basis;
+const $$memory_retention_category = $memory_retention_category;
 const $$truth_all = $truth_all;
 const $$truth_any = $truth_any;
 const $$same_scope = $same_scope;
@@ -4837,6 +5365,53 @@ const $$Char_is_eq = $Char_is_eq;export default {
   "memory:next_head": run_lib((a0) => run_loop($memory_next_head(a0)), 1),
   "memory:rebuild_basis": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_rebuild_basis(a0,a1,a2,a3,a4)), 5),
   "memory:dispatch": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_dispatch(a0,str_in(a1),str_in(a2),str_in(a3),a4)), 5),
+  "memory-adapters:visible_assistant": run_lib((a0,a1,a2) => run_loop($memory_adapters_visible_assistant(str_in(a0),a1,str_in(a2))), 3),
+  "memory-adapters:frame": run_lib((a0,a1,a2) => run_loop($memory_adapters_frame(str_in(a0),a1,str_in(a2))), 3),
+  "memory-adapters:exchange_step": run_lib((a0,a1) => run_loop($memory_adapters_exchange_step(a0,a1)), 2),
+  "memory-adapters:exchange_fold": run_lib((a0,a1) => run_loop($memory_adapters_exchange_fold(a0,a1)), 2),
+  "memory-adapters:exchange": run_lib((a0) => run_loop($memory_adapters_exchange(a0)), 1),
+  "memory-adapters:parts_fold": run_lib((a0,a1,a2) => run_loop($memory_adapters_parts_fold(a0,a1,a2)), 3),
+  "memory-adapters:parts": run_lib((a0,a1,a2) => run_loop($memory_adapters_parts(a0,a1,a2)), 3),
+  "memory-adapters:history_part": run_lib((a0,a1,a2) => run_loop($memory_adapters_history_part(str_in(a0),a1,a2)), 3),
+  "memory-adapters:history_full": run_lib((a0,a1) => run_loop($memory_adapters_history_full(a0,a1)), 2),
+  "memory-adapters:project_fold": run_lib((a0,a1,a2,a3) => run_loop($memory_adapters_project_fold(a0,str_in(a1),str_in(a2),a3)), 4),
+  "memory-adapters:project": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($memory_adapters_project(str_in(a0),str_in(a1),str_in(a2),str_in(a3),a4,a5)), 6),
+  "memory-adapters:binding_error": run_lib((a0) => run_loop($memory_adapters_binding_error(str_in(a0))), 1),
+  "memory-adapters:worker_mode": run_lib((a0,a1,a2) => str_out(run_loop($memory_adapters_worker_mode(a0,a1,a2))), 3),
+  "memory-adapters:worker_bootstrap": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_adapters_worker_bootstrap(a0,a1,a2,a3,str_in(a4))), 5),
+  "memory-adapters:worker_enabled": run_lib((a0,a1,a2) => run_loop($memory_adapters_worker_enabled(a0,a1,a2)), 3),
+  "memory-adapters:worker_queue_needed": run_lib((a0,a1) => run_loop($memory_adapters_worker_queue_needed(str_in(a0),a1)), 2),
+  "memory-adapters:worker_wake": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_adapters_worker_wake(str_in(a0),a1,a2,a3,a4)), 5),
+  "memory-adapters:worker_demand": run_lib((a0,a1) => run_loop($memory_adapters_worker_demand(a0,a1)), 2),
+  "memory-adapters:worker_fault": run_lib((a0,a1,a2) => run_loop($memory_adapters_worker_fault(a0,a1,a2)), 3),
+  "memory-adapters:worker_again": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_adapters_worker_again(a0,a1,str_in(a2),a3,a4)), 5),
+  "memory-adapters:worker_cancel": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($memory_adapters_worker_cancel(a0,str_in(a1),str_in(a2),a3,a4,str_in(a5))), 6),
+  "memory-retention:known_kind": run_lib((a0) => run_loop($memory_retention_known_kind(str_in(a0))), 1),
+  "memory-retention:known_status": run_lib((a0) => run_loop($memory_retention_known_status(str_in(a0))), 1),
+  "memory-retention:states_fold": run_lib((a0,a1) => run_loop($memory_retention_states_fold(a0,a1)), 2),
+  "memory-retention:included": run_lib((a0,a1) => run_loop($memory_retention_included(a0,str_in(a1))), 2),
+  "memory-retention:category": run_lib((a0) => run_loop($memory_retention_category(str_in(a0))), 1),
+  "memory-retention:combine": run_lib((a0,a1) => run_loop($memory_retention_combine(a0,a1)), 2),
+  "memory-retention:double": run_lib((a0) => run_loop($memory_retention_double(a0)), 1),
+  "memory-retention:scale": run_lib((a0,a1) => run_loop($memory_retention_scale(nat_in(a0),a1)), 2),
+  "memory-retention:rows": run_lib((a0,a1,a2) => run_loop($memory_retention_rows(a0,a1,a2)), 3),
+  "memory-retention:value_step": run_lib((a0,a1,a2) => run_loop($memory_retention_value_step(a0,a1,a2)), 3),
+  "memory-retention:values_fold": run_lib((a0,a1,a2) => run_loop($memory_retention_values_fold(a0,a1,a2)), 3),
+  "memory-retention:metadata": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($memory_retention_metadata(a0,a1,a2,a3,a4,a5,a6)), 7),
+  "memory-retention:usage": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($memory_retention_usage(a0,a1,a2,a3,a4,a5,a6)), 7),
+  "memory-retention:pressure_result": run_lib((a0,a1) => run_loop($memory_retention_pressure_result(a0,a1)), 2),
+  "memory-retention:pressure": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($memory_retention_pressure(a0,a1,a2,a3,a4,a5)), 6),
+  "memory-retention:collect_step": run_lib((a0,a1,a2) => run_loop($memory_retention_collect_step(a0,a1,a2)), 3),
+  "memory-retention:collect_fold": run_lib((a0,a1,a2) => run_loop($memory_retention_collect_fold(a0,a1,a2)), 3),
+  "memory-retention:collect": run_lib((a0,a1,a2) => run_loop($memory_retention_collect(a0,a1,a2)), 3),
+  "memory-retention:selected": run_lib((a0,a1,a2) => run_loop($memory_retention_selected(a0,a1,a2)), 3),
+  "memory-retention:retire_step": run_lib((a0,a1,a2) => run_loop($memory_retention_retire_step(a0,a1,a2)), 3),
+  "memory-retention:retire_fold": run_lib((a0,a1,a2) => run_loop($memory_retention_retire_fold(a0,a1,a2)), 3),
+  "memory-retention:retire": run_lib((a0,a1) => run_loop($memory_retention_retire(a0,a1)), 2),
+  "memory-retention:excess": run_lib((a0,a1) => run_loop($memory_retention_excess(a0,a1)), 2),
+  "memory-retention:known_basis": run_lib((a0) => run_loop($memory_retention_known_basis(str_in(a0))), 1),
+  "memory-retention:availability": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_retention_availability(a0,str_in(a1),a2,str_in(a3),str_in(a4))), 5),
+  "memory-retention:classify": run_lib((a0) => run_loop($memory_retention_classify(str_in(a0))), 1),
   "execution_step": run_lib((a0,a1) => run_loop($execution_step_1(a0,a1)), 2),
   "execution_terminal": run_lib((a0) => run_loop($execution_terminal_1(a0)), 1),
   "topology_check": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($topology_check_1(a0,a1,a2,a3,a4,a5,a6)), 7),
@@ -5062,4 +5637,30 @@ const $$Char_is_eq = $Char_is_eq;export default {
   "memory_next_head": run_lib((a0) => run_loop($memory_next_head_1(a0)), 1),
   "memory_rebuild_basis": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_rebuild_basis_1(a0,a1,a2,a3,a4)), 5),
   "memory_dispatch": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_dispatch_1(a0,str_in(a1),str_in(a2),str_in(a3),a4)), 5),
+  "memory_adapter_visible_assistant": run_lib((a0,a1,a2) => run_loop($memory_adapter_visible_assistant(str_in(a0),a1,str_in(a2))), 3),
+  "memory_adapter_frame": run_lib((a0,a1,a2) => run_loop($memory_adapter_frame(str_in(a0),a1,str_in(a2))), 3),
+  "memory_adapter_exchange": run_lib((a0) => run_loop($memory_adapter_exchange(a0)), 1),
+  "memory_adapter_parts": run_lib((a0,a1,a2) => run_loop($memory_adapter_parts(a0,a1,a2)), 3),
+  "memory_adapter_history_part": run_lib((a0,a1,a2) => run_loop($memory_adapter_history_part(str_in(a0),a1,a2)), 3),
+  "memory_adapter_history_full": run_lib((a0,a1) => run_loop($memory_adapter_history_full(a0,a1)), 2),
+  "memory_adapter_project": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($memory_adapter_project(str_in(a0),str_in(a1),str_in(a2),str_in(a3),a4,a5)), 6),
+  "memory_adapter_binding_error": run_lib((a0) => run_loop($memory_adapter_binding_error(str_in(a0))), 1),
+  "memory_adapter_worker_mode": run_lib((a0,a1,a2) => str_out(run_loop($memory_adapter_worker_mode(a0,a1,a2))), 3),
+  "memory_adapter_worker_bootstrap": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_adapter_worker_bootstrap(a0,a1,a2,a3,str_in(a4))), 5),
+  "memory_adapter_worker_enabled": run_lib((a0,a1,a2) => run_loop($memory_adapter_worker_enabled(a0,a1,a2)), 3),
+  "memory_adapter_worker_queue_needed": run_lib((a0,a1) => run_loop($memory_adapter_worker_queue_needed(str_in(a0),a1)), 2),
+  "memory_adapter_worker_wake": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_adapter_worker_wake(str_in(a0),a1,a2,a3,a4)), 5),
+  "memory_adapter_worker_demand": run_lib((a0,a1) => run_loop($memory_adapter_worker_demand(a0,a1)), 2),
+  "memory_adapter_worker_fault": run_lib((a0,a1,a2) => run_loop($memory_adapter_worker_fault(a0,a1,a2)), 3),
+  "memory_adapter_worker_again": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_adapter_worker_again(a0,a1,str_in(a2),a3,a4)), 5),
+  "memory_adapter_worker_cancel": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($memory_adapter_worker_cancel(a0,str_in(a1),str_in(a2),a3,a4,str_in(a5))), 6),
+  "memory_retention_known_kind": run_lib((a0) => run_loop($memory_retention_known_kind_1(str_in(a0))), 1),
+  "memory_retention_known_status": run_lib((a0) => run_loop($memory_retention_known_status_1(str_in(a0))), 1),
+  "memory_retention_usage": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($memory_retention_usage_1(a0,a1,a2,a3,a4,a5,a6)), 7),
+  "memory_retention_pressure": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($memory_retention_pressure_1(a0,a1,a2,a3,a4,a5)), 6),
+  "memory_retention_collect": run_lib((a0,a1,a2) => run_loop($memory_retention_collect_1(a0,a1,a2)), 3),
+  "memory_retention_retire": run_lib((a0,a1) => run_loop($memory_retention_retire_1(a0,a1)), 2),
+  "memory_retention_excess": run_lib((a0,a1) => run_loop($memory_retention_excess_1(a0,a1)), 2),
+  "memory_retention_availability": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_retention_availability_1(a0,str_in(a1),a2,str_in(a3),str_in(a4))), 5),
+  "memory_retention_classify": run_lib((a0) => run_loop($memory_retention_classify_1(str_in(a0))), 1),
 };

@@ -3,6 +3,7 @@ import {associatedProjectIds} from './projects.mjs';
 import {selectSource} from './guidance.mjs';
 import {bytesDigest,canonical,DomainError,fail} from './json.mjs';
 import {sameRef} from './authority.mjs';
+import * as core from './semantic-core.mjs';
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const exact=(value,required,optional=[])=>{if(!value||typeof value!=='object'||Array.isArray(value)||required.some(x=>!Object.hasOwn(value,x))||Object.keys(value).some(x=>![...required,...optional].includes(x)))fail('INVALID_ARGUMENT','Unexpected memory binding shape');};
@@ -20,7 +21,7 @@ export function validateMemoryBindings(value) {
     const identities=new Set();
     for(const item of value.guidance){
       exact(item,['source','capture','contentDigest','representation','applicability','materialOmissions'],['bodyRange']);reference(item.source);reference(item.capture);
-      if(item.source.systemId!==item.capture.systemId||item.source.contextId!==item.capture.contextId)fail('INVALID_ARGUMENT','A guidance capture must belong to its selected source context');
+      if(!core.sameScope(item.source,item.capture))fail('INVALID_ARGUMENT','A guidance capture must belong to its selected source context');
       if(!/^sha256:[a-f0-9]{64}$/.test(item.contentDigest)||!['whole','selected'].includes(item.representation))fail('INVALID_ARGUMENT','Invalid guidance representation or content identity');
       if(item.bodyRange!==undefined){exact(item.bodyRange,['offset','byteLength']);const {offset,byteLength}=item.bodyRange;if(!Number.isSafeInteger(offset)||offset<0||!Number.isSafeInteger(byteLength)||byteLength<0||byteLength>131072)fail('INVALID_ARGUMENT','Invalid guidance UTF-8 range');}
       text(item.applicability,2048);
@@ -36,17 +37,18 @@ export function validateMemoryBindings(value) {
 export function createMemoryBindings({root,kernel,principalId}) {
   const domain=(method,input)=>{const result=kernel.call(method,input,principalId);if(!result.ok)throw new DomainError(result.error.code,result.error.message,result.error.retry);return result.value;};
   const work=target=>{
-    if(target.systemId!==kernel.store.systemId)fail('NOT_FOUND','Work binding is unavailable in this system');
+    if(!core.sameText(target.systemId,kernel.store.systemId))fail('NOT_FOUND','Work binding is unavailable in this system');
     const context=domain('context.get',{contextId:target.contextId});
     if(target.projectId){
       const home=inspectHome({override:root});
-      if(home.registry?.systemId!==target.systemId||!home.registry.projects.some(p=>p.id===target.projectId&&p.contextIds?.includes(target.contextId))||!associatedProjectIds(home,target.contextId).includes(target.projectId))fail('NOT_FOUND','Project and work association is unavailable');
+      if(!core.sameText(home.registry?.systemId??'',target.systemId))fail('NOT_FOUND','Project and work association is unavailable');
+      if(!core.memoryProject(home.registry,target,associatedProjectIds(home,target.contextId)))fail('NOT_FOUND','Project and work association is unavailable');
     }
     const incident=target.incidentId?domain('incident.get',{contextId:target.contextId,incidentId:target.incidentId}):undefined;
     return {target,contextState:context.state,...(incident?{incidentStatus:incident.value.status}:{})};
   };
   const guidance=binding=>{
-    if(binding.capture.systemId!==kernel.store.systemId)fail('NOT_FOUND','Guidance binding is unavailable in this system');
+    if(!core.sameText(binding.capture.systemId,kernel.store.systemId))fail('NOT_FOUND','Guidance binding is unavailable in this system');
     const packet=domain('guidance.read',{contextId:binding.capture.contextId,captureIds:[binding.capture.id],representation:binding.representation,...(binding.bodyRange?{bodyRange:binding.bodyRange}:{}),maximumBytes:262144,limit:1});
     const capture=packet.captures.find(x=>sameRef(x.stored.ref,binding.capture));
     if(!capture)fail('CAPABILITY_UNAVAILABLE','Guidance capture metadata is unavailable within the component bound');
@@ -68,7 +70,7 @@ export function createMemoryBindings({root,kernel,principalId}) {
     validate(value){validateMemoryBindings(value);if(value.work)work(value.work);for(const binding of value.guidance??[])guidance(binding);},
     read(value){
       validateMemoryBindings(value);const packet={guidance:[],omitted:[]};
-      const unavailable=(kind,error,index)=>{if(!(error instanceof DomainError))throw error;packet.omitted.push({kind,...(index===undefined?{}:{index}),reason:error.code==='IDENTITY_CONFLICT'?'integrity':['NOT_FOUND','FORBIDDEN','POLICY_INDETERMINATE','GRANT_EXPIRED','CONTEXT_CLOSED'].includes(error.code)?'unavailable':'component-unavailable'});};
+      const unavailable=(kind,error,index)=>{if(!(error instanceof DomainError))throw error;packet.omitted.push({kind,...(index===undefined?{}:{index}),reason:{MemoryBindingIntegrity:'integrity',MemoryBindingUnavailable:'unavailable',MemoryBindingComponent:'component-unavailable'}[core.memoryBindingError(error.code)]});};
       if(value.work)try{packet.work=work(value.work);}catch(error){unavailable('work',error);}
       for(const [index,binding] of (value.guidance??[]).entries())try{packet.guidance.push({index,...guidance(binding)});}catch(error){unavailable('guidance',error,index);}
       return packet;

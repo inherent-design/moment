@@ -2,6 +2,7 @@ import {realpathSync,openSync,closeSync,fstatSync,readSync,constants} from 'node
 import {join,sep,isAbsolute} from 'node:path';
 import {parseJson} from './wire.mjs';
 import {bytesDigest,fail} from './json.mjs';
+import * as core from './semantic-core.mjs';
 
 function selectedFrames({codexHome,transcriptPath,sessionId,maximumBytes}) {
   const unavailable=code=>({frames:[],coverage:{kind:'unavailable',code}});
@@ -38,7 +39,6 @@ function selectedFrames({codexHome,transcriptPath,sessionId,maximumBytes}) {
   finally{if(fd!==undefined)closeSync(fd);}
 }
 const partsOf=(selected,type)=>(selected.item.content??[]).flatMap((part,index)=>part.type===type && typeof part.text==='string'?[{part,index}]:[]);
-const visibleAssistant=selected=>selected.item.role==='assistant' && [undefined,'commentary','final','final_answer'].includes(selected.item.phase) && Array.isArray(selected.item.content);
 function partMetadata(selected,index) {
   const message=selected.item.internal_chat_message_metadata_passthrough;
   return {provenance:message?.content_item_metadata?.[index]?.provenance??selected.frame.metadata?.provenance,contentKind:message?.content_item_kinds?.[index],turnId:message?.turn_id};
@@ -48,14 +48,14 @@ function messageFrom(selected,{part,index},authorship) {
   const bounded=value=>typeof value==='string'&&value.length&&Buffer.byteLength(value)<=128;
   return {text:part.text,authorship,...(typeof retained?.message_id==='string'?{nativeItemId:retained.message_id}:typeof item.id==='string'?{nativeItemId:item.id}:{}),...(typeof turnId==='string'?{turnId}:{}),selection:{kind:'codex-rollout',path:selected.path,offset:selected.offset,byteLength:selected.byteLength,digest:selected.digest,contentIndex:index,headerVersion:selected.headerVersion,...(typeof frame.timestamp==='string'?{nativeTimestamp:frame.timestamp}:{}),...(Number.isSafeInteger(frame.ordinal)&&frame.ordinal>=0?{ordinal:frame.ordinal}:{}),...(typeof metadata.client_authored==='boolean'?{clientAuthored:metadata.client_authored}:{}),...(bounded(native.provenance?.type)?{provenanceType:native.provenance.type}:{}),...(bounded(native.contentKind)?{contentKind:native.contentKind}:{})}};
 }
-const boundedParts=(parts,maximumTextBytes)=>parts.length<=16 && parts.every(({part})=>Buffer.byteLength(part.text)<=maximumTextBytes);
+const boundedParts=(parts,maximumTextBytes)=>core.memoryPartsFit(parts.map(({part})=>Buffer.byteLength(part.text)),maximumTextBytes);
 
 /** Latest preceding visible text, with a verified source window; no reasoning/tool payloads. */
 export function readCodexExchange({codexHome,transcriptPath,sessionId,maximumBytes=1048576,maximumTextBytes=65536}={}) {
   if(!Number.isInteger(maximumTextBytes) || maximumTextBytes<1 || maximumTextBytes>1048576)return {exchange:[],coverage:{kind:'unavailable',code:'INVALID_SELECTION'}};
   const selected=selectedFrames({codexHome,transcriptPath,sessionId,maximumBytes});
   if(selected.coverage.kind!=='bounded-tail')return {exchange:[],coverage:selected.coverage};
-  const last=selected.frames.filter(visibleAssistant).filter(item=>partsOf(item,'output_text').length).at(-1);
+  const index=core.memoryLatestExchange(selected.frames.map(frame=>({...frame,outputParts:partsOf(frame,'output_text').length}))),last=index===undefined?undefined:selected.frames[index];
   if(!last)return {exchange:[],coverage:{kind:'unavailable',code:'VISIBLE_EXCHANGE_OUTSIDE_WINDOW'}};
   const parts=partsOf(last,'output_text');
   if(!boundedParts(parts,maximumTextBytes))return {exchange:[],coverage:{kind:'unavailable',code:'EXCHANGE_TEXT_BOUND'}};
@@ -72,17 +72,19 @@ export function readCodexHistory({runtimeId,codexHome,selections,maximumBytes=10
     const identity=selection.transcriptPath+'\0'+selection.sessionId;if(seen.has(identity))fail('INVALID_ARGUMENT','Repeated history file selection');seen.add(identity);
     const selected=selectedFrames({codexHome,...selection,maximumBytes:perFile});files.push({...selection,...selected.coverage});let exchange=[];
     for(const frame of selected.frames){
-      if(visibleAssistant(frame)){
+      const action=core.memoryFrame(frame.item);
+      if(action==='MemoryExchangeFrame'){
         const parts=partsOf(frame,'output_text');exchange=boundedParts(parts,maximumTextBytes)?parts.map(part=>messageFrom(frame,part,'assistant')):[];continue;
       }
-      if(frame.item.role!=='user' || !Array.isArray(frame.item.content))continue;
+      if(action!=='MemoryUserFrame')continue;
       for(const part of partsOf(frame,'input_text')){
         const provenance=partMetadata(frame,part.index).provenance;
-        if(provenance?.type==='harness'){excludedHarnessParts++;continue;}
-        if(Buffer.byteLength(part.part.text)>maximumTextBytes){oversizeParts++;continue;}
-        if(!exchange.length)missingExchange++;
+        const choice=core.memoryHistoryPart(provenance?.type,Buffer.byteLength(part.part.text),maximumTextBytes);
+        if(choice==='MemoryHarnessPart'){excludedHarnessParts=core.counterNext(excludedHarnessParts,'Excluded harness part count');continue;}
+        if(choice==='MemoryOversizePart'){oversizeParts=core.counterNext(oversizeParts,'Oversize history part count');continue;}
+        if(!exchange.length)missingExchange=core.counterNext(missingExchange,'Missing exchange count');
         captures.push({session:{runtimeId,sessionId:selection.sessionId},message:messageFrom(frame,part,'unknown'),...(exchange.length?{exchange}:{})});
-        if(captures.length>maximumCaptures){captures.shift();omittedCaptures++;}
+        if(core.memoryHistoryFull(captures.length,maximumCaptures)){captures.shift();omittedCaptures=core.counterNext(omittedCaptures,'Omitted history capture count');}
       }
     }
   }

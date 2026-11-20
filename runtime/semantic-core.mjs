@@ -561,3 +561,55 @@ export function memoryNextHead(heads) {
 
 export const memoryRebuildBasis=(explicit,cache,expectedCache,working,expectedWorking)=>coreBoolean(Core.memory_rebuild_basis(!!explicit,count(cache),count(expectedCache??0),count(working),count(expectedWorking??0)));
 export const memoryDispatch=(active,id,preparing=false)=>coreBoolean(Core.memory_dispatch(!!active,codecText(active?.id??''),codecText(id),codecText(active?.status??''),!!preparing));
+
+
+const memoryAdapterTag=(value,tags)=>{if(!tags.includes(value?.$))fail('INTERNAL','Invalid core memory adapter decision');return value.$;};
+const nativePhase=item=>({present:item.phase!==undefined,value:typeof item.phase==='string'?item.phase:''});
+export const memoryVisibleAssistant=item=>{const phase=nativePhase(item);return coreBoolean(Core.memory_adapter_visible_assistant(codecText(item.role),phase.present,phase.value));};
+export const memoryFrame=item=>{const phase=nativePhase(item);return memoryAdapterTag(Core.memory_adapter_frame(codecText(item.role),phase.present,phase.value),['MemoryExchangeFrame','MemoryUserFrame','MemoryIgnoredFrame']);};
+export function memoryLatestExchange(frames) {
+ const value=Core.memory_adapter_exchange(list(frames.map((frame,index)=>{const phase=nativePhase(frame.item);return {$:'MemoryFrame',index:size(index),role:codecText(frame.item.role),phase_present:phase.present,phase:phase.value,output_parts:count(frame.outputParts)};})));
+ memoryAdapterTag(value,['MemoryNoExchange','MemoryLatestExchange']);if(value.$==='MemoryNoExchange')return undefined;
+ if(!Number.isInteger(value.index)||value.index<0||value.index>=frames.length)fail('INTERNAL','Invalid selected memory exchange');return value.index;
+}
+export const memoryPartsFit=(lengths,maximum)=>coreBoolean(Core.memory_adapter_parts(count(lengths.length),list(lengths.map(count)),count(maximum)));
+export const memoryHistoryPart=(provenance,bytes,maximum)=>memoryAdapterTag(Core.memory_adapter_history_part(codecText(typeof provenance==='string'?provenance:''),count(bytes),count(maximum)),['MemoryHarnessPart','MemoryOversizePart','MemoryUnknownUserPart']);
+export const memoryHistoryFull=(retained,maximum)=>coreBoolean(Core.memory_adapter_history_full(count(retained),count(maximum)));
+export const memoryProject=(registry,target,associated)=>coreBoolean(Core.memory_adapter_project(codecText(registry?.systemId??''),codecText(target.systemId),codecText(target.projectId),codecText(target.contextId),list((registry?.projects??[]).map(item=>({$:'MemoryProject',id:codecText(item.id),contexts:codecTexts(item.contextIds??[])}))),codecTexts(associated)));
+export const memoryBindingError=code=>memoryAdapterTag(Core.memory_adapter_binding_error(codecText(code)),['MemoryBindingIntegrity','MemoryBindingUnavailable','MemoryBindingComponent']);
+export const memoryWorkerMode=(provider,unavailable,active)=>codecText(Core.memory_adapter_worker_mode(!!provider,!!unavailable,!!active));
+export function memoryWorkerBootstrap(provider,unavailable,active,recover) {const value=Core.memory_adapter_worker_bootstrap(!!provider,!!unavailable,!!active,!!recover,codecText(active?.status??''));memoryAdapterTag(value,['MemoryWorkerBootstrap']);return {state:codecText(value.state),markUnknown:coreBoolean(value.mark_unknown)};}
+export const memoryWorkerEnabled=(closed,provider,unavailable)=>coreBoolean(Core.memory_adapter_worker_enabled(!!closed,!!provider,!!unavailable));
+export const memoryWorkerQueueNeeded=(state,active)=>coreBoolean(Core.memory_adapter_worker_queue_needed(codecText(state),!!active));
+export function memoryWorkerWake(state,active,pending,busy,scheduled) {const value=Core.memory_adapter_worker_wake(codecText(state),!!active,!!pending,!!busy,!!scheduled);memoryAdapterTag(value,['MemoryWorkerWake']);return {queued:coreBoolean(value.queued),action:memoryAdapterTag(value.action,['MemoryWakeBusy','MemoryWakeScheduled','MemoryWakeSchedule'])};}
+export const memoryWorkerDemand=(active,pending)=>memoryAdapterTag(Core.memory_adapter_worker_demand(!!active,!!pending),['MemoryWorkerRecover','MemoryWorkerPrepare','MemoryWorkerIdle']);
+export const memoryWorkerFault=(dispatched,current,notStarted)=>memoryAdapterTag(Core.memory_adapter_worker_fault(!!dispatched,!!current,!!notStarted),['MemoryWorkerUnknown','MemoryWorkerNotStarted','MemoryWorkerCleanup','MemoryWorkerUnavailable']);
+export const memoryWorkerAgain=(continuing,requested,state,reconciled,closed)=>coreBoolean(Core.memory_adapter_worker_again(!!continuing,!!requested,codecText(state),!!reconciled,!!closed));
+export const memoryWorkerCancel=(active,session,sequence,result)=>coreBoolean(Core.memory_adapter_worker_cancel(!!active,canonical(active?.request.session??null),canonical(session),count(active?.sequence??0),count(sequence),codecText(result)));
+
+
+const retentionKinds={profile:'RetentionProfile',working:'RetentionWorking',assessment:'RetentionAssessment'};
+const retentionCategory=category=>{if(typeof category!=='string'||!Object.hasOwn(retentionKinds,category))fail('INVALID_ARGUMENT','Unknown memory retention category');return {$:retentionKinds[category]};};
+const retentionTag=(value,tags)=>{if(!tags.includes(value?.$))fail('INTERNAL','Invalid core memory retention decision');return value.$;};
+export function memoryValueCategory(kind) {
+ const value=Core.memory_retention_classify(codecText(kind));retentionTag(value,['RetentionValueClass','RetentionValueUnknown']);if(value.$==='RetentionValueUnknown')fail('UNSUPPORTED_VERSION','Unrecognized pooled memory value kind; retained bytes need inspection');
+ return {RetentionProfile:'profile',RetentionWorking:'working',RetentionAssessment:'assessment'}[retentionTag(value.category,['RetentionProfile','RetentionWorking','RetentionAssessment'])];
+}
+export function memoryRetentionUsage(category,observed) {
+ const value=Core.memory_retention_usage(retentionCategory(category),list(observed.values.map(item=>({$:'RetentionValue',kind:codecText(item.kind),bytes:count(item.bytes)}))),list(observed.assessments.map(count)),list(observed.working.map(count)),list(observed.receipts.map(count)),count(observed.focus),count(observed.bindings));
+ retentionTag(value,['RetentionUsage','RetentionUnknownKind']);if(value.$==='RetentionUnknownKind')fail('UNSUPPORTED_VERSION','Unrecognized pooled memory value kind; preserve its bytes before capacity admission');return amountValue(value.amount);
+}
+export const memoryRetentionPressure=(category,usage,extra,limits)=>retentionTag(Core.memory_retention_pressure(retentionCategory(category),amount(usage),count(extra),count(limits.maxProfileBytes),count(limits.maxWorkingSetBytes),count(limits.maxAssessmentBytes)),['RetentionFits','RetentionRetire','RetentionFull']);
+export function memoryCollectValues(values,live,states) {
+ const result=Core.memory_retention_collect(list(values.map((value,index)=>({$:'RetentionIdentity',index:size(index),kind:codecText(value.kind),key:codecText(value.kind)+'\0'+codecText(value.digest)}))),codecTexts(live),codecTexts(states));retentionTag(result,['RetentionCollection','RetentionCollectionKind','RetentionCollectionState']);
+ if(result.$==='RetentionCollectionKind')fail('UNSUPPORTED_VERSION','Unrecognized pooled memory value kind; collection preserves its bytes');if(result.$==='RetentionCollectionState')fail('UNSUPPORTED_VERSION','Unrecognized assessment state; collection preserves its evidence');return indexValues(result.indices,values.length);
+}
+export function memoryRetireAssessment(rows,protectedIds) {
+ const result=Core.memory_retention_retire(list(rows.map((row,index)=>({$:'RetentionAssessmentRow',index:size(index),order:memoryOrdinal(row.ordinal),id:codecText(row.value.id),basis:!!row.value.basis,status:codecText(row.value.status)}))),codecTexts(protectedIds));retentionTag(result,['RetentionNoCandidate','RetentionCandidate','RetentionUnknownState']);
+ if(result.$==='RetentionUnknownState')fail('UNSUPPORTED_VERSION','Unrecognized assessment state; detail retirement preserves its evidence');if(result.$==='RetentionNoCandidate')return undefined;
+ if(!Number.isInteger(result.index)||result.index<0||result.index>=rows.length)fail('INTERNAL','Invalid memory retirement selection');return result.index;
+}
+export const memoryRetentionExcess=(retained,maximum)=>coreBoolean(Core.memory_retention_excess(count(retained),count(maximum)));
+export function memoryNativeAvailability(manifest) {
+ const value=Core.memory_retention_availability(!!manifest.raw,codecText(manifest.basisAvailability),manifest.rawUnavailable?.reason!==undefined,codecText(manifest.rawUnavailable?.reason??''),codecText(manifest.status));retentionTag(value,['RetentionNativeAvailable','RetentionNativeUnsupported']);if(value.$==='RetentionNativeUnsupported')fail('UNSUPPORTED_VERSION','Unrecognized assessment state or basis; native output availability is unqualified');return codecText(value.value);
+}
