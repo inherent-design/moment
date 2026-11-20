@@ -8,11 +8,13 @@ import {execFileSync} from 'node:child_process';
 import {Client} from '@modelcontextprotocol/client';
 import {StdioClientTransport} from '@modelcontextprotocol/client/stdio';
 import {exposedOperations} from '../runtime/bindings.mjs';
+import {openHome} from '../runtime/home.mjs';
 
 const root=fileURLToPath(new URL('../',import.meta.url)),pkg=JSON.parse(readFileSync(join(root,'package.json'))),dist=join(root,'dist');
 const hash=(bytes,algorithm='sha256')=>createHash(algorithm).update(bytes).digest(algorithm==='sha512'?'base64':'hex');
 const scratch=mkdtempSync(join(tmpdir(),'moment-pkg-')),home=join(scratch,'s'),recipient=join(scratch,'recipient');
-const env=Object.fromEntries(Object.entries({PATH:process.env.PATH,HOME:process.env.HOME,USER:process.env.USER,LOGNAME:process.env.LOGNAME,TMPDIR:process.env.TMPDIR,LANG:process.env.LANG,MOMENT_HOME:home}).filter(([,v])=>v!==undefined));
+const recipientHome=join(scratch,'home');mkdirSync(recipientHome,{mode:0o700});openHome({home:recipientHome,override:join(scratch,'primary')});
+const env=Object.fromEntries(Object.entries({PATH:process.env.PATH,HOME:recipientHome,CODEX_HOME:join(scratch,'codex'),USER:process.env.USER,LOGNAME:process.env.LOGNAME,TMPDIR:process.env.TMPDIR,LANG:process.env.LANG,MOMENT_HOME:home}).filter(([,v])=>v!==undefined));
 function run(command,args,cwd=root){return execFileSync(command,args,{cwd,env,encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:180000,maxBuffer:8*1024*1024});}
 mkdirSync(dist,{recursive:true});
 const archive=join(dist,pkg.name.replace('@','').replace('/','-')+'-'+pkg.version+'.tgz');

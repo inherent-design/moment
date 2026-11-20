@@ -1,6 +1,6 @@
 {
   "name": "@inherent.design/moment",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.0-preview.2",
   "description": "Local contextual memory, evidence and governed coordination for agents",
   "type": "module",
   "license": "Apache-2.0",
@@ -8,7 +8,7 @@
     "check": "tsc --noEmit && pnpm check:bindings && node scripts/check-docs.mjs && pnpm test",
     "check:types": "tsc --noEmit",
     "check:docs": "node scripts/check-docs.mjs",
-    "test": "node --test test/*.test.mjs",
+    "test": "node scripts/test.mjs",
     "moment": "node runtime/cli.mjs",
     "test:codex-protocol": "node scripts/codex-isolated-probe.mjs",
     "test:codex-native": "node scripts/codex-native-check.mjs",
