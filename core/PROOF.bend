@@ -157,3 +157,39 @@ def Laws.missing_ancestry_is_unknown(id, context, schedule):
 
 def Laws.empty_ancestry_is_independent():
   {==}
+
+def Laws.observed_policy_permits_compatible_match():
+  {==}
+
+def Laws.missing_policy_remains_unknown():
+  {==}
+
+def Laws.unresolved_policy_remains_unknown():
+  {==}
+
+def Laws.denied_policy_is_ineligible():
+  {==}
+
+def Laws.policy_cannot_erase_incompatibility(unmet, policy):
+  {==}
+
+def Laws.required_evidence_needs_source():
+  {==}
+
+def Laws.optional_evidence_is_usable():
+  {==}
+
+def Laws.unreadable_advertisement_is_absent(advertised, requested):
+  {==}
+
+def Laws.capability_retention_is_bounded():
+  {==}
+
+def Laws.live_provider_can_publish(input, output, features):
+  {==}
+
+def Laws.missing_origin_hides_execution(principal, chain):
+  {==}
+
+def Laws.absent_deadline_is_usable(expiry, now):
+  {==}

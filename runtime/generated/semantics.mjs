@@ -1395,6 +1395,168 @@ function $scheduler_step(_state_0, _event_0, _context_0, _schedule_0) {
   return $scheduler_step_todo(_todo_0, _seen_0, _fuel_0, _event_0, _context_0, _schedule_0);
 }
 
+function $capability_schema_equal(_left_0, _right_0) {
+  const _an_0 = _left_0["name"];
+  const _av_0 = _left_0["version"];
+  const _ad_0 = _left_0["digest"];
+  const _bn_0 = _right_0["name"];
+  const _bv_0 = _right_0["version"];
+  const _bd_0 = _right_0["digest"];
+  return $Bool_and($$String_eq(_an_0, _bn_0), $$Bool_and($$String_eq(_av_0, _bv_0), $$String_eq(_ad_0, _bd_0)));
+}
+
+function $capability_grant_fold($0, $1, $2, $3) {
+  for (;;) {
+    {
+      const _scopes_0 = $0;
+      const _name_0 = $1;
+      const _identity_0 = $2;
+      const _accepted_0 = $3;
+      if (_scopes_0.$ === "Nil") {
+        return _accepted_0;
+      } else {
+        const _t_0 = _scopes_0["head"];
+        const _actions_0 = _t_0["actions"];
+        const _resources_0 = _t_0["resources"];
+        const _tail_0 = _scopes_0["tail"];
+        $0 = _tail_0;
+        $1 = _name_0;
+        $2 = _identity_0;
+        $3 = $$Bool_and(_accepted_0, $$Bool_and($$collections_contains(_actions_0, _name_0), $$collections_contains(_resources_0, _identity_0)));
+        continue;
+      }
+    }
+  }
+}
+
+function $capability_incident_fold($0, $1) {
+  for (;;) {
+    {
+      const _scopes_0 = $0;
+      const _required_0 = $1;
+      if (_scopes_0.$ === "Nil") {
+        return _required_0;
+      } else {
+        const _t_0 = _scopes_0["head"];
+        const _all_incidents_0 = _t_0["all_incidents"];
+        const _tail_0 = _scopes_0["tail"];
+        const _x_0 = $$Bool_not(_all_incidents_0);
+        $0 = _tail_0;
+        $1 = (_required_0 || _x_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $capability_reason(_accepted_0, _label_0, _rest_0) {
+  return $Bool_pick(_accepted_0, _rest_0, {$: "Con", "head": _label_0, "tail": _rest_0});
+}
+
+function $capability_compatibility(_advertisement_0, _requirement_0, _scopes_0, _expired_0) {
+  const _identity_0 = _advertisement_0["identity"];
+  const _name_0 = _advertisement_0["name"];
+  const _version_0 = _advertisement_0["version"];
+  const _input_0 = _advertisement_0["input"];
+  const _output_0 = _advertisement_0["output"];
+  const _features_0 = _advertisement_0["features"];
+  const _isolation_0 = _advertisement_0["isolation"];
+  const _versions_0 = _requirement_0["versions"];
+  const _requested_input_0 = _requirement_0["input"];
+  const _requested_output_0 = _requirement_0["output"];
+  const _requested_features_0 = _requirement_0["features"];
+  const _requested_isolation_0 = _requirement_0["isolation"];
+  return $capability_reason($$collections_contains(_versions_0, _version_0), "version", $$capability_reason($$capability_schema_equal(_input_0, _requested_input_0), "inputSchema", $$capability_reason($$capability_schema_equal(_output_0, _requested_output_0), "outputSchema", $$capability_reason($$collections_subset(_requested_features_0, _features_0), "features", $$capability_reason($$collections_contains(_requested_isolation_0, _isolation_0), "isolation", $$capability_reason($$Bool_not(_expired_0), "expired", $$capability_reason($$Bool_and($$Bool_not($$List_is_empty(_scopes_0)), $$capability_grant_fold(_scopes_0, _name_0, _identity_0, true)), "grant", {$: "Nil"})))))));
+}
+
+function $capability_basis_result(_unmet_0, _incident_required_0) {
+  const _has_unmet_0 = $$Bool_not($$List_is_empty(_unmet_0));
+  return $Bool_pick(_incident_required_0, {$: "CapAssessment", "unmet": $$List_append(_unmet_0, {$: "Con", "head": "incident_required", "tail": {$: "Nil"}}), "eligibility": $$Bool_pick(_has_unmet_0, {$: "CapIneligible"}, {$: "CapUnknown"})}, $$Bool_pick(_has_unmet_0, {$: "CapAssessment", "unmet": _unmet_0, "eligibility": {$: "CapIneligible"}}, {$: "CapNeedsPolicy"}));
+}
+
+function $capability_basis(_advertisement_0, _requirement_0, _scopes_0, _expired_0, _incident_present_0) {
+  return $capability_basis_result($$capability_compatibility(_advertisement_0, _requirement_0, _scopes_0, _expired_0), $$Bool_and($$Bool_not(_incident_present_0), $$capability_incident_fold(_scopes_0, false)));
+}
+
+function $capability_policy_result(_policy_0) {
+  if (_policy_0.$ === "CapPolicyAllowed") {
+    return {$: "CapAssessment", "unmet": {$: "Nil"}, "eligibility": {$: "CapEligible"}};
+  } else if (_policy_0.$ === "CapPolicyDenied") {
+    return {$: "CapAssessment", "unmet": {$: "Con", "head": "policy", "tail": {$: "Nil"}}, "eligibility": {$: "CapIneligible"}};
+  } else {
+    return {$: "CapAssessment", "unmet": {$: "Con", "head": "policy_unknown", "tail": {$: "Nil"}}, "eligibility": {$: "CapUnknown"}};
+  }
+}
+
+function $capability_finish(_assessment_0, _policy_0) {
+  if (_assessment_0.$ === "CapNeedsPolicy") {
+    return $capability_policy_result(_policy_0);
+  } else {
+    return _assessment_0;
+  }
+}
+
+function $capability_eligibility_rank(_value_0) {
+  if (_value_0.$ === "CapEligible") {
+    return 0;
+  } else if (_value_0.$ === "CapUnknown") {
+    return 1;
+  } else {
+    return 2;
+  }
+}
+
+function $capability_compare_fields(_left_rank_0, _right_rank_0, _left_count_0, _right_count_0, _left_id_0, _right_id_0) {
+  return $Bool_pick((_left_rank_0 < _right_rank_0), {$: "LT"}, $$Bool_pick((_right_rank_0 < _left_rank_0), {$: "GT"}, $$Bool_pick((_left_count_0 < _right_count_0), {$: "LT"}, $$Bool_pick((_right_count_0 < _left_count_0), {$: "GT"}, $$String_order(_left_id_0, _right_id_0)))));
+}
+
+function $capability_compare(_left_0, _left_count_0, _left_id_0, _right_0, _right_count_0, _right_id_0) {
+  return $capability_compare_fields($$capability_eligibility_rank(_left_0), $$capability_eligibility_rank(_right_0), _left_count_0, _right_count_0, _left_id_0, _right_id_0);
+}
+
+function $capability_room(_count_0) {
+  return (_count_0 < 4096);
+}
+
+function $capability_publish(_advertisement_0, _principal_0, _methods_0, _count_0, _expired_0) {
+  const _provider_0 = _advertisement_0["provider"];
+  const _name_0 = _advertisement_0["name"];
+  return $Bool_pick($$capability_room(_count_0), $$Bool_pick($$String_eq(_provider_0, _principal_0), $$Bool_pick($$collections_contains(_methods_0, _name_0), {$: "CapReservedName"}, $$Bool_pick(_expired_0, {$: "CapExpired"}, {$: "CapPublishAllowed"})), {$: "CapWrongProvider"}), {$: "CapRetentionFull"});
+}
+
+function $capability_execution_admission(_expired_0, _context_0, _incident_present_0, _incident_ended_0) {
+  return $Bool_pick(_expired_0, {$: "CapExecutionExpired"}, $$Bool_pick($$String_eq(_context_0, "open"), $$Bool_pick($$Bool_and(_incident_present_0, $$Bool_not(_incident_ended_0)), {$: "CapExecutionAllowed"}, {$: "CapExecutionIncident"}), {$: "CapExecutionClosed"}));
+}
+
+function $capability_prepare(_incident_0, _capability_0, _operator_0, _actor_0, _requester_0, _submitted_0, _bound_0, _readable_0) {
+  const _x_0 = $$Bool_pick($$String_eq(_actor_0, _requester_0), $$String_eq(_submitted_0, _bound_0), _readable_0);
+  return $Bool_pick($$Bool_and(_incident_0, _capability_0), $$Bool_pick((_operator_0 || _x_0), {$: "CapPrepareAllowed"}, {$: "CapPrepareGrant"}), {$: "CapPrepareScope"});
+}
+
+function $capability_visible(_present_0, _origin_present_0, _incident_0, _operator_0, _principal_0, _requester_0, _provider_0, _first_grant_0, _chain_0, _capability_0, _readable_0) {
+  const _x_0 = $$Bool_and($$String_eq(_principal_0, _provider_0), _capability_0);
+  const _x_1 = $$Bool_and($$String_eq(_principal_0, _requester_0), $$collections_contains(_chain_0, _first_grant_0));
+  const _x_2 = (_x_0 || _readable_0);
+  const _x_3 = (_x_1 || _x_2);
+  return $Bool_and(_present_0, $$Bool_and(_origin_present_0, $$Bool_and(_incident_0, (_operator_0 || _x_3))));
+}
+
+function $capability_reconcile(_principal_0, _provider_0, _operator_0, _readable_0) {
+  const _x_0 = $$String_eq(_principal_0, _provider_0);
+  const _x_1 = (_operator_0 || _readable_0);
+  return (_x_0 || _x_1);
+}
+
+function $capability_evidence(_required_0, _sources_0) {
+  const _x_0 = $$Bool_not(_required_0);
+  const _x_1 = $$Bool_not($$List_is_empty(_sources_0));
+  return (_x_0 || _x_1);
+}
+
+function $capability_selected(_advertised_0, _requested_0, _readable_0) {
+  return $Bool_and(_readable_0, $$String_eq(_advertised_0, _requested_0));
+}
+
 function $execution_step_1(_state_0, _action_0) {
   return $execution_step(_state_0, _action_0);
 }
@@ -2221,6 +2383,61 @@ function $schedule_causal_step(_state_0, _event_0, _context_0, _schedule_0) {
   return $scheduler_step(_state_0, _event_0, _context_0, _schedule_0);
 }
 
+function $capability_basis_1(_advertisement_0, _requirement_0, _scopes_0, _expiry_0, _now_0, _incident_present_0) {
+  return $capability_basis(_advertisement_0, _requirement_0, _scopes_0, $$rank_le(_expiry_0, _now_0), _incident_present_0);
+}
+
+function $capability_finish_1(_assessment_0, _policy_0) {
+  return $capability_finish(_assessment_0, _policy_0);
+}
+
+function $capability_compare_1(_left_0, _left_count_0, _left_id_0, _right_0, _right_count_0, _right_id_0) {
+  return $capability_compare(_left_0, _left_count_0, _left_id_0, _right_0, _right_count_0, _right_id_0);
+}
+
+function $capability_publish_1(_advertisement_0, _principal_0, _methods_0, _count_0, _expiry_0, _now_0) {
+  return $capability_publish(_advertisement_0, _principal_0, _methods_0, _count_0, $$rank_le(_expiry_0, _now_0));
+}
+
+function $execution_room(_count_0) {
+  return $capability_room(_count_0);
+}
+
+function $execution_admission(_expiry_0, _now_0, _context_0, _incident_present_0, _incident_0) {
+  return $capability_execution_admission($$rank_le(_expiry_0, _now_0), _context_0, _incident_present_0, $$incident_terminal(_incident_0));
+}
+
+function $execution_deadline(_present_0, _expiry_0, _now_0) {
+  const _x_0 = $$Bool_not(_present_0);
+  const _x_1 = $$Bool_not($$rank_le(_expiry_0, _now_0));
+  return (_x_0 || _x_1);
+}
+
+function $execution_prepare(_incident_0, _capability_0, _operator_0, _actor_0, _requester_0, _submitted_0, _bound_0, _readable_0) {
+  return $capability_prepare(_incident_0, _capability_0, _operator_0, _actor_0, _requester_0, _submitted_0, _bound_0, _readable_0);
+}
+
+function $execution_visible(_present_0, _origin_present_0, _incident_0, _operator_0, _principal_0, _requester_0, _provider_0, _first_grant_0, _chain_0, _capability_0, _readable_0) {
+  return $capability_visible(_present_0, _origin_present_0, _incident_0, _operator_0, _principal_0, _requester_0, _provider_0, _first_grant_0, _chain_0, _capability_0, _readable_0);
+}
+
+function $execution_reconcile(_principal_0, _provider_0, _operator_0, _readable_0) {
+  return $capability_reconcile(_principal_0, _provider_0, _operator_0, _readable_0);
+}
+
+function $execution_evidence(_required_0, _sources_0) {
+  return $capability_evidence(_required_0, _sources_0);
+}
+
+function $capability_bound_grant(_operator_0, _submitted_0, _bound_0) {
+  const _x_0 = $$String_eq(_submitted_0, _bound_0);
+  return (_operator_0 || _x_0);
+}
+
+function $capability_selected_1(_advertised_0, _requested_0, _readable_0) {
+  return $capability_selected(_advertised_0, _requested_0, _readable_0);
+}
+
 function $Bool_not(_b_0) {
   if (!_b_0) {
     return true;
@@ -2284,19 +2501,23 @@ function $String_is_lt(_a_0, _b_0) {
   return $Cmp_is_lt($$String_order(_a_0, _b_0));
 }
 
-function $List_filter_put(_h_0, _r_0, _keep_0) {
-  if (!_keep_0) {
-    return _r_0;
-  } else {
-    return {$: "Con", "head": _h_0, "tail": _r_0};
-  }
-}
-
 function $List_is_empty(_xs_0) {
   if (_xs_0.$ === "Nil") {
     return true;
   } else {
     return false;
+  }
+}
+
+function $String_order(_a_0, _b_0) {
+  return $String_order_go(_a_0, _b_0, {$: "EQ"});
+}
+
+function $List_filter_put(_h_0, _r_0, _keep_0) {
+  if (!_keep_0) {
+    return _r_0;
+  } else {
+    return {$: "Con", "head": _h_0, "tail": _r_0};
   }
 }
 
@@ -2306,10 +2527,6 @@ function $Cmp_is_eq(_c_0) {
   } else {
     return false;
   }
-}
-
-function $String_order(_a_0, _b_0) {
-  return $String_order_go(_a_0, _b_0, {$: "EQ"});
 }
 
 function $List_reverse_go($0, $1) {
@@ -2527,6 +2744,16 @@ const $$scheduler_oldest = $scheduler_oldest;
 const $$collections_intersection = $collections_intersection;
 const $$collections_unseen_fold = $collections_unseen_fold;
 const $$scheduler_step_event = $scheduler_step_event;
+const $$capability_schema_equal = $capability_schema_equal;
+const $$collections_subset = $collections_subset;
+const $$List_is_empty = $List_is_empty;
+const $$capability_grant_fold = $capability_grant_fold;
+const $$capability_reason = $capability_reason;
+const $$capability_compatibility = $capability_compatibility;
+const $$capability_incident_fold = $capability_incident_fold;
+const $$String_order = $String_order;
+const $$capability_eligibility_rank = $capability_eligibility_rank;
+const $$capability_room = $capability_room;
 const $$truth_all = $truth_all;
 const $$truth_any = $truth_any;
 const $$same_scope = $same_scope;
@@ -2535,7 +2762,6 @@ const $$fits = $fits;
 const $$graph_phase = $graph_phase;
 const $$text_contains = $text_contains;
 const $$grant_available = $grant_available;
-const $$List_is_empty = $List_is_empty;
 const $$deadline = $deadline;
 const $$text_subset = $text_subset;
 const $$incident_scope = $incident_scope;
@@ -2556,7 +2782,6 @@ const $$lease_frame = $lease_frame;
 const $$expiry_fold = $expiry_fold;
 const $$queued_maintenance = $queued_maintenance;
 const $$marker_present = $marker_present;
-const $$String_order = $String_order;
 const $$Char_is_eq = $Char_is_eq;export default {
   "execution:terminal": run_lib((a0) => run_loop($execution_terminal(a0)), 1),
   "execution:result": run_lib((a0) => run_loop($execution_result(a0)), 1),
@@ -2663,6 +2888,26 @@ const $$Char_is_eq = $Char_is_eq;export default {
   "scheduler:step_event": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($scheduler_step_event(a0,str_in(a1),a2,a3,a4,str_in(a5),str_in(a6))), 7),
   "scheduler:step_todo": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($scheduler_step_todo(a0,a1,a2,a3,str_in(a4),str_in(a5))), 6),
   "scheduler:step": run_lib((a0,a1,a2,a3) => run_loop($scheduler_step(a0,a1,str_in(a2),str_in(a3))), 4),
+  "capability:schema_equal": run_lib((a0,a1) => run_loop($capability_schema_equal(a0,a1)), 2),
+  "capability:grant_fold": run_lib((a0,a1,a2,a3) => run_loop($capability_grant_fold(a0,str_in(a1),str_in(a2),a3)), 4),
+  "capability:incident_fold": run_lib((a0,a1) => run_loop($capability_incident_fold(a0,a1)), 2),
+  "capability:reason": run_lib((a0,a1,a2) => run_loop($capability_reason(a0,str_in(a1),a2)), 3),
+  "capability:compatibility": run_lib((a0,a1,a2,a3) => run_loop($capability_compatibility(a0,a1,a2,a3)), 4),
+  "capability:basis_result": run_lib((a0,a1) => run_loop($capability_basis_result(a0,a1)), 2),
+  "capability:basis": run_lib((a0,a1,a2,a3,a4) => run_loop($capability_basis(a0,a1,a2,a3,a4)), 5),
+  "capability:policy_result": run_lib((a0) => run_loop($capability_policy_result(a0)), 1),
+  "capability:finish": run_lib((a0,a1) => run_loop($capability_finish(a0,a1)), 2),
+  "capability:eligibility_rank": run_lib((a0) => run_loop($capability_eligibility_rank(a0)), 1),
+  "capability:compare_fields": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($capability_compare_fields(a0,a1,a2,a3,str_in(a4),str_in(a5))), 6),
+  "capability:compare": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($capability_compare(a0,a1,str_in(a2),a3,a4,str_in(a5))), 6),
+  "capability:room": run_lib((a0) => run_loop($capability_room(a0)), 1),
+  "capability:publish": run_lib((a0,a1,a2,a3,a4) => run_loop($capability_publish(a0,str_in(a1),a2,a3,a4)), 5),
+  "capability:execution_admission": run_lib((a0,a1,a2,a3) => run_loop($capability_execution_admission(a0,str_in(a1),a2,a3)), 4),
+  "capability:prepare": run_lib((a0,a1,a2,a3,a4,a5,a6,a7) => run_loop($capability_prepare(a0,a1,a2,str_in(a3),str_in(a4),str_in(a5),str_in(a6),a7)), 8),
+  "capability:visible": run_lib((a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,a10) => run_loop($capability_visible(a0,a1,a2,a3,str_in(a4),str_in(a5),str_in(a6),str_in(a7),a8,a9,a10)), 11),
+  "capability:reconcile": run_lib((a0,a1,a2,a3) => run_loop($capability_reconcile(str_in(a0),str_in(a1),a2,a3)), 4),
+  "capability:evidence": run_lib((a0,a1) => run_loop($capability_evidence(a0,a1)), 2),
+  "capability:selected": run_lib((a0,a1,a2) => run_loop($capability_selected(str_in(a0),str_in(a1),a2)), 3),
   "execution_step": run_lib((a0,a1) => run_loop($execution_step_1(a0,a1)), 2),
   "execution_terminal": run_lib((a0) => run_loop($execution_terminal_1(a0)), 1),
   "topology_check": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($topology_check_1(a0,a1,a2,a3,a4,a5,a6)), 7),
@@ -2777,4 +3022,17 @@ const $$Char_is_eq = $Char_is_eq;export default {
   "schedule_causality": run_lib((a0) => run_loop($schedule_causality(str_in(a0))), 1),
   "schedule_causal_demand": run_lib((a0) => run_loop($schedule_causal_demand(a0)), 1),
   "schedule_causal_step": run_lib((a0,a1,a2,a3) => run_loop($schedule_causal_step(a0,a1,str_in(a2),str_in(a3))), 4),
+  "capability_basis": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($capability_basis_1(a0,a1,a2,a3,a4,a5)), 6),
+  "capability_finish": run_lib((a0,a1) => run_loop($capability_finish_1(a0,a1)), 2),
+  "capability_compare": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($capability_compare_1(a0,a1,str_in(a2),a3,a4,str_in(a5))), 6),
+  "capability_publish": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($capability_publish_1(a0,str_in(a1),a2,a3,a4,a5)), 6),
+  "execution_room": run_lib((a0) => run_loop($execution_room(a0)), 1),
+  "execution_admission": run_lib((a0,a1,a2,a3,a4) => run_loop($execution_admission(a0,a1,str_in(a2),a3,a4)), 5),
+  "execution_deadline": run_lib((a0,a1,a2) => run_loop($execution_deadline(a0,a1,a2)), 3),
+  "execution_prepare": run_lib((a0,a1,a2,a3,a4,a5,a6,a7) => run_loop($execution_prepare(a0,a1,a2,str_in(a3),str_in(a4),str_in(a5),str_in(a6),a7)), 8),
+  "execution_visible": run_lib((a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,a10) => run_loop($execution_visible(a0,a1,a2,a3,str_in(a4),str_in(a5),str_in(a6),str_in(a7),a8,a9,a10)), 11),
+  "execution_reconcile": run_lib((a0,a1,a2,a3) => run_loop($execution_reconcile(str_in(a0),str_in(a1),a2,a3)), 4),
+  "execution_evidence": run_lib((a0,a1) => run_loop($execution_evidence(a0,a1)), 2),
+  "capability_bound_grant": run_lib((a0,a1,a2) => run_loop($capability_bound_grant(a0,str_in(a1),str_in(a2))), 3),
+  "capability_selected": run_lib((a0,a1,a2) => run_loop($capability_selected_1(str_in(a0),str_in(a1),a2)), 3),
 };

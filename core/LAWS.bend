@@ -4,6 +4,7 @@ import ./execution.bend as Run
 import ./topology.bend as Top
 import ./accounting.bend as Budget
 import ./scheduler.bend as Sched
+import ./capability.bend as Cap
 
 law deny_precedence:
   for permits: Core.Truth
@@ -172,3 +173,50 @@ law missing_ancestry_is_unknown:
 
 law empty_ancestry_is_independent:
   {Core.schedule_causal_demand(Sched.SchCausality{Nil{}, Nil{}, 0}) == Sched.SchIndependent{} : Sched.Demand}
+
+law observed_policy_permits_compatible_match:
+  {Core.capability_finish(Cap.CapNeedsPolicy{}, Cap.CapPolicyAllowed{}) == Cap.CapAssessment{Nil{}, Cap.CapEligible{}} : Cap.Assessment}
+
+law missing_policy_remains_unknown:
+  {Core.capability_finish(Cap.CapNeedsPolicy{}, Cap.CapPolicyMissing{}) == Cap.CapAssessment{Con{"policy_unknown", Nil{}}, Cap.CapUnknown{}} : Cap.Assessment}
+
+law unresolved_policy_remains_unknown:
+  {Core.capability_finish(Cap.CapNeedsPolicy{}, Cap.CapPolicyUnknown{}) == Cap.CapAssessment{Con{"policy_unknown", Nil{}}, Cap.CapUnknown{}} : Cap.Assessment}
+
+law denied_policy_is_ineligible:
+  {Core.capability_finish(Cap.CapNeedsPolicy{}, Cap.CapPolicyDenied{}) == Cap.CapAssessment{Con{"policy", Nil{}}, Cap.CapIneligible{}} : Cap.Assessment}
+
+law policy_cannot_erase_incompatibility:
+  for unmet: +List<String>
+  for policy: Cap.PolicyObservation
+  {Core.capability_finish(Cap.CapAssessment{unmet, Cap.CapIneligible{}}, policy) == Cap.CapAssessment{unmet, Cap.CapIneligible{}} : Cap.Assessment}
+
+law required_evidence_needs_source:
+  {Core.execution_evidence(True{}, Nil{}) == False{} : Bool}
+
+law optional_evidence_is_usable:
+  {Core.execution_evidence(False{}, Nil{}) == True{} : Bool}
+
+law unreadable_advertisement_is_absent:
+  for advertised: String
+  for requested: String
+  {Core.capability_selected(advertised, requested, False{}) == False{} : Bool}
+
+law capability_retention_is_bounded:
+  {Core.execution_room(4096) == False{} : Bool}
+
+law live_provider_can_publish:
+  for input: Cap.Schema
+  for output: Cap.Schema
+  for features: +List<String>
+  {Cap.publish(Cap.CapAdvertisement{"cap", "provider", "verify", "1", input, output, features, "process"}, "provider", Nil{}, 0, False{}) == Cap.CapPublishAllowed{} : Cap.Publication}
+
+law missing_origin_hides_execution:
+  for principal: String
+  for chain: +List<String>
+  {Core.execution_visible(True{}, False{}, True{}, True{}, principal, "", "", "", chain, True{}, True{}) == False{} : Bool}
+
+law absent_deadline_is_usable:
+  for expiry: Core.Rank
+  for now: Core.Rank
+  {Core.execution_deadline(False{}, expiry, now) == True{} : Bool}

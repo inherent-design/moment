@@ -16,6 +16,14 @@ Semantic proposals and execution intents are implemented. Proposing validates th
 
 `graph.transact` provides the same guarded atomic admission for direct graph changes without creating a separate proposal. `execution.request` provides it for one execution intent. None of these operations promises an atomic transaction with the external world.
 
+## Capability negotiation
+
+`capability.advertise` records an immutable advertisement from its authenticated provider with exact admitted input/output schemas, features, isolation and expiry. Names cannot collide with installed protocol methods. Publication checks current policy, schema visibility and evidence; it is bounded to 4,096 retained advertisements per context. An advertisement describes an offered contract rather than proving host isolation or available resources.
+
+`capability.match` considers readable advertisements with the requested name under a current validated grant chain. It retains ordered unmet reasons for version, exact input/output schema identity, features, isolation, expiry and grant action/resource scope. An incident-restricted chain without an incident adds `incident_required`; a compatible candidate then remains `unknown`. Current policy is evaluated only for an otherwise compatible and scoped candidate. Indeterminate policy returns `policy_unknown` with unknown eligibility, while a known refusal returns `policy` with ineligible status. Discovery never reserves resources or admits an execution.
+
+Results rank eligible, unknown and ineligible candidates in that order, then fewer unmet reasons, then stable advertisement identity, before applying the result limit. An advertisement expires inclusively at its declared instant. Later execution admission rechecks current authority, context/incident state, advertisement, input schema and all resource envelopes. A prior match is evidence for selection, not a permission receipt.
+
 ## Execution lifecycle
 
 | Current state | Admitted next state | Trigger |

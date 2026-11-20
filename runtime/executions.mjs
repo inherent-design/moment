@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { canonical, digest, fail, DomainError } from './json.mjs';
-import { sameRef, boundLimits, grantChain } from './authority.mjs';
+import { boundLimits, grantChain } from './authority.mjs';
 import { validateVerifier } from './providers/bytes-definition.mjs';
 import {guidanceProfile} from './guidance.mjs';
 import {matchesGuidance,guidanceCapabilityName} from './guidance-profile.mjs';
@@ -24,7 +24,7 @@ export const zeroUsage=()=>({ cpuMillis:0,memoryBytes:0,outputBytes:0,modelToken
 export class Executions {
   constructor(kernel) { this.k=kernel; }
   evidence(snapshot,evidence,access,required=false) {
-    if (required && !evidence.sources.length) fail('INVALID_ARGUMENT','Reconciliation requires attributable source evidence');
+    if(!core.executionEvidence(required,evidence.sources))fail('INVALID_ARGUMENT','Reconciliation requires attributable source evidence');
     for (const ref of evidence.sources) { if (!access.canRead(ref)) fail('NOT_FOUND','Execution evidence is inaccessible');this.k.lookup(snapshot,ref); }
   }
   capability(snapshot,ref) {
@@ -35,10 +35,11 @@ export class Executions {
   }
   publish(snapshot,capability,principal,access,methodNames) {
     this.k.ensureNewId(snapshot,capability.id);
-    if (Object.keys(snapshot.controlState.capabilities ?? {}).length>=4096) fail('LIMIT_EXCEEDED','Capability retention capacity reached');
-    if (capability.providerId!==principal) fail('FORBIDDEN','Capability must belong to its authenticated provider');
-    if (methodNames.includes(capability.name)) fail('INVALID_ARGUMENT','Capability name collides with a protocol method');
-    if (Date.parse(capability.expiresAt)<=this.k.clock.wall()) fail('CAPABILITY_UNAVAILABLE','Cannot publish an expired capability');
+    const publication=core.capabilityPublish(capability,this.k.ref(snapshot.context.id,capability.id),principal,methodNames,Object.keys(snapshot.controlState.capabilities??{}).length,this.k.clock.wall());
+    if(publication==='CapRetentionFull')fail('LIMIT_EXCEEDED','Capability retention capacity reached');
+    if(publication==='CapWrongProvider')fail('FORBIDDEN','Capability must belong to its authenticated provider');
+    if(publication==='CapReservedName')fail('INVALID_ARGUMENT','Capability name collides with a protocol method');
+    if(publication==='CapExpired')fail('CAPABILITY_UNAVAILABLE','Cannot publish an expired capability');
     for (const ref of [capability.inputSchema,capability.outputSchema]) {
       const schema=this.k.schema(snapshot,ref);if (!access.canRead(schema.ref)) fail('NOT_FOUND','Capability schema is inaccessible');
     }
@@ -46,43 +47,34 @@ export class Executions {
     return this.k.stored(snapshot.context.id,capability,snapshot.context.revision+1,principal);
   }
   match(snapshot,current,input,principal,access,boundGrant) {
-    if (!access.operator && !sameRef(input.grant,boundGrant)) fail('FORBIDDEN','Only the bound grant may be matched');
+    if(!core.capabilityBoundGrant(access.operator,input.grant,boundGrant))fail('FORBIDDEN','Only the bound grant may be matched');
     this.k.local(input.grant,input.contextId);
     const stored=current.controlState.grants?.[input.grant.id];if (!stored) fail('NOT_FOUND','Grant not found');
     const chain=grantChain(current,input.grant,stored.value.principalId,this.k.clock.wall());
     const req=input.requirement;
-    const matches=Object.values(snapshot.controlState.capabilities ?? {}).filter(item=>access.canRead(item.ref) && item.value.name===req.name).map(item=>{
-      const cap=item.value,unmet=[];
-      if (!req.versions.includes(cap.version)) unmet.push('version');
-      for (const name of ['inputSchema','outputSchema']) if (canonical(cap[name])!==canonical(req[name])) unmet.push(name);
-      if (req.features.some(feature=>!cap.features.includes(feature))) unmet.push('features');
-      if (!req.acceptableIsolation.includes(cap.isolation)) unmet.push('isolation');
-      if (Date.parse(cap.expiresAt)<=this.k.clock.wall()) unmet.push('expired');
-      if (chain.some(grant=>!grant.actions.includes(cap.name) || !grant.resourceRefs.some(ref=>sameRef(ref,item.ref)))) unmet.push('grant');
-      let eligibility='eligible';
-      if (input.incidentId===undefined && chain.some(grant=>grant.incidentIds!=='all')) { if (!unmet.length) eligibility='unknown';unmet.push('incident_required'); }
-      if (!unmet.length) {
-        try { this.k.authorize(current,cap.name,stored.value.principalId,{ incidentId:input.incidentId,resourceRefs:[item.ref] },input.grant); }
-        catch (error) { if (!(error instanceof DomainError)) throw error;unmet.push(error.code==='POLICY_INDETERMINATE'?'policy_unknown':'policy');eligibility=error.code==='POLICY_INDETERMINATE'?'unknown':'ineligible'; }
+    const matches=Object.values(snapshot.controlState.capabilities??{}).filter(item=>core.capabilitySelected(item,req.name,access.canRead(item.ref))).map(item=>{
+      const basis=core.capabilityBasis(item,req,chain,input.incidentId,this.k.clock.wall());let policy='missing';
+      if(basis.$==='CapNeedsPolicy'){
+        try{this.k.authorize(current,item.value.name,stored.value.principalId,{incidentId:input.incidentId,resourceRefs:[item.ref]},input.grant);policy='allowed';}
+        catch(error){if(!(error instanceof DomainError))throw error;policy=error.code==='POLICY_INDETERMINATE'?'unknown':'denied';}
       }
-      if (unmet.length && eligibility!=='unknown') eligibility='ineligible';
-      return { capability:item,unmet,eligibility };
+      return {capability:item,...core.capabilityFinish(basis,policy)};
     });
-    const rank={ eligible:0,unknown:1,ineligible:2 };
-    return matches.sort((a,b)=>rank[a.eligibility]-rank[b.eligibility] || a.unmet.length-b.unmet.length || (a.capability.ref.id<b.capability.ref.id?-1:1)).slice(0,input.limit);
+    return matches.sort(core.capabilityCompare).slice(0,input.limit);
   }
   authority(snapshot,intent,requester) {
     const cap=this.capability(snapshot,intent.capability).value;
-    if (Date.parse(cap.expiresAt)<=this.k.clock.wall()) fail('CAPABILITY_UNAVAILABLE','Capability advertisement expired');
-    if (snapshot.context.state!=='open') fail('FORBIDDEN','Context is closed');
     const incident=snapshot.controlState.incidents?.[intent.incidentId];
-    if (!incident || ['completed','cancelled'].includes(incident.value.status)) fail('FORBIDDEN','Incident is not accepting execution');
+    const admission=core.executionAdmission(cap,this.k.clock.wall(),snapshot.context.state,incident?.value);
+    if(admission==='CapExecutionExpired')fail('CAPABILITY_UNAVAILABLE','Capability advertisement expired');
+    if(admission==='CapExecutionClosed')fail('FORBIDDEN','Context is closed');
+    if(admission==='CapExecutionIncident')fail('FORBIDDEN','Incident is not accepting execution');
     const access=this.k.authorize(snapshot,'execution.request',requester,{ incidentId:intent.incidentId,resourceRefs:[intent.capability] },intent.grant);
     this.k.authorize(snapshot,cap.name,requester,{ incidentId:intent.incidentId,resourceRefs:[intent.capability] },intent.grant);
     boundLimits(intent.limits,snapshot.context.limits);boundLimits(intent.limits,this.k.lookup(snapshot,snapshot.context.policy).value.limits);
     for (const grant of access.chain) boundLimits(intent.limits,grant.limits);
     if (!core.resourceSingleSlot(intent.limits.concurrentExecutions)) fail('INVALID_ARGUMENT','One execution reserves exactly one concurrency slot');
-    if (intent.limits.deadline && Date.parse(intent.limits.deadline)<=this.k.clock.wall()) fail('LIMIT_EXCEEDED','Execution deadline passed');
+    if(!core.executionDeadline(intent.limits.deadline,this.k.clock.wall()))fail('LIMIT_EXCEEDED','Execution deadline passed');
     if (!this.k.compiled(this.k.schema(snapshot,cap.inputSchema))(intent.input)) fail('INVALID_ARGUMENT','Execution input does not satisfy the capability schema');
     validateVerifier(cap,this.k.ownerId,intent);
     if(cap.name===guidanceCapabilityName) {
@@ -106,19 +98,17 @@ export class Executions {
   }
   prepare(snapshot,intent,actor,access,requester=actor) {
     this.k.ensureNewId(snapshot,intent.id);
-    if (Object.keys(snapshot.controlState.executions ?? {}).length>=4096) fail('LIMIT_EXCEEDED','Execution retention capacity reached');
-    if (!access.canIncident(intent.incidentId) || !access.canRead(intent.capability)) fail('NOT_FOUND','Execution scope is inaccessible');
-    if (!access.operator && (actor===requester ? !sameRef(intent.grant,this.k.ref(snapshot.context.id,access.chain[0].id)) : !access.canRead(intent.grant))) fail('FORBIDDEN','Execution requires its bound grant or explicit review access');
+    if(!core.executionRoom(Object.keys(snapshot.controlState.executions??{}).length))fail('LIMIT_EXCEEDED','Execution retention capacity reached');
+    const preparation=core.executionPrepare(intent,actor,requester,access,access.chain[0]?this.k.ref(snapshot.context.id,access.chain[0].id):undefined);
+    if(preparation==='CapPrepareScope')fail('NOT_FOUND','Execution scope is inaccessible');
+    if(preparation==='CapPrepareGrant')fail('FORBIDDEN','Execution requires its bound grant or explicit review access');
     const { cap,access:requestAccess }=this.authority(snapshot,intent,requester);
     this.capacity(snapshot,intent,requestAccess.chain);
     return { execution:{ intent,state:'queued',attempt:0,usage:zeroUsage() },origin:{ principalId:requester,grantIds:requestAccess.chain.map(grant=>grant.id),providerId:cap.providerId } };
   }
   get(snapshot,id,principal,access) {
     const stored=snapshot.controlState.executions?.[id],origin=snapshot.controlState.executionOrigins?.[id];
-    if (!stored || !origin || !access.canIncident(stored.value.intent.incidentId)) fail('NOT_FOUND','Execution not found');
-    const own=origin.principalId===principal && access.chain.some(grant=>grant.id===origin.grantIds[0]);
-    const provider=origin.providerId===principal && access.canRead(stored.value.intent.capability);
-    if (!access.operator && !own && !provider && !access.canRead(stored.ref)) fail('NOT_FOUND','Execution not found');
+    if(!core.executionVisible(stored,origin,principal,access))fail('NOT_FOUND','Execution not found');
     if(stored.value.intent.input?.profile===guidanceProfile)this.k.guidance.inputAccess(snapshot,stored.value.intent.input,access);
     return stored;
   }
@@ -168,7 +158,7 @@ export class Executions {
     } else if (method==='execution.reconcile') {
       if (!core.fenceEqual(input.attempt,value.attempt)) fail('LEASE_STALE','Reconciliation names a different attempt','reconcile');
       const next=transition(value,input.resolution.kind==='retry'?'retry':'observed',input.resolution.outcome?.kind);
-      if (principal!==cap.providerId && !access.operator && !access.canRead(stored.ref)) fail('FORBIDDEN','Reconciliation requires provider or explicit execution access');
+      if(!core.executionReconcile(principal,cap.providerId,access.operator,access.canRead(stored.ref)))fail('FORBIDDEN','Reconciliation requires provider or explicit execution access');
       const resolution=input.resolution,evidence=resolution.kind==='retry'?resolution.evidence:resolution.outcome.evidence;
       this.evidence(snapshot,evidence,access,true);
       if (resolution.kind==='observed') this.outcome(snapshot,value,resolution.outcome,input.usage,access,next.state);

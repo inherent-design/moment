@@ -4,6 +4,7 @@ import ./topology.bend as Top
 import ./accounting.bend as Budget
 import ./collections.bend as Text
 import ./scheduler.bend as Sched
+import ./capability.bend as Cap
 
 def execution_step(state: Run.State, action: Run.Action) -> Run.Step:
   Run.step(state, action)
@@ -717,3 +718,42 @@ def schedule_causal_demand(state: Sched.Causality) -> Sched.Demand:
 
 def schedule_causal_step(state: Sched.Causality, event: Sched.CauseEvent, context: String, schedule: String) -> Sched.CausalStep:
   Sched.step(state, event, context, schedule)
+
+def capability_basis(advertisement: Cap.Advertisement, requirement: Cap.Requirement, scopes: +List<Cap.Scope>, expiry: Rank, now: Rank, incident_present: Bool) -> Cap.Assessment:
+  Cap.basis(advertisement, requirement, scopes, rank_le(expiry, now), incident_present)
+
+def capability_finish(assessment: Cap.Assessment, policy: Cap.PolicyObservation) -> Cap.Assessment:
+  Cap.finish(assessment, policy)
+
+def capability_compare(left: Cap.Eligibility, left_count: U32, left_id: String, right: Cap.Eligibility, right_count: U32, right_id: String) -> Cmp:
+  Cap.compare(left, left_count, left_id, right, right_count, right_id)
+
+def capability_publish(advertisement: Cap.Advertisement, principal: String, methods: +List<String>, count: U32, expiry: Rank, now: Rank) -> Cap.Publication:
+  Cap.publish(advertisement, principal, methods, count, rank_le(expiry, now))
+
+def execution_room(count: U32) -> Bool:
+  Cap.room(count)
+
+def execution_admission(expiry: Rank, now: Rank, context: String, incident_present: Bool, incident: IncidentState) -> Cap.ExecutionAdmission:
+  Cap.execution_admission(rank_le(expiry, now), context, incident_present, incident_terminal(incident))
+
+def execution_deadline(present: Bool, expiry: Rank, now: Rank) -> Bool:
+  Bool.or(Bool.not(present), Bool.not(rank_le(expiry, now)))
+
+def execution_prepare(incident: Bool, capability: Bool, operator: Bool, actor: String, requester: String, submitted: String, bound: String, readable: Bool) -> Cap.Preparation:
+  Cap.prepare(incident, capability, operator, actor, requester, submitted, bound, readable)
+
+def execution_visible(present: Bool, origin_present: Bool, incident: Bool, operator: Bool, principal: String, requester: String, provider: String, first_grant: String, chain: +List<String>, capability: Bool, readable: Bool) -> Bool:
+  Cap.visible(present, origin_present, incident, operator, principal, requester, provider, first_grant, chain, capability, readable)
+
+def execution_reconcile(principal: String, provider: String, operator: Bool, readable: Bool) -> Bool:
+  Cap.reconcile(principal, provider, operator, readable)
+
+def execution_evidence(required: Bool, sources: +List<String>) -> Bool:
+  Cap.evidence(required, sources)
+
+def capability_bound_grant(operator: Bool, submitted: String, bound: String) -> Bool:
+  Bool.or(operator, String.eq(submitted, bound))
+
+def capability_selected(advertised: String, requested: String, readable: Bool) -> Bool:
+  Cap.selected(advertised, requested, readable)

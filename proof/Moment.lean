@@ -664,6 +664,108 @@ theorem sch_chosen_is_eligible (values : List SchCandidate) (chosen : SchCandida
     have member := sch_oldest_is_member _ _ h
     exact (List.mem_filter.mp (List.mem_filter.mp member).1).2
 
+structure CapSchema where
+  name : String
+  version : String
+  digest : String
+  deriving DecidableEq, Repr
+structure CapAdvert where
+  identity : String := "cap"
+  provider : String := "provider"
+  name : String := "verify"
+  version : String := "1"
+  input : CapSchema := ⟨"input","1","digest"⟩
+  output : CapSchema := ⟨"output","1","digest"⟩
+  features : List String := ["bytes"]
+  isolation : String := "process"
+  deriving DecidableEq, Repr
+structure CapRequirement where
+  versions : List String := ["1"]
+  input : CapSchema := ⟨"input","1","digest"⟩
+  output : CapSchema := ⟨"output","1","digest"⟩
+  features : List String := ["bytes"]
+  isolation : List String := ["process"]
+  deriving DecidableEq, Repr
+structure CapScope where
+  actions : List String := ["verify"]
+  resources : List String := ["cap"]
+  allIncidents : Bool := true
+  deriving DecidableEq, Repr
+inductive CapEligibility | eligible | ineligible | unknown deriving DecidableEq, Repr
+inductive CapAssessment | needsPolicy | assessed (unmet : List String) (eligibility : CapEligibility) deriving DecidableEq, Repr
+inductive CapPolicy | allowed | denied | unknown | missing deriving DecidableEq, Repr
+def capGranted (scopes : List CapScope) (advert : CapAdvert) : Bool :=
+  !scopes.isEmpty && scopes.all (fun scope => scope.actions.contains advert.name && scope.resources.contains advert.identity)
+def capCompatibility (advert : CapAdvert) (requirement : CapRequirement) (scopes : List CapScope) (expired : Bool) : List String :=
+  ([ (requirement.versions.contains advert.version,"version"), (advert.input == requirement.input,"inputSchema"),
+    (advert.output == requirement.output,"outputSchema"), (requirement.features.all advert.features.contains,"features"),
+    (requirement.isolation.contains advert.isolation,"isolation"), (!expired,"expired"), (capGranted scopes advert,"grant") ] : List (Bool × String)).filterMap fun (accepted,label) => if accepted then none else some label
+def capBasis (advert : CapAdvert) (requirement : CapRequirement) (scopes : List CapScope) (expired incident : Bool) : CapAssessment :=
+  let unmet := capCompatibility advert requirement scopes expired
+  if !incident && scopes.any (fun scope => !scope.allIncidents) then .assessed (unmet ++ ["incident_required"]) (if unmet.isEmpty then .unknown else .ineligible)
+  else if unmet.isEmpty then .needsPolicy else .assessed unmet .ineligible
+def capFinish : CapAssessment → CapPolicy → CapAssessment
+  | .needsPolicy, .allowed => .assessed [] .eligible
+  | .needsPolicy, .denied => .assessed ["policy"] .ineligible
+  | .needsPolicy, _ => .assessed ["policy_unknown"] .unknown
+  | .assessed unmet eligibility, _ => .assessed unmet eligibility
+def capRank : CapEligibility → Nat | .eligible => 0 | .unknown => 1 | .ineligible => 2
+def capCompare (a b : CapEligibility) (ac bc : Nat) (ai bi : String) : String :=
+  if capRank a < capRank b then "LT" else if capRank b < capRank a then "GT"
+  else if ac < bc then "LT" else if bc < ac then "GT" else if ai < bi then "LT" else if bi < ai then "GT" else "EQ"
+def capPublish (advert : CapAdvert) (principal : String) (methods : List String) (count : Nat) (expired : Bool) : String :=
+  if 4096 ≤ count then "CapRetentionFull" else if advert.provider != principal then "CapWrongProvider"
+  else if methods.contains advert.name then "CapReservedName" else if expired then "CapExpired" else "CapPublishAllowed"
+def capExecutionAdmission (expired : Bool) (context : String) (incident : Bool) (status : IncidentState) : String :=
+  if expired then "CapExecutionExpired" else if context != "open" then "CapExecutionClosed"
+  else if !incident || incidentTerminal status then "CapExecutionIncident" else "CapExecutionAllowed"
+def capPrepare (incident capability operator self bound readable : Bool) : String :=
+  if !(incident && capability) then "CapPrepareScope"
+  else if operator || (if self then bound else readable) then "CapPrepareAllowed" else "CapPrepareGrant"
+def capVisible (present origin incident operator requester provider bound capability readable : Bool) : Bool :=
+  present && origin && incident && (operator || (requester && bound) || (provider && capability) || readable)
+def capReconcile (provider operator readable : Bool) : Bool := provider || operator || readable
+def capEvidence (required present : Bool) : Bool := !required || present
+
+theorem cap_policy_missing_is_unknown : capFinish .needsPolicy .missing = .assessed ["policy_unknown"] .unknown := rfl
+theorem cap_policy_unknown_is_unknown : capFinish .needsPolicy .unknown = .assessed ["policy_unknown"] .unknown := rfl
+theorem cap_policy_denied_is_ineligible : capFinish .needsPolicy .denied = .assessed ["policy"] .ineligible := rfl
+theorem cap_policy_allowed_is_useful : capFinish .needsPolicy .allowed = .assessed [] .eligible := rfl
+theorem cap_policy_cannot_erase_basis (unmet : List String) (eligibility : CapEligibility) (policy : CapPolicy) :
+    capFinish (.assessed unmet eligibility) policy = .assessed unmet eligibility := rfl
+theorem cap_empty_chain_has_no_authority (advert : CapAdvert) : capGranted [] advert = false := rfl
+theorem cap_hidden_incident_hides_execution (present origin operator requester provider bound capability readable : Bool) :
+    capVisible present origin false operator requester provider bound capability readable = false := by simp [capVisible]
+theorem cap_missing_origin_hides_execution (present incident operator requester provider bound capability readable : Bool) :
+    capVisible present false incident operator requester provider bound capability readable = false := by simp [capVisible]
+theorem cap_reconciliation_needs_access : capReconcile false false false = false := rfl
+theorem cap_required_evidence_needs_source : capEvidence true false = false := rfl
+theorem cap_opening_without_required_evidence_is_useful : capEvidence false false = true := rfl
+theorem cap_eligible_requires_observed_policy (advert : CapAdvert) (requirement : CapRequirement) (scopes : List CapScope)
+    (expired incident : Bool) (policy : CapPolicy)
+    (h : capFinish (capBasis advert requirement scopes expired incident) policy = .assessed [] .eligible) : policy = .allowed := by
+  dsimp only [capBasis] at h
+  split at h
+  · split at h <;> simp [capFinish] at h
+  · split at h
+    · cases policy <;> simp_all [capFinish]
+    · simp [capFinish] at h
+theorem cap_compare_reflexive (eligibility : CapEligibility) (count : Nat) (id : String) :
+    capCompare eligibility eligibility count count id id = "EQ" := by simp [capCompare]
+
+#print axioms cap_policy_missing_is_unknown
+#print axioms cap_policy_unknown_is_unknown
+#print axioms cap_policy_denied_is_ineligible
+#print axioms cap_policy_allowed_is_useful
+#print axioms cap_policy_cannot_erase_basis
+#print axioms cap_empty_chain_has_no_authority
+#print axioms cap_hidden_incident_hides_execution
+#print axioms cap_missing_origin_hides_execution
+#print axioms cap_reconciliation_needs_access
+#print axioms cap_required_evidence_needs_source
+#print axioms cap_opening_without_required_evidence_is_useful
+#print axioms cap_eligible_requires_observed_policy
+#print axioms cap_compare_reflexive
 #print axioms sch_cancelled_never_runnable
 #print axioms sch_blocked_rests
 #print axioms sch_full_keeps_cursor
@@ -764,6 +866,23 @@ def schCauses (mask dependent broken : Nat) : List Moment.SchCause :=
       kind := if dependent / 2^index % 2 == 1 then "runtime.schedule.triggered" else "graph.transact.committed",
       subjects := ["target"],
       causes := ([0,1] : List Nat).filterMap fun target => if mask / 2^(index*2+target) % 2 == 1 then some ("n" ++ toString target) else none }
+
+def capPolicies : List (Moment.CapPolicy × String) := [(.allowed,"allowed"),(.denied,"denied"),(.unknown,"unknown"),(.missing,"missing")]
+def capEligibilities : List (Moment.CapEligibility × String) := [(.eligible,"eligible"),(.unknown,"unknown"),(.ineligible,"ineligible")]
+def capAssessmentLabel : Moment.CapAssessment → String
+  | .needsPolicy => "needsPolicy"
+  | .assessed unmet eligibility =>
+    (match eligibility with | .eligible => "eligible" | .unknown => "unknown" | .ineligible => "ineligible") ++ ":" ++ String.intercalate "," unmet
+def capRequirement (mask : Nat) : Moment.CapRequirement :=
+  { versions := if mask % 2 == 1 then [] else ["1"],
+    input := ⟨"input",if mask / 2 % 2 == 1 then "other" else "1","digest"⟩,
+    output := ⟨"output","1",if mask / 4 % 2 == 1 then "other" else "digest"⟩,
+    features := if mask / 8 % 2 == 1 then ["missing"] else ["bytes"],
+    isolation := if mask / 16 % 2 == 1 then [] else ["process"] }
+def capScopes (mask : Nat) (restricted : Bool) : List Moment.CapScope :=
+  [{actions := if mask / 64 % 2 == 1 then [] else ["verify"],allIncidents := !restricted}]
+def capSchemaVariant (name : String) (code : Nat) : Moment.CapSchema :=
+  ⟨if code == 1 then "other" else name,if code == 2 then "other" else "1",if code == 3 then "other" else "digest"⟩
 
 def truthLabel : Moment.Truth → String
   | .yes => "true"
@@ -1183,3 +1302,66 @@ def main : IO Unit := do
     IO.println s!"case|scheduleCompleted|{once}|{if once then "completed" else "active"}"
   for code in ["REVISION_CONFLICT","FORBIDDEN","INTERNAL"] do
     IO.println s!"case|scheduleRetryFault|{code}|{code == "REVISION_CONFLICT"}"
+  for mask in List.range 128 do
+    for restricted in [false,true] do
+      for incident in [false,true] do
+        for (policy,label) in capPolicies do
+          let basis := Moment.capBasis {} (capRequirement mask) (capScopes mask restricted) (mask / 32 % 2 == 1) incident
+          IO.println s!"case|capabilityBasis|{mask}|{restricted}|{incident}|{label}|{capAssessmentLabel (Moment.capFinish basis policy)}"
+  for (a,alabel) in capEligibilities do
+    for (b,blabel) in capEligibilities do
+      for ac in [0,1,8] do
+        for bc in [0,1,8] do
+          for ai in ["a","b"] do
+            for bi in ["a","b"] do
+              IO.println s!"case|capabilityCompare|{alabel}|{ac}|{ai}|{blabel}|{bc}|{bi}|{Moment.capCompare a b ac bc ai bi}"
+  for count in [0,4095,4096] do
+    for provider in [false,true] do
+      for reserved in [false,true] do
+        for expired in [false,true] do
+          IO.println s!"case|capabilityPublish|{count}|{provider}|{reserved}|{expired}|{Moment.capPublish {} (if provider then "provider" else "other") (if reserved then ["verify"] else []) count expired}"
+  for count in [0,4095,4096,4097] do
+    IO.println s!"case|executionRoom|{count}|{decide (count < 4096)}"
+  for expired in [false,true] do
+    for context in ["open","closed"] do
+      for incident in [false,true] do
+        for status in incidentStates do
+          IO.println s!"case|executionAdmission|{expired}|{context}|{incident}|{incidentStateLabel status}|{Moment.capExecutionAdmission expired context incident status}"
+  for present in [false,true] do
+    for expiry in [99,100,101] do
+      IO.println s!"case|executionDeadlineAdmission|{present}|{expiry}|{!present || decide (100 < expiry)}"
+  for incident in [false,true] do
+    for capability in [false,true] do
+      for operator in [false,true] do
+        for self in [false,true] do
+          for bound in [false,true] do
+            for readable in [false,true] do
+              IO.println s!"case|executionPrepare|{incident}|{capability}|{operator}|{self}|{bound}|{readable}|{Moment.capPrepare incident capability operator self bound readable}"
+  for present in [false,true] do
+    for origin in [false,true] do
+      for incident in [false,true] do
+        for operator in [false,true] do
+          for requester in [false,true] do
+            for provider in [false,true] do
+              for bound in [false,true] do
+                for capability in [false,true] do
+                  for readable in [false,true] do
+                    IO.println s!"case|executionVisible|{present}|{origin}|{incident}|{operator}|{requester}|{provider}|{bound}|{capability}|{readable}|{Moment.capVisible present origin incident operator requester provider bound capability readable}"
+  for provider in [false,true] do
+    for operator in [false,true] do
+      for readable in [false,true] do
+        IO.println s!"case|executionReconcile|{provider}|{operator}|{readable}|{Moment.capReconcile provider operator readable}"
+  for required in [false,true] do
+    for present in [false,true] do
+      IO.println s!"case|executionEvidence|{required}|{present}|{Moment.capEvidence required present}"
+  for operator in [false,true] do
+    for bound in [false,true] do
+      IO.println s!"case|capabilityBoundGrant|{operator}|{bound}|{operator || bound}"
+  for same in [false,true] do
+    for readable in [false,true] do
+      IO.println s!"case|capabilitySelected|{same}|{readable}|{same && readable}"
+  for (policy,label) in capPolicies do
+    IO.println s!"case|capabilityEmptyChain|{label}|{capAssessmentLabel (Moment.capFinish (Moment.capBasis {} {} [] false true) policy)}"
+  for a in List.range 4 do
+    for b in List.range 4 do
+      IO.println s!"case|capabilitySchema|{a}|{b}|{capAssessmentLabel (Moment.capFinish (Moment.capBasis {} {input := capSchemaVariant "input" a,output := capSchemaVariant "output" b} [{}] false true) .allowed)}"

@@ -17,6 +17,29 @@ test('capabilities bind providers and match exact contract, features, isolation,
   assert.equal(f.write('capability.advertise',{ capability:{ ...f.capability,id:randomUUID(),name:'graph.transact' } }).error.code,'INVALID_ARGUMENT');
 });
 
+test('capability discovery distinguishes current policy uncertainty from denial without admitting effects',t=>{
+  for(const unresolved of [false,true]){
+    const f=fixture(t),context=f.call('context.get',{contextId:f.contextId}).value,current=f.call('control.get',{contextId:f.contextId,ref:context.policy}).value.value;
+    const when=unresolved?{kind:'related',from:{kind:'literal',value:null},to:{kind:'literal',value:randomUUID()},schemaNames:['unresolved'],maxHops:1}:{kind:'equal',left:{kind:'literal',value:true},right:{kind:'literal',value:true}};
+    const policy={...current,id:randomUUID(),parent:context.policy,rules:[...current.rules,{id:'current-capability-refusal',effect:'deny',actions:[f.capability.name],when}]};
+    const published=f.write('policy.publish',{policy});assert.equal(published.ok,true);assert.equal(f.write('policy.activate',{policy:published.value.ref,evidence}).ok,true);
+    const requirement={name:f.capability.name,versions:['1'],inputSchema:f.capability.inputSchema,outputSchema:f.capability.outputSchema,features:['bytes'],acceptableIsolation:['none']};
+    const revision=f.store.read(f.contextId).context.revision,result=f.call('capability.match',{contextId:f.contextId,requirement,grant:f.authorized.ref,limit:1});assert.equal(result.ok,true);
+    assert.equal(result.value[0].eligibility,unresolved?'unknown':'ineligible');assert.deepEqual(result.value[0].unmet,[unresolved?'policy_unknown':'policy']);
+    assert.equal(f.store.read(f.contextId).context.revision,revision);assert.deepEqual(f.store.outbox(f.contextId),[]);
+    const refused=f.write('execution.request',{execution:f.intent()});assert.equal(refused.error.code,unresolved?'POLICY_INDETERMINATE':'FORBIDDEN');assert.deepEqual(f.store.outbox(f.contextId),[]);
+  }
+});
+
+test('an advertisement expires exactly at its boundary while the grant remains usable',t=>{
+  let now=1000;const clock={wall:()=>now,monotonic:()=>0,bootId:randomUUID()},f=fixture(t,{clock});
+  const capability={...f.capability,id:randomUUID(),expiresAt:new Date(1100).toISOString()};assert.equal(f.write('capability.advertise',{capability}).ok,true);
+  const authorized=grant(f,f.ownerId,{actions:['execution.request',capability.name],resourceRefs:[{systemId:f.systemId,contextId:f.contextId,id:capability.id}]}),requirement={name:capability.name,versions:['1'],inputSchema:capability.inputSchema,outputSchema:capability.outputSchema,features:['bytes'],acceptableIsolation:['none']};
+  const read=()=>f.call('capability.match',{contextId:f.contextId,requirement,grant:authorized.ref,limit:10}).value.find(item=>item.capability.ref.id===capability.id);
+  now=1099;assert.equal(read().eligibility,'eligible');now=1100;assert.deepEqual(read().unmet,['expired']);assert.equal(read().eligibility,'ineligible');
+  assert.equal(f.write('capability.advertise',{capability:{...capability,id:randomUUID()}}).error.code,'CAPABILITY_UNAVAILABLE');
+});
+
 test('execution queues durably without dispatch; a fenced provider heartbeat precedes validated completion',t=>{
   const f=fixture(t),intent=f.intent();const request={ contextId:f.contextId,expectedRevision:f.store.read(f.contextId).context.revision,idempotencyKey:'queue',execution:intent };
   const queued=f.call('execution.request',request);assert.equal(queued.ok,true);assert.equal(queued.value.state,'queued');assert.equal(f.store.outbox(f.contextId).length,1);

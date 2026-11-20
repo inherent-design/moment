@@ -273,3 +273,45 @@ export function scheduleDepends(event,fetch,contextId,scheduleRef) {
  }
  fail('INTERNAL','Core causal walk exceeded its declared observation bound');
 }
+
+const capText=value=>{if(typeof value!=='string')fail('INVALID_ARGUMENT','Capability codec requires text fields');return value;};
+const capTexts=values=>{if(!Array.isArray(values))fail('INVALID_ARGUMENT','Capability codec requires a text collection');size(values.length);return list(values.map(capText));};
+const capSchema=value=>{if(!value||typeof value!=='object')fail('INVALID_ARGUMENT','Capability codec requires a schema reference');return {$:'CapSchema',name:capText(value.name),version:capText(value.version),digest:capText(value.digest)};};
+const capAdvertisement=(value,ref)=>({$:'CapAdvertisement',identity:resourceKey(ref),provider:capText(value.providerId),name:capText(value.name),version:capText(value.version),input:capSchema(value.inputSchema),output:capSchema(value.outputSchema),features:capTexts(value.features),isolation:capText(value.isolation)});
+const capRequirement=value=>({$:'CapRequirement',versions:capTexts(value.versions),input:capSchema(value.inputSchema),output:capSchema(value.outputSchema),features:capTexts(value.features),isolation:capTexts(value.acceptableIsolation)});
+const capEligibilityTags={eligible:'CapEligible',ineligible:'CapIneligible',unknown:'CapUnknown'};
+const capEligibility=value=>{if(typeof value!=='string'||!Object.hasOwn(capEligibilityTags,value))fail('INVALID_ARGUMENT','Unsupported capability eligibility');return {$:capEligibilityTags[value]};};
+const capTag=(value,tags)=>{if(!tags.includes(value?.$))fail('INTERNAL','Invalid core capability decision');return value.$;};
+export const capabilityBoundGrant=(operator,submitted,bound)=>coreBoolean(Core.capability_bound_grant(!!operator,resourceKey(submitted),bound?resourceKey(bound):''));
+export function capabilityBasis(item,requirement,chain,incident,now) {
+ const scopes=chain.map(grant=>({$:'CapScope',actions:capTexts(grant.actions),resources:list(grant.resourceRefs.map(resourceKey)),all_incidents:grant.incidentIds==='all'}));
+ const result=Core.capability_basis(capAdvertisement(item.value,item.ref),capRequirement(requirement),list(scopes),instant(capText(item.value.expiresAt)),rank(now),incident!==undefined);capTag(result,['CapNeedsPolicy','CapAssessment']);return result;
+}
+export function capabilityFinish(basis,policy) {
+ const policies={allowed:'CapPolicyAllowed',denied:'CapPolicyDenied',unknown:'CapPolicyUnknown',missing:'CapPolicyMissing'};
+ if(typeof policy!=='string'||!Object.hasOwn(policies,policy))fail('INVALID_ARGUMENT','Unsupported capability policy observation');
+ const result=Core.capability_finish(basis,{$:policies[policy]});capTag(result,['CapAssessment']);
+ const eligibility={CapEligible:'eligible',CapIneligible:'ineligible',CapUnknown:'unknown'}[capTag(result.eligibility,['CapEligible','CapIneligible','CapUnknown'])];
+ return {unmet:textValues(result.unmet,8),eligibility};
+}
+export function capabilityCompare(left,right) {
+ const result=Core.capability_compare(capEligibility(left.eligibility),size(left.unmet.length),left.capability.ref.id,capEligibility(right.eligibility),size(right.unmet.length),right.capability.ref.id);capTag(result,['LT','EQ','GT']);return {LT:-1,EQ:0,GT:1}[result.$];
+}
+export function capabilityPublish(capability,ref,principal,methods,retained,now) {
+ return capTag(Core.capability_publish(capAdvertisement(capability,ref),principal,capTexts(methods),size(retained),instant(capText(capability.expiresAt)),rank(now)),['CapPublishAllowed','CapRetentionFull','CapWrongProvider','CapReservedName','CapExpired']);
+}
+export const capabilitySelected=(item,requested,readable)=>coreBoolean(Core.capability_selected(capText(item.value.name),capText(requested),!!readable));
+export const executionRoom=value=>coreBoolean(Core.execution_room(size(value)));
+export function executionAdmission(capability,now,context,incident) {
+ return capTag(Core.execution_admission(instant(capText(capability.expiresAt)),rank(now),context,!!incident,incidentState(incident?.status??'open')),['CapExecutionAllowed','CapExecutionExpired','CapExecutionClosed','CapExecutionIncident']);
+}
+export const executionDeadline=(deadline,now)=>coreBoolean(Core.execution_deadline(deadline!==undefined,instant(deadline===undefined?undefined:capText(deadline)),rank(now)));
+export function executionPrepare(intent,actor,requester,access,bound) {
+ return capTag(Core.execution_prepare(access.canIncident(intent.incidentId),access.canRead(intent.capability),!!access.operator,actor,requester,resourceKey(intent.grant),bound?resourceKey(bound):'',access.canRead(intent.grant)),['CapPrepareAllowed','CapPrepareScope','CapPrepareGrant']);
+}
+export function executionVisible(stored,origin,principal,access) {
+ const intent=stored?.value.intent;
+ return coreBoolean(Core.execution_visible(!!stored,!!origin,!!intent&&access.canIncident(intent.incidentId),!!access.operator,principal,origin?.principalId??'',origin?.providerId??'',origin?.grantIds?.[0]??'',list(access.chain.map(grant=>grant.id)),!!intent&&access.canRead(intent.capability),!!stored&&access.canRead(stored.ref)));
+}
+export const executionReconcile=(principal,provider,operator,readable)=>coreBoolean(Core.execution_reconcile(principal,provider,!!operator,!!readable));
+export const executionEvidence=(required,sources)=>coreBoolean(Core.execution_evidence(!!required,list(sources.map(resourceKey))));
