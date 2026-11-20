@@ -1745,3 +1745,6 @@ def main : IO Unit := do
   for left in budgetValues do
     for right in budgetValues do
       IO.println s!"case|resourceCompare|{left}|{right}|{Moment.reactCompare left right}"
+
+  for value in budgetValues do
+    IO.println s!"case|counterNext|{value}|{budgetLabel (if value < Moment.budgetMaximum then some (value+1) else none)}"

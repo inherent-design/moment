@@ -138,7 +138,7 @@ export class Kernel {
       }
       const commitEventId=randomUUID();
       const batch = { mutation: input, principalId, requestDigest: digest(input), changes: [], controlChanges: [], events: [], outbox: [], response: { kind: 'commit-receipt' } };
-      const revision = current.context.revision + 1;
+      const revision = mutation?core.counterNext(current.context.revision,'Context revision'):current.context.revision;
       const control = (namespace, key, value) => batch.controlChanges.push({ namespace, key, value });
       switch (method) {
         case 'guidance.register': batch.response=this.guidance.register(current,input,principalId,access,control);break;
@@ -399,7 +399,8 @@ export class Kernel {
     }
     this.validateChanges(current,changes);
     const preview={ ...current,records:[...current.records],assertions:current.assertions.map(item=>({...item})) };
-    applyGraph(preview,changes,value=>this.stored(current.context.id,value,current.context.revision+1,principalId),{ systemId:this.store.systemId,contextId:current.context.id,revision:current.context.revision+1 });
+    const revision=core.counterNext(current.context.revision,'Context revision');
+    applyGraph(preview,changes,value=>this.stored(current.context.id,value,revision,principalId),{ systemId:this.store.systemId,contextId:current.context.id,revision });
     validateTopology(preview);
   }
   executionPlan(current,proposal,principalId,access,boundGrant,requester) {
@@ -410,7 +411,7 @@ export class Kernel {
     for (const intent of proposal.executions) {
       this.authorize(current,'execution.request',principalId,{ incidentId:intent.incidentId,resourceRefs:[intent.capability] },boundGrant);
       const item=this.executions.prepare(preview,intent,principalId,access,requester);
-      preview.controlState.executions[intent.id]=this.stored(current.context.id,item.execution,current.context.revision+1,principalId,intent.id);
+      preview.controlState.executions[intent.id]=this.stored(current.context.id,item.execution,core.counterNext(current.context.revision,'Context revision'),principalId,intent.id);
       preview.controlState.executionOrigins[intent.id]=item.origin;prepared.push(item);
     }
     return prepared;

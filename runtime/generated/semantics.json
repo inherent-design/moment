@@ -52,7 +52,7 @@
     },
     {
       "path": "proof/Moment.lean",
-      "digest": "sha256:6af852f13181516dd1cdeb126a754240abb78c4b4ea51ea5d4b5b0a6be19e1a1"
+      "digest": "sha256:c51ca054ff65fee61ccf8c4eb22c6a10602a95bab12a69844c3495eb2d946e78"
     },
     {
       "path": "runtime/json.mjs",
@@ -64,7 +64,7 @@
     },
     {
       "path": "runtime/semantic-core.mjs",
-      "digest": "sha256:4db7f75dbd729a64fce283901a2569f3572a87b8d40543da1a75baa54c12d191"
+      "digest": "sha256:05c09b44c136b3594ba0beb2730b7f6707edae2ba2fca5648758b252be3c8145"
     },
     {
       "path": "runtime/semantic-manifest.mjs",
@@ -76,7 +76,7 @@
     },
     {
       "path": "scripts/core-correspondence.mjs",
-      "digest": "sha256:1ac09a44768b328022527ec016032929507814af9af9a62a27ef8892c650a208"
+      "digest": "sha256:cf8660974b2809aec636ebec76173f70df23d72a5fc930f90553d56007cde1cd"
     },
     {
       "path": "scripts/core-tools.mjs",

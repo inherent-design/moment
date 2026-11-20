@@ -6,6 +6,7 @@ import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { canonical, digest, fail, resultError } from './json.mjs';
+import {counterNext} from './semantic-core.mjs';
 
 /** A candidate is reclaimable only after its recorded child is observed dead. */
 export function startupStatus(value) {
@@ -165,7 +166,7 @@ export class Store {
       if (prior) { this.db.exec('COMMIT'); return { ok: true, value: prior.commit }; }
       const snapshot = this.read(m.contextId);
       if (snapshot.context.revision !== m.expectedRevision) fail('REVISION_CONFLICT', 'Context changed since observation', 'refresh');
-      const revision = m.expectedRevision + 1;
+      const revision = counterNext(m.expectedRevision,'Context revision');
       const now = new Date().toISOString();
       const wrap = value => ({ value, ref: { systemId: this.systemId, contextId: m.contextId, id: value.id }, digest: digest(value), recordedAt: now, recordedBy: principalId, revision });
       applyGraph(snapshot,batch.changes,wrap,{ systemId:this.systemId,contextId:m.contextId,revision });
@@ -176,7 +177,7 @@ export class Store {
       }
       const row = this.db.prepare('SELECT COALESCE(MAX(sequence),0) AS sequence FROM events WHERE context_id=?').get(m.contextId);
       let sequence = row.sequence;
-      const events = batch.events.map(event => ({ ...event, contextId: m.contextId, sequence: ++sequence, revision, recordedAt: now }));
+      const events = batch.events.map(event => {sequence=counterNext(sequence,'Event sequence');return { ...event, contextId: m.contextId, sequence, revision, recordedAt: now };});
       for (const event of events) this.db.prepare('INSERT INTO events VALUES (?, ?, ?, ?)').run(m.contextId, event.sequence, event.id, canonical(event));
       for (const intent of batch.outbox) {
         if (this.db.prepare('SELECT 1 FROM outbox WHERE context_id=? AND execution_id=?').get(m.contextId, intent.id)) fail('IDENTITY_CONFLICT', 'Execution identity already queued');

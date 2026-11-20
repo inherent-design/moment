@@ -139,6 +139,9 @@ const quantities=value=>({$:'BudgetQuantities',...Object.fromEntries(Object.entr
 const amount=value=>value===Infinity?{$:'BudgetOverflow'}:{$:'BudgetFinite',count:count(value)};
 const balance=value=>({$:'BudgetBalance',...Object.fromEntries(Object.entries(accountingFields).map(([key,field])=>[field,amount(value[key])]))});
 export const resourceAdd=(a,b)=>amountValue(Core.resource_add(count(a),count(b)));
+export function counterNext(value,label='Journal counter') {
+ const next=resourceAdd(value,1);if(next===Infinity)fail('LIMIT_EXCEEDED',label+' exhausted');return next;
+}
 export const resourceLessOrEqual=(a,b)=>coreBoolean(Core.resource_le(count(a),count(b)));
 export function resourceTotals(entries,grantId) {
  const scoped=entries.filter(({origin})=>grantId===undefined||Core.text_contains(list(origin.grantIds),grantId));
