@@ -9,6 +9,7 @@ import ./policy-query.bend as PQ
 import ./control.bend as Control
 import ./awareness.bend as Aware
 import ./guidance.bend as Guide
+import ./memory.bend as Mem
 
 law deny_precedence:
   for permits: Core.Truth
@@ -609,3 +610,165 @@ law guidance_ambiguous_quotation_stays_ambiguous:
 
 law guidance_editorial_quotation_is_explicit:
   {Core.guidance_quote(1, True{}) == Guide.GuidanceQuoteEditorial{} : Guide.Quote}
+
+
+law memory_unknown_is_not_terminal:
+  {Core.memory_terminal("unknown") == False{} : Bool}
+
+
+law memory_unknown_keeps_pending_custody:
+  {Core.memory_pending("unknown") == True{} : Bool}
+
+
+law memory_exchange_cannot_become_focus_source:
+  for authorship: String
+  {Core.memory_focus_source(authorship, "referenced-exchange") == False{} : Bool}
+
+
+law memory_human_submission_is_useful:
+  {Core.memory_focus_source("human", "submission") == True{} : Bool}
+
+
+law memory_union_keeps_source_order:
+  {Core.memory_selectable(Con{"a", Nil{}}, Con{"b", Con{"a", Nil{}}}, Con{"c", Nil{}}) == Con{"a", Con{"b", Con{"c", Nil{}}}} : +List<String>}
+
+
+law memory_exchange_remains_context:
+  {Core.memory_context(Con{"a", Con{"exchange", Nil{}}}, Con{"a", Nil{}}) == Con{"exchange", Nil{}} : +List<String>}
+
+
+law memory_focus_header_preserves_high_revision:
+  {Core.memory_focus_header(Budget.BudgetCount{1, 0}, Budget.BudgetCount{0, 0}) == Mem.MemoryFocusStale{} : Mem.FocusHeader}
+
+
+law memory_equal_focus_still_needs_projection:
+  {Core.memory_focus_header(Budget.BudgetCount{1, 0}, Budget.BudgetCount{1, 0}) == Mem.MemoryFocusNeedsProjection{} : Mem.FocusHeader}
+
+
+law memory_full_existing_set_is_reusable:
+  for count: Budget.Count
+  for maximum: Budget.Count
+  {Core.memory_focus_select(True{}, False{}, count, maximum) == Mem.MemoryReuseSet{} : Mem.FocusSelect}
+
+
+law memory_existing_set_cannot_be_reseeded:
+  for count: Budget.Count
+  for maximum: Budget.Count
+  {Core.memory_focus_select(True{}, True{}, count, maximum) == Mem.MemorySeedForExisting{} : Mem.FocusSelect}
+
+
+law memory_pending_set_cannot_be_released:
+  for released: String
+  for current: String
+  for present: Bool
+  for replacement: String
+  {Core.memory_focus_release(True{}, True{}, released, current, present, replacement) == Mem.MemoryReleasePending{} : Mem.FocusRelease}
+
+
+law memory_initial_opt_out_is_an_observation:
+  {Core.memory_configure(Budget.BudgetCount{0, 0}, Budget.BudgetCount{0, 0}, Budget.BudgetCount{0, 0}, Budget.BudgetCount{0, 1}, False{}, False{}) == Mem.MemoryConfigurationChange{} : Mem.Configuration}
+
+
+law memory_opt_out_keeps_unknown_execution:
+  {Core.memory_disable_input(False{}, True{}, "unknown") == False{} : Bool}
+
+
+law memory_disabled_enrollment_cannot_admit:
+  for revision: Budget.Count
+  for expected: Budget.Count
+  {Core.memory_enrollment(False{}, revision, expected) == Mem.MemoryEnrollmentDisabled{} : Mem.Enrollment}
+
+
+law memory_explicit_target_survives_focus_change:
+  for focus: Budget.Count
+  {Core.memory_admission(True{}, True{}, False{}, focus, Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 0}, Budget.BudgetCount{0, 1}) == Mem.MemoryInputReady{} : Mem.Admission}
+
+
+law memory_ambiguous_operator_input_refuses:
+  for sequence: Budget.Count
+  for inputs: Budget.Count
+  for pending: Budget.Count
+  for maximum: Budget.Count
+  {Core.memory_admission(True{}, False{}, False{}, Budget.BudgetCount{0, 1}, sequence, inputs, pending, maximum) == Mem.MemoryTargetAmbiguous{} : Mem.Admission}
+
+
+law memory_busy_dispatch_blocks_new_work:
+  for pending: Bool
+  {Core.memory_claim(True{}, pending) == Mem.MemoryBusy{} : Mem.Claim}
+
+
+law memory_ready_input_can_progress:
+  {Core.memory_claim(False{}, True{}) == Mem.MemoryLoadInput{} : Mem.Claim}
+
+
+law memory_dormant_result_does_not_restore_focus:
+  {Core.memory_basis(True{}, "set", True{}, "set", Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 2}, Budget.BudgetCount{0, 1}, "other", Budget.BudgetCount{0, 99}, Budget.BudgetCount{0, 1}) == Mem.MemoryBasisDormant{} : Mem.CompletionBasis}
+
+
+law memory_changed_destination_refuses_late_result:
+  {Core.memory_basis(True{}, "set", True{}, "set", Budget.BudgetCount{0, 2}, Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 2}, Budget.BudgetCount{0, 1}, "other", Budget.BudgetCount{0, 99}, Budget.BudgetCount{0, 1}) == Mem.MemoryBasisStale{} : Mem.CompletionBasis}
+
+
+law memory_observed_failure_is_not_selection:
+  for bounded: Bool
+  for schema: Bool
+  for replace: Bool
+  {Core.memory_output(True{}, bounded, schema, replace) == Mem.MemoryObservedFailure{} : Mem.Output}
+
+
+law memory_context_only_entry_is_refused:
+  {Core.memory_selection(Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 5}, Con{"exchange", Nil{}}, Con{"a", Nil{}}) == Mem.MemorySelectionUnknown{} : Mem.Selection}
+
+
+law memory_duplicate_source_cannot_split_cache_unit:
+  {Core.memory_selection(Budget.BudgetCount{0, 2}, Budget.BudgetCount{0, 5}, Con{"a", Con{"a", Nil{}}}, Con{"a", Nil{}}) == Mem.MemorySelectionBound{} : Mem.Selection}
+
+
+law memory_supplied_unique_selection_is_useful:
+  {Core.memory_selection(Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 5}, Con{"a", Nil{}}, Con{"a", Nil{}}) == Mem.MemorySelectionReady{} : Mem.Selection}
+
+
+law memory_not_started_can_release_unknown_custody:
+  {Core.memory_reconcile(True{}, "d", "d", "unknown", "not_started") == Mem.MemoryReconcileRetry{} : Mem.Reconciliation}
+
+
+law memory_uncertain_cancel_is_not_termination:
+  {Core.memory_cancel_status("unknown") == "unknown" : String}
+
+
+law memory_disabled_automation_does_not_claim_coverage:
+  for issue: Bool
+  for observed: Bool
+  for revision: Budget.Count
+  for observed_revision: Budget.Count
+  {Core.memory_automation(False{}, issue, observed, revision, observed_revision) == Mem.MemoryAutomationOff{} : Mem.Automation}
+
+
+law memory_assistant_is_not_submitted_user_evidence:
+  {Core.memory_observation("assistant") == Mem.MemoryObservationReject{} : Mem.Observation}
+
+
+law memory_rebuild_uses_selected_epoch:
+  {Core.memory_rebuild_basis(True{}, Budget.BudgetCount{0, 99}, Budget.BudgetCount{0, 0}, Budget.BudgetCount{1, 0}, Budget.BudgetCount{1, 0}) == True{} : Bool}
+
+
+law memory_unknown_dispatch_cannot_prepare:
+  {Core.memory_dispatch(True{}, "d", "d", "unknown", True{}) == False{} : Bool}
+
+
+law memory_exhausted_sequence_has_no_successor:
+  {Core.memory_head_due("pending", Budget.BudgetCount{0, 0}, Budget.BudgetCount{2097151, 4294967295}) == False{} : Bool}
+
+
+law memory_unknown_head_does_not_run:
+  for sequence: Budget.Count
+  for processed: Budget.Count
+  {Core.memory_head_due("unknown", sequence, processed) == False{} : Bool}
+
+
+law memory_empty_heads_do_not_invent_work:
+  {Core.memory_next_head(Nil{}) == Mem.MemoryNoHead{} : Mem.NextHead}
+
+
+law memory_full_signed_row_order_is_preserved:
+  {Core.memory_next_head(Con{Mem.MemoryHead{0, Mem.MemoryOrdinal{4294967295, 4294967295}, "pending", Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 0}}, Con{Mem.MemoryHead{1, Mem.MemoryOrdinal{0, 0}, "pending", Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 0}}, Nil{}}}) == Mem.MemoryNextHead{1, Mem.MemoryOrdinal{0, 0}} : Mem.NextHead}

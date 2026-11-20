@@ -501,3 +501,139 @@ def Laws.guidance_ambiguous_quotation_stays_ambiguous(editorial):
 
 def Laws.guidance_editorial_quotation_is_explicit():
   {==}
+
+
+def Laws.memory_unknown_is_not_terminal():
+  {==}
+
+
+def Laws.memory_unknown_keeps_pending_custody():
+  {==}
+
+
+def Laws.memory_exchange_cannot_become_focus_source(authorship):
+  {==}
+
+
+def Laws.memory_human_submission_is_useful():
+  {==}
+
+
+def Laws.memory_union_keeps_source_order():
+  {==}
+
+
+def Laws.memory_exchange_remains_context():
+  {==}
+
+
+def Laws.memory_focus_header_preserves_high_revision():
+  {==}
+
+
+def Laws.memory_equal_focus_still_needs_projection():
+  {==}
+
+
+def Laws.memory_full_existing_set_is_reusable(count, maximum):
+  {==}
+
+
+def Laws.memory_existing_set_cannot_be_reseeded(count, maximum):
+  {==}
+
+
+def Laws.memory_pending_set_cannot_be_released(released, current, present, replacement):
+  {==}
+
+
+def Laws.memory_initial_opt_out_is_an_observation():
+  {==}
+
+
+def Laws.memory_opt_out_keeps_unknown_execution():
+  {==}
+
+
+def Laws.memory_disabled_enrollment_cannot_admit(revision, expected):
+  {==}
+
+
+def Laws.memory_explicit_target_survives_focus_change(focus):
+  {==}
+
+
+def Laws.memory_ambiguous_operator_input_refuses(sequence, inputs, pending, maximum):
+  {==}
+
+
+def Laws.memory_busy_dispatch_blocks_new_work(pending):
+  {==}
+
+
+def Laws.memory_ready_input_can_progress():
+  {==}
+
+
+def Laws.memory_dormant_result_does_not_restore_focus():
+  {==}
+
+
+def Laws.memory_changed_destination_refuses_late_result():
+  {==}
+
+
+def Laws.memory_observed_failure_is_not_selection(bounded, schema, replace):
+  {==}
+
+
+def Laws.memory_context_only_entry_is_refused():
+  {==}
+
+
+def Laws.memory_duplicate_source_cannot_split_cache_unit():
+  {==}
+
+
+def Laws.memory_supplied_unique_selection_is_useful():
+  {==}
+
+
+def Laws.memory_not_started_can_release_unknown_custody():
+  {==}
+
+
+def Laws.memory_uncertain_cancel_is_not_termination():
+  {==}
+
+
+def Laws.memory_disabled_automation_does_not_claim_coverage(issue, observed, revision, observed_revision):
+  {==}
+
+
+def Laws.memory_assistant_is_not_submitted_user_evidence():
+  {==}
+
+
+def Laws.memory_rebuild_uses_selected_epoch():
+  {==}
+
+
+def Laws.memory_unknown_dispatch_cannot_prepare():
+  {==}
+
+
+def Laws.memory_exhausted_sequence_has_no_successor():
+  {==}
+
+
+def Laws.memory_unknown_head_does_not_run(sequence, processed):
+  {==}
+
+
+def Laws.memory_empty_heads_do_not_invent_work():
+  {==}
+
+
+def Laws.memory_full_signed_row_order_is_preserved():
+  {==}

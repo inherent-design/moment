@@ -1120,6 +1120,170 @@ theorem gui_missing_output_stays_uncertain : guiResult "observed" false false = 
 theorem gui_quote_ambiguity_preserved (editorial : Bool) : guiQuote 2 editorial = "GuidanceQuoteAmbiguous" := rfl
 theorem gui_editorial_is_explicit : guiQuote 1 true = "GuidanceQuoteEditorial" := rfl
 
+def memTerminal (status : String) : Bool := ["succeeded","failed","cancelled","skipped"].contains status
+def memPending (status : String) : Bool := ["pending","running","unknown"].contains status
+def memGap (status : String) : Bool := ["failed","cancelled"].contains status
+def memUser (authorship : String) : Bool := authorship == "human" || authorship == "unknown"
+def memFocusSource (authorship origin : String) : Bool := origin != "referenced-exchange" && memUser authorship
+def memSelectable (cache incoming focus : List String) : List String := schUnique (cache ++ incoming ++ focus)
+def memContext (sources selected : List String) : List String := sources.filter (fun source => !selected.contains source)
+def memFocusHeader (current expected : Nat) : String := if current == expected then "MemoryFocusNeedsProjection" else "MemoryFocusStale"
+def memFocusProjection (same : Bool) : String := if same then "MemoryFocusReady" else "MemoryProjectionChanged"
+def memFocusSelect (present seed : Bool) (count maximum : Nat) : String :=
+  if present then if seed then "MemorySeedForExisting" else "MemoryReuseSet" else if count ≥ maximum then "MemorySetFull" else "MemoryCreateSet"
+def memFocusRelease (present pending : Bool) (released current : String) (replacement : Option String) : String :=
+  if !present then "MemoryReleaseMissing" else if pending then "MemoryReleasePending" else
+  let active := released == current
+  let next := if active then replacement.getD "" else current
+  if next == "" || next == released then "MemoryReleaseReplacement" else if replacement.isSome && !active then "MemoryReleaseUnexpected" else "MemoryReleaseTarget:" ++ next
+def memFocusChanged (created edited : Bool) (target current : String) : Bool := created || edited || target != current
+def memConfigure (revision expected receipts maximum : Nat) (current requested : Bool) : String :=
+  if revision != expected then "MemoryConfigurationStale" else if receipts ≥ maximum then "MemoryConfigurationFull"
+  else if revision == 0 || current != requested then "MemoryConfigurationChange" else "MemoryConfigurationSame"
+def memDisable (enabled automatic : Bool) (status : String) : Bool := !enabled && automatic && status == "pending"
+def memEnrollment (enabled : Bool) (revision expected : Nat) : String :=
+  if !enabled then "MemoryEnrollmentDisabled" else if revision != expected then "MemoryEnrollmentStale" else "MemoryEnrollmentReady"
+def memAdmission (present explicit automatic : Bool) (focus sequence maximumInputs pending maximumPending : Nat) : String :=
+  if !present then "MemoryTargetMissing" else if !explicit && !automatic && focus != 0 then "MemoryTargetAmbiguous"
+  else if sequence > maximumInputs then "MemoryInputFull" else if pending ≥ maximumPending then "MemoryBacklogFull" else "MemoryInputReady"
+def memClaim (active pending : Bool) : String := if active then "MemoryBusy" else if pending then "MemoryLoadInput" else "MemoryIdle"
+structure MemBasis where
+  present : Bool := true
+  target : String := "set"
+  dispatchTarget : Option String := some "set"
+  targetRevision : Nat := 0
+  targetBasis : Nat := 0
+  processed : Nat := 0
+  processedBasis : Nat := 0
+  focusRevision : Nat := 0
+  focusBasis : Nat := 0
+  current : String := "set"
+  cacheRevision : Nat := 0
+  cacheBasis : Nat := 0
+  deriving Repr
+def memBasis (b : MemBasis) : String :=
+  if !b.present || !(b.dispatchTarget.map (· == b.target) |>.getD true) then "MemoryBasisIdentity"
+  else if b.targetRevision != b.targetBasis || b.processed != b.processedBasis || (b.focusRevision == b.focusBasis && b.current == b.target && b.cacheRevision != b.cacheBasis) then "MemoryBasisStale"
+  else if b.current == b.target then "MemoryBasisActive" else "MemoryBasisDormant"
+def memOutput (failure bounded schema replace : Bool) : String :=
+  if failure then "MemoryObservedFailure" else if !(bounded && schema) then "MemoryInvalidOutput" else if replace then "MemoryCheckSelection" else "MemoryKeepEntries"
+def memEntrySelection (selected eligible : List String) (capacity : Nat) : String :=
+  if selected.length > capacity || (schUnique selected).length != selected.length then "MemorySelectionBound"
+  else if !(selected.all eligible.contains) then "MemorySelectionUnknown" else "MemorySelectionReady"
+def memReconcile (present : Bool) (actual expected status kind : String) : String :=
+  if !present || actual != expected || status != "unknown" then "MemoryReconcileInvalid"
+  else if kind == "observed" then "MemoryReconcileOutput" else if kind == "failed" then "MemoryReconcileFailure"
+  else if kind == "not_started" then "MemoryReconcileRetry" else if kind == "cancelled" then "MemoryReconcileCancelled" else "MemoryReconcileInvalid"
+def memCancel (present : Bool) (current requested : String) (sequence expected : Nat) : Bool := present && current == requested && sequence == expected
+def memCancelStatus (status : String) : String := if status == "pending" then "cancelled" else status
+def memAutomation (enabled issue observed : Bool) (revision observedRevision : Nat) : String :=
+  if !enabled then "MemoryAutomationOff" else if issue then "MemoryAutomationUnavailable" else if observed && revision == observedRevision then "MemoryAutomationObserved" else "MemoryAutomationAwaiting"
+def memObservation (authorship : String) : String := if authorship == "harness" then "MemoryObservationSkip" else if memUser authorship then "MemoryObservationQueue" else "MemoryObservationReject"
+def memRebuild (explicit : Bool) (cache expectedCache working expectedWorking : Nat) : Bool := if explicit then working == expectedWorking else cache == expectedCache
+def memDispatch (present : Bool) (actual expected status : String) (preparing : Bool) : Bool := present && actual == expected && (!preparing || status == "running")
+def memHeadDue (status : String) (sequence processed : Nat) : Bool := status == "pending" && sequence == processed+1
+structure MemHead where
+  index : Nat
+  order : Int
+  status : String
+  sequence : Nat
+  processed : Nat
+  deriving DecidableEq, Repr
+def memHeadStep (selected : Option MemHead) (head : MemHead) : Option MemHead :=
+  if !memHeadDue head.status head.sequence head.processed then selected else match selected with
+  | none => some head
+  | some old => if head.order < old.order then some head else some old
+def memNextHead (heads : List MemHead) : Option MemHead := heads.foldl memHeadStep none
+
+theorem mem_unknown_is_not_terminal : memTerminal "unknown" = false := rfl
+theorem mem_unknown_remains_pending : memPending "unknown" = true := rfl
+theorem mem_exchange_is_not_focus_source (authorship : String) : memFocusSource authorship "referenced-exchange" = false := rfl
+theorem mem_human_submission_is_useful : memFocusSource "human" "submission" = true := rfl
+theorem mem_stale_focus_needs_refresh (a b : Nat) (h : a ≠ b) : memFocusHeader a b = "MemoryFocusStale" := by simp [memFocusHeader,h]
+theorem mem_equal_focus_still_needs_projection (a : Nat) : memFocusHeader a a = "MemoryFocusNeedsProjection" := by simp [memFocusHeader]
+theorem mem_full_existing_set_is_reusable (count maximum : Nat) : memFocusSelect true false count maximum = "MemoryReuseSet" := rfl
+theorem mem_pending_release_keeps_custody (released current : String) (replacement : Option String) : memFocusRelease true true released current replacement = "MemoryReleasePending" := rfl
+theorem mem_initial_opt_out_is_recorded : memConfigure 0 0 0 1 false false = "MemoryConfigurationChange" := rfl
+theorem mem_disable_preserves_uncertainty : memDisable false true "unknown" = false := rfl
+theorem mem_disabled_cannot_admit (revision expected : Nat) : memEnrollment false revision expected = "MemoryEnrollmentDisabled" := rfl
+theorem mem_explicit_target_survives_focus_change (focus : Nat) : memAdmission true true false focus 1 1 0 1 = "MemoryInputReady" := rfl
+theorem mem_active_dispatch_blocks_new_work (pending : Bool) : memClaim true pending = "MemoryBusy" := rfl
+theorem mem_pending_can_progress : memClaim false true = "MemoryLoadInput" := rfl
+theorem mem_missing_target_cannot_finish (b : MemBasis) : memBasis {b with present:=false} = "MemoryBasisIdentity" := rfl
+theorem mem_dormant_result_keeps_its_destination (revision processed focus focusBasis cache cacheBasis : Nat) :
+    memBasis {targetRevision:=revision,targetBasis:=revision,processed,processedBasis:=processed,focusRevision:=focus,focusBasis,current:="other",cacheRevision:=cache,cacheBasis} = "MemoryBasisDormant" := by simp [memBasis]
+theorem mem_changed_target_refuses_late_result (cache focus : Nat) :
+    memBasis {targetRevision:=1,targetBasis:=0,focusRevision:=focus,current:="other",cacheRevision:=cache} = "MemoryBasisStale" := rfl
+theorem mem_current_epoch_preserves_cache_basis (a b : Nat) (h : a ≠ b) :
+    memBasis {cacheRevision:=a,cacheBasis:=b} = "MemoryBasisStale" := by simp [memBasis,h]
+theorem mem_observed_failure_preserves_selection (bounded schema replace : Bool) : memOutput true bounded schema replace = "MemoryObservedFailure" := rfl
+theorem mem_unchanged_is_useful : memOutput false true true false = "MemoryKeepEntries" := rfl
+theorem mem_not_started_requires_unknown (status kind : String) (h : status ≠ "unknown") : memReconcile true "d" "d" status kind = "MemoryReconcileInvalid" := by simp [memReconcile,h]
+theorem mem_unknown_cancel_is_not_acknowledgment : memCancelStatus "unknown" = "unknown" := rfl
+theorem mem_automation_off_is_not_coverage (issue observed : Bool) (revision observedRevision : Nat) : memAutomation false issue observed revision observedRevision = "MemoryAutomationOff" := rfl
+theorem mem_assistant_is_not_submission : memObservation "assistant" = "MemoryObservationReject" := rfl
+theorem mem_rebuild_uses_selected_epoch (cache expectedCache working : Nat) : memRebuild true cache expectedCache working working = true := by simp [memRebuild]
+theorem mem_unknown_cannot_prepare : memDispatch true "d" "d" "unknown" true = false := rfl
+theorem mem_unknown_head_is_not_runnable (sequence processed : Nat) : memHeadDue "unknown" sequence processed = false := rfl
+theorem mem_head_step_keeps_unready (selected : Option MemHead) (head : MemHead) (h : memHeadDue head.status head.sequence head.processed = false) : memHeadStep selected head = selected := by simp [memHeadStep,h]
+theorem mem_ready_single_head_progresses (head : MemHead) (h : memHeadDue head.status head.sequence head.processed = true) : memNextHead [head] = some head := by simp [memNextHead,memHeadStep,h]
+theorem mem_step_result_is_observed (selected : Option MemHead) (head chosen : MemHead) (h : memHeadStep selected head = some chosen) : chosen = head ∨ selected = some chosen := by
+  cases ready : memHeadDue head.status head.sequence head.processed with
+  | false => exact Or.inr (by simpa [memHeadStep,ready] using h)
+  | true =>
+    cases selected with
+    | none =>
+      have same : head = chosen := by simpa [memHeadStep,ready] using h
+      exact Or.inl same.symm
+    | some old =>
+      by_cases earlier : head.order < old.order
+      · have same : head = chosen := by simpa [memHeadStep,ready,earlier] using h
+        exact Or.inl same.symm
+      · exact Or.inr (by simpa [memHeadStep,ready,earlier] using h)
+
+theorem mem_selected_head_is_observed (heads : List MemHead) (selected : Option MemHead) (chosen : MemHead) (h : heads.foldl memHeadStep selected = some chosen) : chosen ∈ heads ∨ selected = some chosen := by
+  induction heads generalizing selected with
+  | nil => exact Or.inr h
+  | cons head tail ih =>
+    have next := ih (memHeadStep selected head) h
+    rcases next with ht | hs
+    · exact Or.inl (List.mem_cons_of_mem head ht)
+    · rcases mem_step_result_is_observed selected head chosen hs with he | ho
+      · exact Or.inl (by simp [he])
+      · exact Or.inr ho
+
+#print axioms mem_unknown_is_not_terminal
+#print axioms mem_unknown_remains_pending
+#print axioms mem_exchange_is_not_focus_source
+#print axioms mem_human_submission_is_useful
+#print axioms mem_stale_focus_needs_refresh
+#print axioms mem_equal_focus_still_needs_projection
+#print axioms mem_full_existing_set_is_reusable
+#print axioms mem_pending_release_keeps_custody
+#print axioms mem_initial_opt_out_is_recorded
+#print axioms mem_disable_preserves_uncertainty
+#print axioms mem_disabled_cannot_admit
+#print axioms mem_explicit_target_survives_focus_change
+#print axioms mem_active_dispatch_blocks_new_work
+#print axioms mem_pending_can_progress
+#print axioms mem_missing_target_cannot_finish
+#print axioms mem_dormant_result_keeps_its_destination
+#print axioms mem_changed_target_refuses_late_result
+#print axioms mem_current_epoch_preserves_cache_basis
+#print axioms mem_observed_failure_preserves_selection
+#print axioms mem_unchanged_is_useful
+#print axioms mem_not_started_requires_unknown
+#print axioms mem_unknown_cancel_is_not_acknowledgment
+#print axioms mem_automation_off_is_not_coverage
+#print axioms mem_assistant_is_not_submission
+#print axioms mem_rebuild_uses_selected_epoch
+#print axioms mem_unknown_cannot_prepare
+#print axioms mem_unknown_head_is_not_runnable
+#print axioms mem_head_step_keeps_unready
+#print axioms mem_ready_single_head_progresses
+#print axioms mem_step_result_is_observed
+#print axioms mem_selected_head_is_observed
+
 #print axioms gui_root_is_useful
 #print axioms gui_path_requires_same_host
 #print axioms gui_existing_update_ignores_capacity
@@ -2136,3 +2300,121 @@ def main : IO Unit := do
         IO.println s!"case|guiEditorial|{present}|{occurrences}|{asciiInitial}|{Moment.guiEditorial present occurrences asciiInitial}"
   for count in [0,2047,2048,2147483647] do
     IO.println s!"case|guiCaptureRoom|{count}|{Moment.guiCaptureRoom count}"
+
+  let memStatuses := ["pending","running","unknown","succeeded","failed","cancelled","skipped","other",""]
+  for status in memStatuses do
+    IO.println s!"case|memStatus|{status}|{Moment.memTerminal status}:{Moment.memPending status}:{Moment.memGap status}"
+    IO.println s!"case|memCancelStatus|{status}|{Moment.memCancelStatus status}"
+  for authorship in ["human","unknown","assistant","harness","other"] do
+    IO.println s!"case|memObservation|{authorship}|{Moment.memObservation authorship}"
+    for origin in ["submission","referenced-exchange","selected-history"] do
+      IO.println s!"case|memUser|{authorship}|{origin}|{Moment.memUser authorship}:{Moment.memFocusSource authorship origin}"
+  let memLists := [[],["a"],["b","a"],["a","a"]]
+  let memSources := [[],["a"],["b"],["a","b"],["b","a"],["context"],["a","context","context"]]
+  for (cache,ci) in memLists.zipIdx do
+    for (incoming,ii) in memLists.zipIdx do
+      for (focus,fi) in memLists.zipIdx do
+        for (sources,si) in memSources.zipIdx do
+          for capacity in [1,5,32] do
+            let selected := Moment.memSelectable cache incoming focus
+            IO.println s!"case|memSelection|{ci}|{ii}|{fi}|{si}|{capacity}|{String.intercalate "," selected}:{String.intercalate "," (Moment.memContext sources selected)}:{min capacity selected.length}"
+  for current in budgetValues do
+    for expected in budgetValues do
+      IO.println s!"case|memFocusHeader|{current}|{expected}|{Moment.memFocusHeader current expected}"
+  for projection in [false,true] do
+    IO.println s!"case|memFocusProjection|{projection}|{Moment.memFocusProjection projection}"
+  for present in [false,true] do
+    for seed in [false,true] do
+      for count in [0,1,8,9,9007199254740991] do
+        for maximum in [1,8,9007199254740991] do
+          IO.println s!"case|memFocusSelect|{present}|{seed}|{count}|{maximum}|{Moment.memFocusSelect present seed count maximum}"
+  let memReplacements : List (Option String) := [none,some "",some "released",some "current",some "other"]
+  for present in [false,true] do
+    for pending in [false,true] do
+      for active in [false,true] do
+        for (replacement,index) in memReplacements.zipIdx do
+          IO.println s!"case|memFocusRelease|{present}|{pending}|{active}|{index}|{Moment.memFocusRelease present pending "released" (if active then "released" else "current") replacement}"
+  for created in [false,true] do
+    for edited in [false,true] do
+      for same in [false,true] do
+        IO.println s!"case|memFocusChanged|{created}|{edited}|{same}|{Moment.memFocusChanged created edited "target" (if same then "target" else "other")}"
+  let memCounts := [0,1,9007199254740991]
+  for revision in memCounts do
+    for expected in memCounts do
+      for receipts in memCounts do
+        for maximum in [1,2] do
+          for current in [false,true] do
+            for requested in [false,true] do
+              IO.println s!"case|memConfigure|{revision}|{expected}|{receipts}|{maximum}|{current}|{requested}|{Moment.memConfigure revision expected receipts maximum current requested}"
+  for enabled in [false,true] do
+    for automatic in [false,true] do
+      for status in memStatuses do
+        IO.println s!"case|memDisable|{enabled}|{automatic}|{status}|{Moment.memDisable enabled automatic status}"
+  for enabled in [false,true] do
+    for revision in memCounts do
+      for expected in memCounts do
+        IO.println s!"case|memEnrollment|{enabled}|{revision}|{expected}|{Moment.memEnrollment enabled revision expected}"
+  for present in [false,true] do
+    for explicit in [false,true] do
+      for automatic in [false,true] do
+        for focus in memCounts do
+          for sequence in [1,2,9007199254740991] do
+            for maximumInputs in [1,2] do
+              for pending in memCounts do
+                for maximumPending in [1,2] do
+                  IO.println s!"case|memAdmission|{present}|{explicit}|{automatic}|{focus}|{sequence}|{maximumInputs}|{pending}|{maximumPending}|{Moment.memAdmission present explicit automatic focus sequence maximumInputs pending maximumPending}"
+  for active in [false,true] do
+    for pending in [false,true] do
+      IO.println s!"case|memClaim|{active}|{pending}|{Moment.memClaim active pending}"
+  for basis in [0,4294967296,9007199254740991] do
+    for mask in List.range 256 do
+      let flag := fun (index : Nat) => mask / 2^index % 2 == 1
+      let different := if basis == 0 then 1 else 0
+      let current : Moment.MemBasis := {present:=flag 0,dispatchTarget:=if flag 1 then some (if flag 2 then "set" else "other") else none,targetRevision:=if flag 3 then basis else different,targetBasis:=basis,processed:=if flag 4 then basis else different,processedBasis:=basis,focusRevision:=if flag 5 then basis else different,focusBasis:=basis,current:=if flag 6 then "set" else "other",cacheRevision:=if flag 7 then basis else different,cacheBasis:=basis}
+      IO.println s!"case|memBasis|{basis}|{mask}|{Moment.memBasis current}"
+  for failure in [false,true] do
+    for bounded in [false,true] do
+      for schema in [false,true] do
+        for replace in [false,true] do
+          IO.println s!"case|memOutput|{failure}|{bounded}|{schema}|{replace}|{Moment.memOutput failure bounded schema replace}"
+  let memEntries := [[],["a"],["a","a"],["a","b"],["context"],["a","context"]]
+  for (selected,index) in memEntries.zipIdx do
+    for mask in List.range 4 do
+      for capacity in [0,1,2,5] do
+        IO.println s!"case|memEntry|{index}|{mask}|{capacity}|{Moment.memEntrySelection selected (chooseMask ["a","b"] mask) capacity}"
+  for present in [false,true] do
+    for same in [false,true] do
+      for status in memStatuses do
+        for kind in ["observed","failed","not_started","cancelled","retry",""] do
+          IO.println s!"case|memReconcile|{present}|{same}|{status}|{kind}|{Moment.memReconcile present "d" (if same then "d" else "other") status kind}"
+  for present in [false,true] do
+    for sameKey in [false,true] do
+      for sameSequence in [false,true] do
+        for sequence in [0,4294967296,9007199254740991] do
+          IO.println s!"case|memCancel|{present}|{sameKey}|{sameSequence}|{sequence}|{Moment.memCancel present "key" (if sameKey then "key" else "other") sequence (if sameSequence then sequence else if sequence == 0 then 1 else 0)}"
+  for enabled in [false,true] do
+    for issue in [false,true] do
+      for observed in [false,true] do
+        for same in [false,true] do
+          for revision in [1,9007199254740991] do
+            IO.println s!"case|memAutomation|{enabled}|{issue}|{observed}|{same}|{revision}|{Moment.memAutomation enabled issue observed revision (if same then revision else 0)}"
+  for status in memStatuses do
+    for sequence in budgetValues do
+      for processed in budgetValues do
+        IO.println s!"case|memHeadDue|{status}|{sequence}|{processed}|{Moment.memHeadDue status sequence processed}"
+  for size in List.range 4 do
+    for code in List.range (16^size) do
+      let heads := (fromCode (List.range 16) size code).zipIdx.map fun (value,index) =>
+        ({index,order:=([(-9223372036854775808),(-1),1,9223372036854775807] : List Int)[value/4]!,status:=if value%2 == 1 then "pending" else "unknown",sequence:=if value/2%2 == 1 then 1 else 2,processed:=0} : Moment.MemHead)
+      IO.println s!"case|memNextHead|{size}|{code}|{(Moment.memNextHead heads).map (fun head => toString head.index) |>.getD "none"}"
+  for explicit in [false,true] do
+    for sameCache in [false,true] do
+      for sameWorking in [false,true] do
+        for revision in [0,4294967296,9007199254740991] do
+          let different := if revision == 0 then 1 else 0
+          IO.println s!"case|memRebuild|{explicit}|{sameCache}|{sameWorking}|{revision}|{Moment.memRebuild explicit revision (if sameCache then revision else different) revision (if sameWorking then revision else different)}"
+  for present in [false,true] do
+    for same in [false,true] do
+      for status in memStatuses do
+        for preparing in [false,true] do
+          IO.println s!"case|memDispatch|{present}|{same}|{status}|{preparing}|{Moment.memDispatch present "d" (if same then "d" else "other") status preparing}"

@@ -2631,6 +2631,244 @@ function $guidance_settlement(_state_0, _blocked_0) {
   return $Bool_and($$Bool_not(_blocked_0), $$execution_terminal(_state_0));
 }
 
+function $memory_terminal(_status_0) {
+  return $collections_contains({$: "Con", "head": "succeeded", "tail": {$: "Con", "head": "failed", "tail": {$: "Con", "head": "cancelled", "tail": {$: "Con", "head": "skipped", "tail": {$: "Nil"}}}}}, _status_0);
+}
+
+function $memory_pending(_status_0) {
+  return $collections_contains({$: "Con", "head": "pending", "tail": {$: "Con", "head": "running", "tail": {$: "Con", "head": "unknown", "tail": {$: "Nil"}}}}, _status_0);
+}
+
+function $memory_gap(_status_0) {
+  return $collections_contains({$: "Con", "head": "failed", "tail": {$: "Con", "head": "cancelled", "tail": {$: "Nil"}}}, _status_0);
+}
+
+function $memory_user(_authorship_0) {
+  const _x_0 = $$String_eq(_authorship_0, "human");
+  const _x_1 = $$String_eq(_authorship_0, "unknown");
+  return (_x_0 || _x_1);
+}
+
+function $memory_focus_source(_authorship_0, _origin_0) {
+  return $Bool_and($$Bool_not($$String_eq(_origin_0, "referenced-exchange")), $$memory_user(_authorship_0));
+}
+
+function $memory_selectable(_cache_0, _incoming_0, _focus_0) {
+  return $collections_union($$collections_union(_cache_0, _incoming_0), _focus_0);
+}
+
+function $memory_context_fold($0, $1, $2) {
+  for (;;) {
+    {
+      const _sources_0 = $0;
+      const _selected_0 = $1;
+      const _reversed_0 = $2;
+      if (_sources_0.$ === "Nil") {
+        return $List_reverse(_reversed_0);
+      } else {
+        const _head_0 = _sources_0["head"];
+        const _tail_0 = _sources_0["tail"];
+        $0 = _tail_0;
+        $1 = _selected_0;
+        $2 = $$Bool_pick($$collections_contains(_selected_0, _head_0), _reversed_0, {$: "Con", "head": _head_0, "tail": _reversed_0});
+        continue;
+      }
+    }
+  }
+}
+
+function $memory_context(_sources_0, _selected_0) {
+  return $memory_context_fold(_sources_0, _selected_0, {$: "Nil"});
+}
+
+function $memory_focus_header(_current_0, _expected_0) {
+  return $Bool_pick($$accounting_equal(_current_0, _expected_0), {$: "MemoryFocusNeedsProjection"}, {$: "MemoryFocusStale"});
+}
+
+function $memory_focus_projection(_projection_0) {
+  return $Bool_pick(_projection_0, {$: "MemoryFocusReady"}, {$: "MemoryProjectionChanged"});
+}
+
+function $memory_focus_select(_present_0, _seed_0, _count_0, _maximum_0) {
+  return $Bool_pick(_present_0, $$Bool_pick(_seed_0, {$: "MemorySeedForExisting"}, {$: "MemoryReuseSet"}), $$Bool_pick($$accounting_le(_maximum_0, _count_0), {$: "MemorySetFull"}, {$: "MemoryCreateSet"}));
+}
+
+function $memory_release_next(_next_0, _released_0, _active_0, _replacement_0) {
+  const _x_0 = $$String_eq(_next_0, "");
+  const _x_1 = $$String_eq(_next_0, _released_0);
+  return $Bool_pick((_x_0 || _x_1), {$: "MemoryReleaseReplacement"}, $$Bool_pick($$Bool_and(_replacement_0, $$Bool_not(_active_0)), {$: "MemoryReleaseUnexpected"}, {$: "MemoryReleaseTarget", "id": _next_0}));
+}
+
+function $memory_focus_release(_present_0, _pending_0, _released_0, _current_0, _replacement_present_0, _replacement_0) {
+  const _active_0 = $$String_eq(_current_0, _released_0);
+  return $Bool_pick(_present_0, $$Bool_pick(_pending_0, {$: "MemoryReleasePending"}, $$memory_release_next($$Bool_pick(_active_0, _replacement_0, _current_0), _released_0, _active_0, _replacement_present_0)), {$: "MemoryReleaseMissing"});
+}
+
+function $memory_focus_changed(_created_0, _edited_0, _target_0, _current_0) {
+  const _x_0 = (_created_0 || _edited_0);
+  const _x_1 = $$Bool_not($$String_eq(_target_0, _current_0));
+  return (_x_0 || _x_1);
+}
+
+function $memory_configure(_revision_0, _expected_0, _receipts_0, _maximum_0, _current_0, _requested_0) {
+  const _x_0 = $$accounting_equal(_revision_0, $$accounting_zero());
+  const _x_1 = (_current_0 !== _requested_0);
+  return $Bool_pick($$accounting_equal(_revision_0, _expected_0), $$Bool_pick($$accounting_le(_maximum_0, _receipts_0), {$: "MemoryConfigurationFull"}, $$Bool_pick((_x_0 || _x_1), {$: "MemoryConfigurationChange"}, {$: "MemoryConfigurationSame"})), {$: "MemoryConfigurationStale"});
+}
+
+function $memory_disable_input(_enabled_0, _automatic_0, _status_0) {
+  return $Bool_and($$Bool_not(_enabled_0), $$Bool_and(_automatic_0, $$String_eq(_status_0, "pending")));
+}
+
+function $memory_enrollment(_enabled_0, _revision_0, _expected_0) {
+  return $Bool_pick(_enabled_0, $$Bool_pick($$accounting_equal(_revision_0, _expected_0), {$: "MemoryEnrollmentReady"}, {$: "MemoryEnrollmentStale"}), {$: "MemoryEnrollmentDisabled"});
+}
+
+function $memory_admission(_present_0, _explicit_0, _automatic_0, _focus_0, _sequence_0, _maximum_inputs_0, _pending_0, _maximum_pending_0) {
+  return $Bool_pick(_present_0, $$Bool_pick($$Bool_and($$Bool_not(_explicit_0), $$Bool_and($$Bool_not(_automatic_0), $$Bool_not($$accounting_equal(_focus_0, $$accounting_zero())))), {$: "MemoryTargetAmbiguous"}, $$Bool_pick($$accounting_le(_sequence_0, _maximum_inputs_0), $$Bool_pick($$accounting_le(_maximum_pending_0, _pending_0), {$: "MemoryBacklogFull"}, {$: "MemoryInputReady"}), {$: "MemoryInputFull"})), {$: "MemoryTargetMissing"});
+}
+
+function $memory_claim(_active_0, _pending_0) {
+  return $Bool_pick(_active_0, {$: "MemoryBusy"}, $$Bool_pick(_pending_0, {$: "MemoryLoadInput"}, {$: "MemoryIdle"}));
+}
+
+function $memory_basis(_present_0, _target_0, _dispatch_target_present_0, _dispatch_target_0, _target_revision_0, _target_basis_0, _processed_0, _processed_basis_0, _focus_revision_0, _focus_basis_0, _current_0, _cache_revision_0, _cache_basis_0) {
+  const _active_0 = $$String_eq(_current_0, _target_0);
+  const _x_0 = $$Bool_not(_dispatch_target_present_0);
+  const _x_1 = $$String_eq(_target_0, _dispatch_target_0);
+  const _x_2 = $$Bool_not($$Bool_and($$accounting_equal(_focus_revision_0, _focus_basis_0), _active_0));
+  const _x_3 = $$accounting_equal(_cache_revision_0, _cache_basis_0);
+  return $Bool_pick($$Bool_and(_present_0, (_x_0 || _x_1)), $$Bool_pick($$Bool_and($$Bool_and($$accounting_equal(_target_revision_0, _target_basis_0), $$accounting_equal(_processed_0, _processed_basis_0)), (_x_2 || _x_3)), $$Bool_pick(_active_0, {$: "MemoryBasisActive"}, {$: "MemoryBasisDormant"}), {$: "MemoryBasisStale"}), {$: "MemoryBasisIdentity"});
+}
+
+function $memory_output(_failure_0, _bounded_0, _schema_0, _replace_0) {
+  return $Bool_pick(_failure_0, {$: "MemoryObservedFailure"}, $$Bool_pick($$Bool_and(_bounded_0, _schema_0), $$Bool_pick(_replace_0, {$: "MemoryCheckSelection"}, {$: "MemoryKeepEntries"}), {$: "MemoryInvalidOutput"}));
+}
+
+function $memory_distinct_fold($0, $1, $2) {
+  for (;;) {
+    {
+      const _values_0 = $0;
+      const _seen_0 = $1;
+      const _accepted_0 = $2;
+      if (_values_0.$ === "Nil") {
+        return _accepted_0;
+      } else {
+        const _head_0 = _values_0["head"];
+        const _tail_0 = _values_0["tail"];
+        $0 = _tail_0;
+        $1 = {$: "Con", "head": _head_0, "tail": _seen_0};
+        $2 = $$Bool_and(_accepted_0, $$Bool_not($$collections_contains(_seen_0, _head_0)));
+        continue;
+      }
+    }
+  }
+}
+
+function $memory_selection(_count_0, _capacity_0, _selected_0, _eligible_0) {
+  return $Bool_pick($$Bool_and($$accounting_le(_count_0, _capacity_0), $$memory_distinct_fold(_selected_0, {$: "Nil"}, true)), $$Bool_pick($$collections_subset(_selected_0, _eligible_0), {$: "MemorySelectionReady"}, {$: "MemorySelectionUnknown"}), {$: "MemorySelectionBound"});
+}
+
+function $memory_reconcile(_present_0, _actual_0, _expected_0, _status_0, _kind_0) {
+  return $Bool_pick($$Bool_and(_present_0, $$Bool_and($$String_eq(_actual_0, _expected_0), $$String_eq(_status_0, "unknown"))), $$Bool_pick($$String_eq(_kind_0, "observed"), {$: "MemoryReconcileOutput"}, $$Bool_pick($$String_eq(_kind_0, "failed"), {$: "MemoryReconcileFailure"}, $$Bool_pick($$String_eq(_kind_0, "not_started"), {$: "MemoryReconcileRetry"}, $$Bool_pick($$String_eq(_kind_0, "cancelled"), {$: "MemoryReconcileCancelled"}, {$: "MemoryReconcileInvalid"})))), {$: "MemoryReconcileInvalid"});
+}
+
+function $memory_cancel_uncertain(_present_0, _current_0, _requested_0, _sequence_0, _expected_0) {
+  return $Bool_and(_present_0, $$Bool_and($$String_eq(_current_0, _requested_0), $$accounting_equal(_sequence_0, _expected_0)));
+}
+
+function $memory_cancel_status(_status_0) {
+  return $Bool_pick($$String_eq(_status_0, "pending"), "cancelled", _status_0);
+}
+
+function $memory_automation(_enabled_0, _issue_0, _observed_0, _revision_0, _observed_revision_0) {
+  return $Bool_pick(_enabled_0, $$Bool_pick(_issue_0, {$: "MemoryAutomationUnavailable"}, $$Bool_pick($$Bool_and(_observed_0, $$accounting_equal(_revision_0, _observed_revision_0)), {$: "MemoryAutomationObserved"}, {$: "MemoryAutomationAwaiting"})), {$: "MemoryAutomationOff"});
+}
+
+function $memory_observation(_authorship_0) {
+  return $Bool_pick($$String_eq(_authorship_0, "harness"), {$: "MemoryObservationSkip"}, $$Bool_pick($$memory_user(_authorship_0), {$: "MemoryObservationQueue"}, {$: "MemoryObservationReject"}));
+}
+
+function $memory_head_matches(_sequence_0, _next_0) {
+  if (_next_0.$ === "BudgetOverflow") {
+    return false;
+  } else {
+    const _expected_0 = _next_0["count"];
+    return $accounting_equal(_sequence_0, _expected_0);
+  }
+}
+
+function $memory_head_due(_status_0, _sequence_0, _processed_0) {
+  return $Bool_and($$String_eq(_status_0, "pending"), $$memory_head_matches(_sequence_0, $$accounting_add(_processed_0, $$accounting_one())));
+}
+
+function $memory_ordinal_le(_left_0, _right_0) {
+  const _a_0 = _left_0["high"];
+  const _b_0 = _left_0["low"];
+  const _c_0 = _right_0["high"];
+  const _d_0 = _right_0["low"];
+  return $accounting_le({$: "BudgetCount", "high": _a_0, "low": _b_0}, {$: "BudgetCount", "high": _c_0, "low": _d_0});
+}
+
+function $memory_ordinal_equal(_left_0, _right_0) {
+  const _a_0 = _left_0["high"];
+  const _b_0 = _left_0["low"];
+  const _c_0 = _right_0["high"];
+  const _d_0 = _right_0["low"];
+  return $accounting_equal({$: "BudgetCount", "high": _a_0, "low": _b_0}, {$: "BudgetCount", "high": _c_0, "low": _d_0});
+}
+
+function $memory_choose_head(_index_0, _order_0, _selected_0) {
+  if (_selected_0.$ === "MemoryNoHead") {
+    return {$: "MemoryNextHead", "index": _index_0, "order": _order_0};
+  } else {
+    const _old_index_0 = _selected_0["index"];
+    const _old_order_0 = _selected_0["order"];
+    return $Bool_pick($$Bool_and($$memory_ordinal_le(_order_0, _old_order_0), $$Bool_not($$memory_ordinal_equal(_order_0, _old_order_0))), {$: "MemoryNextHead", "index": _index_0, "order": _order_0}, {$: "MemoryNextHead", "index": _old_index_0, "order": _old_order_0});
+  }
+}
+
+function $memory_head_step(_head_0, _selected_0) {
+  const _index_0 = _head_0["index"];
+  const _order_0 = _head_0["order"];
+  const _status_0 = _head_0["status"];
+  const _sequence_0 = _head_0["sequence"];
+  const _processed_0 = _head_0["processed"];
+  return $Bool_pick($$memory_head_due(_status_0, _sequence_0, _processed_0), $$memory_choose_head(_index_0, _order_0, _selected_0), _selected_0);
+}
+
+function $memory_head_fold($0, $1) {
+  for (;;) {
+    {
+      const _heads_0 = $0;
+      const _selected_0 = $1;
+      if (_heads_0.$ === "Nil") {
+        return _selected_0;
+      } else {
+        const _head_0 = _heads_0["head"];
+        const _tail_0 = _heads_0["tail"];
+        $0 = _tail_0;
+        $1 = $$memory_head_step(_head_0, _selected_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $memory_next_head(_heads_0) {
+  return $memory_head_fold(_heads_0, {$: "MemoryNoHead"});
+}
+
+function $memory_rebuild_basis(_explicit_0, _cache_0, _expected_cache_0, _working_0, _expected_working_0) {
+  return $Bool_pick(_explicit_0, $$accounting_equal(_working_0, _expected_working_0), $$accounting_equal(_cache_0, _expected_cache_0));
+}
+
+function $memory_dispatch(_present_0, _actual_0, _expected_0, _status_0, _preparing_0) {
+  const _x_0 = $$Bool_not(_preparing_0);
+  const _x_1 = $$String_eq(_status_0, "running");
+  return $Bool_and(_present_0, $$Bool_and($$String_eq(_actual_0, _expected_0), (_x_0 || _x_1)));
+}
+
 function $execution_step_1(_state_0, _action_0) {
   return $execution_step(_state_0, _action_0);
 }
@@ -3806,6 +4044,122 @@ function $guidance_settlement_1(_state_0, _blocked_0) {
   return $guidance_settlement(_state_0, _blocked_0);
 }
 
+function $memory_terminal_1(_status_0) {
+  return $memory_terminal(_status_0);
+}
+
+function $memory_pending_1(_status_0) {
+  return $memory_pending(_status_0);
+}
+
+function $memory_gap_1(_status_0) {
+  return $memory_gap(_status_0);
+}
+
+function $memory_user_1(_authorship_0) {
+  return $memory_user(_authorship_0);
+}
+
+function $memory_focus_source_1(_authorship_0, _origin_0) {
+  return $memory_focus_source(_authorship_0, _origin_0);
+}
+
+function $memory_selectable_1(_cache_0, _incoming_0, _focus_0) {
+  return $memory_selectable(_cache_0, _incoming_0, _focus_0);
+}
+
+function $memory_context_1(_sources_0, _selected_0) {
+  return $memory_context(_sources_0, _selected_0);
+}
+
+function $memory_focus_header_1(_current_0, _expected_0) {
+  return $memory_focus_header(_current_0, _expected_0);
+}
+
+function $memory_focus_projection_1(_projection_0) {
+  return $memory_focus_projection(_projection_0);
+}
+
+function $memory_focus_select_1(_present_0, _seed_0, _count_0, _maximum_0) {
+  return $memory_focus_select(_present_0, _seed_0, _count_0, _maximum_0);
+}
+
+function $memory_focus_release_1(_present_0, _pending_0, _released_0, _current_0, _replacement_present_0, _replacement_0) {
+  return $memory_focus_release(_present_0, _pending_0, _released_0, _current_0, _replacement_present_0, _replacement_0);
+}
+
+function $memory_focus_changed_1(_created_0, _edited_0, _target_0, _current_0) {
+  return $memory_focus_changed(_created_0, _edited_0, _target_0, _current_0);
+}
+
+function $memory_configure_1(_revision_0, _expected_0, _receipts_0, _maximum_0, _current_0, _requested_0) {
+  return $memory_configure(_revision_0, _expected_0, _receipts_0, _maximum_0, _current_0, _requested_0);
+}
+
+function $memory_disable_input_1(_enabled_0, _automatic_0, _status_0) {
+  return $memory_disable_input(_enabled_0, _automatic_0, _status_0);
+}
+
+function $memory_enrollment_1(_enabled_0, _revision_0, _expected_0) {
+  return $memory_enrollment(_enabled_0, _revision_0, _expected_0);
+}
+
+function $memory_admission_1(_present_0, _explicit_0, _automatic_0, _focus_0, _sequence_0, _maximum_inputs_0, _pending_0, _maximum_pending_0) {
+  return $memory_admission(_present_0, _explicit_0, _automatic_0, _focus_0, _sequence_0, _maximum_inputs_0, _pending_0, _maximum_pending_0);
+}
+
+function $memory_claim_1(_active_0, _pending_0) {
+  return $memory_claim(_active_0, _pending_0);
+}
+
+function $memory_basis_1(_present_0, _target_0, _dispatch_target_present_0, _dispatch_target_0, _target_revision_0, _target_basis_0, _processed_0, _processed_basis_0, _focus_revision_0, _focus_basis_0, _current_0, _cache_revision_0, _cache_basis_0) {
+  return $memory_basis(_present_0, _target_0, _dispatch_target_present_0, _dispatch_target_0, _target_revision_0, _target_basis_0, _processed_0, _processed_basis_0, _focus_revision_0, _focus_basis_0, _current_0, _cache_revision_0, _cache_basis_0);
+}
+
+function $memory_output_1(_failure_0, _bounded_0, _schema_0, _replace_0) {
+  return $memory_output(_failure_0, _bounded_0, _schema_0, _replace_0);
+}
+
+function $memory_selection_1(_count_0, _capacity_0, _selected_0, _eligible_0) {
+  return $memory_selection(_count_0, _capacity_0, _selected_0, _eligible_0);
+}
+
+function $memory_reconcile_1(_present_0, _actual_0, _expected_0, _status_0, _kind_0) {
+  return $memory_reconcile(_present_0, _actual_0, _expected_0, _status_0, _kind_0);
+}
+
+function $memory_cancel_uncertain_1(_present_0, _current_0, _requested_0, _sequence_0, _expected_0) {
+  return $memory_cancel_uncertain(_present_0, _current_0, _requested_0, _sequence_0, _expected_0);
+}
+
+function $memory_cancel_status_1(_status_0) {
+  return $memory_cancel_status(_status_0);
+}
+
+function $memory_automation_1(_enabled_0, _issue_0, _observed_0, _revision_0, _observed_revision_0) {
+  return $memory_automation(_enabled_0, _issue_0, _observed_0, _revision_0, _observed_revision_0);
+}
+
+function $memory_observation_1(_authorship_0) {
+  return $memory_observation(_authorship_0);
+}
+
+function $memory_head_due_1(_status_0, _sequence_0, _processed_0) {
+  return $memory_head_due(_status_0, _sequence_0, _processed_0);
+}
+
+function $memory_next_head_1(_heads_0) {
+  return $memory_next_head(_heads_0);
+}
+
+function $memory_rebuild_basis_1(_explicit_0, _cache_0, _expected_cache_0, _working_0, _expected_working_0) {
+  return $memory_rebuild_basis(_explicit_0, _cache_0, _expected_cache_0, _working_0, _expected_working_0);
+}
+
+function $memory_dispatch_1(_present_0, _actual_0, _expected_0, _status_0, _preparing_0) {
+  return $memory_dispatch(_present_0, _actual_0, _expected_0, _status_0, _preparing_0);
+}
+
 function $Bool_not(_b_0) {
   if (!_b_0) {
     return true;
@@ -4166,6 +4520,15 @@ const $$guidance_components = $guidance_components;
 const $$guidance_some_fold = $guidance_some_fold;
 const $$guidance_evidence_fold = $guidance_evidence_fold;
 const $$guidance_uncertain = $guidance_uncertain;
+const $$memory_user = $memory_user;
+const $$memory_release_next = $memory_release_next;
+const $$memory_distinct_fold = $memory_distinct_fold;
+const $$memory_head_matches = $memory_head_matches;
+const $$memory_ordinal_le = $memory_ordinal_le;
+const $$memory_ordinal_equal = $memory_ordinal_equal;
+const $$memory_head_due = $memory_head_due;
+const $$memory_choose_head = $memory_choose_head;
+const $$memory_head_step = $memory_head_step;
 const $$truth_all = $truth_all;
 const $$truth_any = $truth_any;
 const $$same_scope = $same_scope;
@@ -4436,6 +4799,44 @@ const $$Char_is_eq = $Char_is_eq;export default {
   "guidance:editorial": run_lib((a0,a1,a2) => run_loop($guidance_editorial(a0,a1,a2)), 3),
   "guidance:capture_room": run_lib((a0) => run_loop($guidance_capture_room(a0)), 1),
   "guidance:settlement": run_lib((a0,a1) => run_loop($guidance_settlement(a0,a1)), 2),
+  "memory:terminal": run_lib((a0) => run_loop($memory_terminal(str_in(a0))), 1),
+  "memory:pending": run_lib((a0) => run_loop($memory_pending(str_in(a0))), 1),
+  "memory:gap": run_lib((a0) => run_loop($memory_gap(str_in(a0))), 1),
+  "memory:user": run_lib((a0) => run_loop($memory_user(str_in(a0))), 1),
+  "memory:focus_source": run_lib((a0,a1) => run_loop($memory_focus_source(str_in(a0),str_in(a1))), 2),
+  "memory:selectable": run_lib((a0,a1,a2) => run_loop($memory_selectable(a0,a1,a2)), 3),
+  "memory:context_fold": run_lib((a0,a1,a2) => run_loop($memory_context_fold(a0,a1,a2)), 3),
+  "memory:context": run_lib((a0,a1) => run_loop($memory_context(a0,a1)), 2),
+  "memory:focus_header": run_lib((a0,a1) => run_loop($memory_focus_header(a0,a1)), 2),
+  "memory:focus_projection": run_lib((a0) => run_loop($memory_focus_projection(a0)), 1),
+  "memory:focus_select": run_lib((a0,a1,a2,a3) => run_loop($memory_focus_select(a0,a1,a2,a3)), 4),
+  "memory:release_next": run_lib((a0,a1,a2,a3) => run_loop($memory_release_next(str_in(a0),str_in(a1),a2,a3)), 4),
+  "memory:focus_release": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($memory_focus_release(a0,a1,str_in(a2),str_in(a3),a4,str_in(a5))), 6),
+  "memory:focus_changed": run_lib((a0,a1,a2,a3) => run_loop($memory_focus_changed(a0,a1,str_in(a2),str_in(a3))), 4),
+  "memory:configure": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($memory_configure(a0,a1,a2,a3,a4,a5)), 6),
+  "memory:disable_input": run_lib((a0,a1,a2) => run_loop($memory_disable_input(a0,a1,str_in(a2))), 3),
+  "memory:enrollment": run_lib((a0,a1,a2) => run_loop($memory_enrollment(a0,a1,a2)), 3),
+  "memory:admission": run_lib((a0,a1,a2,a3,a4,a5,a6,a7) => run_loop($memory_admission(a0,a1,a2,a3,a4,a5,a6,a7)), 8),
+  "memory:claim": run_lib((a0,a1) => run_loop($memory_claim(a0,a1)), 2),
+  "memory:basis": run_lib((a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12) => run_loop($memory_basis(a0,str_in(a1),a2,str_in(a3),a4,a5,a6,a7,a8,a9,str_in(a10),a11,a12)), 13),
+  "memory:output": run_lib((a0,a1,a2,a3) => run_loop($memory_output(a0,a1,a2,a3)), 4),
+  "memory:distinct_fold": run_lib((a0,a1,a2) => run_loop($memory_distinct_fold(a0,a1,a2)), 3),
+  "memory:selection": run_lib((a0,a1,a2,a3) => run_loop($memory_selection(a0,a1,a2,a3)), 4),
+  "memory:reconcile": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_reconcile(a0,str_in(a1),str_in(a2),str_in(a3),str_in(a4))), 5),
+  "memory:cancel_uncertain": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_cancel_uncertain(a0,str_in(a1),str_in(a2),a3,a4)), 5),
+  "memory:cancel_status": run_lib((a0) => str_out(run_loop($memory_cancel_status(str_in(a0)))), 1),
+  "memory:automation": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_automation(a0,a1,a2,a3,a4)), 5),
+  "memory:observation": run_lib((a0) => run_loop($memory_observation(str_in(a0))), 1),
+  "memory:head_matches": run_lib((a0,a1) => run_loop($memory_head_matches(a0,a1)), 2),
+  "memory:head_due": run_lib((a0,a1,a2) => run_loop($memory_head_due(str_in(a0),a1,a2)), 3),
+  "memory:ordinal_le": run_lib((a0,a1) => run_loop($memory_ordinal_le(a0,a1)), 2),
+  "memory:ordinal_equal": run_lib((a0,a1) => run_loop($memory_ordinal_equal(a0,a1)), 2),
+  "memory:choose_head": run_lib((a0,a1,a2) => run_loop($memory_choose_head(a0,a1,a2)), 3),
+  "memory:head_step": run_lib((a0,a1) => run_loop($memory_head_step(a0,a1)), 2),
+  "memory:head_fold": run_lib((a0,a1) => run_loop($memory_head_fold(a0,a1)), 2),
+  "memory:next_head": run_lib((a0) => run_loop($memory_next_head(a0)), 1),
+  "memory:rebuild_basis": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_rebuild_basis(a0,a1,a2,a3,a4)), 5),
+  "memory:dispatch": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_dispatch(a0,str_in(a1),str_in(a2),str_in(a3),a4)), 5),
   "execution_step": run_lib((a0,a1) => run_loop($execution_step_1(a0,a1)), 2),
   "execution_terminal": run_lib((a0) => run_loop($execution_terminal_1(a0)), 1),
   "topology_check": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($topology_check_1(a0,a1,a2,a3,a4,a5,a6)), 7),
@@ -4632,4 +5033,33 @@ const $$Char_is_eq = $Char_is_eq;export default {
   "guidance_editorial": run_lib((a0,a1,a2) => run_loop($guidance_editorial_1(a0,a1,a2)), 3),
   "guidance_capture_room": run_lib((a0) => run_loop($guidance_capture_room_1(a0)), 1),
   "guidance_settlement": run_lib((a0,a1) => run_loop($guidance_settlement_1(a0,a1)), 2),
+  "memory_terminal": run_lib((a0) => run_loop($memory_terminal_1(str_in(a0))), 1),
+  "memory_pending": run_lib((a0) => run_loop($memory_pending_1(str_in(a0))), 1),
+  "memory_gap": run_lib((a0) => run_loop($memory_gap_1(str_in(a0))), 1),
+  "memory_user": run_lib((a0) => run_loop($memory_user_1(str_in(a0))), 1),
+  "memory_focus_source": run_lib((a0,a1) => run_loop($memory_focus_source_1(str_in(a0),str_in(a1))), 2),
+  "memory_selectable": run_lib((a0,a1,a2) => run_loop($memory_selectable_1(a0,a1,a2)), 3),
+  "memory_context": run_lib((a0,a1) => run_loop($memory_context_1(a0,a1)), 2),
+  "memory_focus_header": run_lib((a0,a1) => run_loop($memory_focus_header_1(a0,a1)), 2),
+  "memory_focus_projection": run_lib((a0) => run_loop($memory_focus_projection_1(a0)), 1),
+  "memory_focus_select": run_lib((a0,a1,a2,a3) => run_loop($memory_focus_select_1(a0,a1,a2,a3)), 4),
+  "memory_focus_release": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($memory_focus_release_1(a0,a1,str_in(a2),str_in(a3),a4,str_in(a5))), 6),
+  "memory_focus_changed": run_lib((a0,a1,a2,a3) => run_loop($memory_focus_changed_1(a0,a1,str_in(a2),str_in(a3))), 4),
+  "memory_configure": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($memory_configure_1(a0,a1,a2,a3,a4,a5)), 6),
+  "memory_disable_input": run_lib((a0,a1,a2) => run_loop($memory_disable_input_1(a0,a1,str_in(a2))), 3),
+  "memory_enrollment": run_lib((a0,a1,a2) => run_loop($memory_enrollment_1(a0,a1,a2)), 3),
+  "memory_admission": run_lib((a0,a1,a2,a3,a4,a5,a6,a7) => run_loop($memory_admission_1(a0,a1,a2,a3,a4,a5,a6,a7)), 8),
+  "memory_claim": run_lib((a0,a1) => run_loop($memory_claim_1(a0,a1)), 2),
+  "memory_basis": run_lib((a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12) => run_loop($memory_basis_1(a0,str_in(a1),a2,str_in(a3),a4,a5,a6,a7,a8,a9,str_in(a10),a11,a12)), 13),
+  "memory_output": run_lib((a0,a1,a2,a3) => run_loop($memory_output_1(a0,a1,a2,a3)), 4),
+  "memory_selection": run_lib((a0,a1,a2,a3) => run_loop($memory_selection_1(a0,a1,a2,a3)), 4),
+  "memory_reconcile": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_reconcile_1(a0,str_in(a1),str_in(a2),str_in(a3),str_in(a4))), 5),
+  "memory_cancel_uncertain": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_cancel_uncertain_1(a0,str_in(a1),str_in(a2),a3,a4)), 5),
+  "memory_cancel_status": run_lib((a0) => str_out(run_loop($memory_cancel_status_1(str_in(a0)))), 1),
+  "memory_automation": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_automation_1(a0,a1,a2,a3,a4)), 5),
+  "memory_observation": run_lib((a0) => run_loop($memory_observation_1(str_in(a0))), 1),
+  "memory_head_due": run_lib((a0,a1,a2) => run_loop($memory_head_due_1(str_in(a0),a1,a2)), 3),
+  "memory_next_head": run_lib((a0) => run_loop($memory_next_head_1(a0)), 1),
+  "memory_rebuild_basis": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_rebuild_basis_1(a0,a1,a2,a3,a4)), 5),
+  "memory_dispatch": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_dispatch_1(a0,str_in(a1),str_in(a2),str_in(a3),a4)), 5),
 };

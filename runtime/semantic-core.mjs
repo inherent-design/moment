@@ -505,3 +505,59 @@ export const guidanceEditorial=(present,matches,ascii)=>coreBoolean(Core.guidanc
 export const guidanceCaptureRoom=retained=>coreBoolean(Core.guidance_capture_room(size(retained)));
 
 export const guidanceSettlement=(state,blocked)=>coreBoolean(Core.guidance_settlement(runState(state),!!blocked));
+
+
+const memoryTag=(value,tags)=>{if(!tags.includes(value?.$))fail('INTERNAL','Invalid core memory decision');return value.$;};
+export const memoryTerminal=status=>coreBoolean(Core.memory_terminal(codecText(status??'')));
+export const memoryPending=status=>coreBoolean(Core.memory_pending(codecText(status??'')));
+export const memoryGap=status=>coreBoolean(Core.memory_gap(codecText(status??'')));
+export const memoryUser=authorship=>coreBoolean(Core.memory_user(codecText(authorship)));
+export const memoryFocusSource=source=>coreBoolean(Core.memory_focus_source(codecText(source.authorship),codecText(source.origin)));
+export function memorySelection(cache,incoming,focus,sources,capacity) {
+ const bound=counterAdd(counterAdd(cache.length,incoming.length),focus.length),selectableSourceIds=textValues(Core.memory_selectable(codecTexts(cache),codecTexts(incoming),codecTexts(focus)),bound);
+ const contextOnlySourceIds=textValues(Core.memory_context(codecTexts(sources),codecTexts(selectableSourceIds)),sources.length);
+ const maximumEntries=resourceAvailable([{used:0,ceiling:capacity},{used:0,ceiling:selectableSourceIds.length}]);
+ return {selectableSourceIds,contextOnlySourceIds,maximumEntries};
+}
+export const memoryFocusHeader=(current,expected)=>memoryTag(Core.memory_focus_header(count(current),count(expected)),['MemoryFocusStale','MemoryFocusNeedsProjection']);
+export const memoryFocusProjection=projection=>memoryTag(Core.memory_focus_projection(!!projection),['MemoryProjectionChanged','MemoryFocusReady']);
+export const memoryFocusSelect=(present,seed,retained,maximum)=>memoryTag(Core.memory_focus_select(!!present,!!seed,count(retained),count(maximum)),['MemorySetFull','MemorySeedForExisting','MemoryCreateSet','MemoryReuseSet']);
+export function memoryFocusRelease(present,pending,released,current,replacement) {
+ const result=Core.memory_focus_release(!!present,!!pending,codecText(released),codecText(current),replacement!==undefined,codecText(replacement??''));memoryTag(result,['MemoryReleaseMissing','MemoryReleasePending','MemoryReleaseReplacement','MemoryReleaseUnexpected','MemoryReleaseTarget']);
+ return result.$==='MemoryReleaseTarget'?{kind:result.$,id:codecText(result.id)}:{kind:result.$};
+}
+export const memoryFocusChanged=(created,edited,target,current)=>coreBoolean(Core.memory_focus_changed(!!created,!!edited,codecText(target),codecText(current)));
+export const memoryConfigure=(current,expected,retained,maximum,requested)=>memoryTag(Core.memory_configure(count(current.revision),count(expected),count(retained),count(maximum),!!current.enabled,!!requested),['MemoryConfigurationStale','MemoryConfigurationFull','MemoryConfigurationChange','MemoryConfigurationSame']);
+export const memoryDisableInput=(enabled,input)=>coreBoolean(Core.memory_disable_input(!!enabled,!!input.automatic,codecText(input.status)));
+export const memoryEnrollment=(current,expected)=>memoryTag(Core.memory_enrollment(!!current.enabled,count(current.revision),count(expected)),['MemoryEnrollmentDisabled','MemoryEnrollmentStale','MemoryEnrollmentReady']);
+export const memoryAdmission=(present,explicit,automatic,focus,sequence,maximumInputs,pending,maximumPending)=>memoryTag(Core.memory_admission(!!present,!!explicit,!!automatic,count(focus),count(sequence),count(maximumInputs),count(pending),count(maximumPending)),['MemoryTargetMissing','MemoryTargetAmbiguous','MemoryInputFull','MemoryBacklogFull','MemoryInputReady']);
+export const memoryClaim=(active,pending)=>memoryTag(Core.memory_claim(!!active,!!pending),['MemoryBusy','MemoryIdle','MemoryLoadInput']);
+export function memoryCompletionBasis(state,binding,target,focus,dispatch) {
+ return memoryTag(Core.memory_basis(!!target,codecText(target?.id??''),dispatch.workingSetId!==undefined,codecText(dispatch.workingSetId??''),count(target?.revision??0),count(dispatch.workingSetRevision??dispatch.cacheRevision),count(state.processedThrough),count(dispatch.processedThrough),count(focus.revision),count(dispatch.focusRevision??binding.focusRevision),codecText(focus.workingSetId),count(state.revision),count(dispatch.cacheRevision)),['MemoryBasisIdentity','MemoryBasisStale','MemoryBasisActive','MemoryBasisDormant']);
+}
+export const memoryOutput=(failure,bounded,schema,replace)=>memoryTag(Core.memory_output(!!failure,!!bounded,!!schema,!!replace),['MemoryObservedFailure','MemoryInvalidOutput','MemoryKeepEntries','MemoryCheckSelection']);
+export const memoryEntrySelection=(selected,eligible,capacity)=>memoryTag(Core.memory_selection(count(selected.length),count(capacity),codecTexts(selected),codecTexts(eligible)),['MemorySelectionBound','MemorySelectionUnknown','MemorySelectionReady']);
+export const memoryReconcile=(active,id,kind)=>memoryTag(Core.memory_reconcile(!!active,codecText(active?.id??''),codecText(id),codecText(active?.status??''),codecText(kind??'')),['MemoryReconcileInvalid','MemoryReconcileOutput','MemoryReconcileFailure','MemoryReconcileRetry','MemoryReconcileCancelled']);
+export const memoryCancelUncertain=(active,key,sequence)=>coreBoolean(Core.memory_cancel_uncertain(!!active,codecText(active?.key??''),codecText(key),count(active?.sequence??0),count(sequence)));
+export const memoryCancelStatus=status=>codecText(Core.memory_cancel_status(codecText(status)));
+export const memoryAutomation=(subscription,issue)=>memoryTag(Core.memory_automation(!!subscription.enabled,!!issue,!!subscription.lastIntake,count(subscription.revision),count(subscription.lastIntake?.subscriptionRevision??0)),['MemoryAutomationOff','MemoryAutomationUnavailable','MemoryAutomationObserved','MemoryAutomationAwaiting']);
+
+export const memoryObservation=authorship=>memoryTag(Core.memory_observation(codecText(authorship)),['MemoryObservationReject','MemoryObservationSkip','MemoryObservationQueue']);
+export const memoryHeadDue=(status,sequence,processed)=>coreBoolean(Core.memory_head_due(codecText(status),count(sequence),count(processed)));
+const memoryOrdinal=value=>{
+ let integer;
+ if(typeof value==='bigint')integer=value;
+ else if(typeof value==='number'&&Number.isSafeInteger(value))integer=BigInt(value);
+ else if(typeof value==='string'&&/^-?(?:0|[1-9][0-9]*)$/.test(value))integer=BigInt(value);
+ else fail('INVALID_ARGUMENT','Memory input order requires an exact SQLite ordinal');
+ if(integer<-(1n<<63n)||integer>=(1n<<63n))fail('INVALID_ARGUMENT','Memory input order is outside signed SQLite ordinals');
+ const biased=integer+(1n<<63n);return {$:'MemoryOrdinal',high:Number(biased>>32n),low:Number(biased&0xffffffffn)};
+};
+export function memoryNextHead(heads) {
+ const value=Core.memory_next_head(list(heads.map((head,index)=>({$:'MemoryHead',index:size(index),order:memoryOrdinal(head.order),status:codecText(head.input.status),sequence:count(head.input.sequence),processed:count(head.processedThrough)}))));
+ memoryTag(value,['MemoryNoHead','MemoryNextHead']);if(value.$==='MemoryNoHead')return undefined;
+ if(!Number.isInteger(value.index)||value.index<0||value.index>=heads.length)fail('INTERNAL','Invalid selected memory head');return value.index;
+}
+
+export const memoryRebuildBasis=(explicit,cache,expectedCache,working,expectedWorking)=>coreBoolean(Core.memory_rebuild_basis(!!explicit,count(cache),count(expectedCache??0),count(working),count(expectedWorking??0)));
+export const memoryDispatch=(active,id,preparing=false)=>coreBoolean(Core.memory_dispatch(!!active,codecText(active?.id??''),codecText(id),codecText(active?.status??''),!!preparing));

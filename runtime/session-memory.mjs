@@ -6,6 +6,7 @@ import Ajv from 'ajv/dist/2020.js';
 import { canonical, digest, bytesDigest, fail, DomainError } from './json.mjs';
 import {MemoryContinuity,createMemoryContinuityTables,memorySchemaColumns} from './memory-continuity.mjs';
 import {validateMemoryBindings} from './memory-bindings.mjs';
+import * as core from './semantic-core.mjs';
 
 export const memoryDefaults = Object.freeze({ capacity:5, maxSessions:128, maxInputs:4096, maxPending:64, maxSourceBytes:65536, maxStoredBytes:33554432, maxPromptBytes:1048576, maxOutputBytes:65536, maxConfigurationReceipts:4096, maxWorkingSets:8, maxWorkingSetBytes:8388608, maxAssessmentBytes:16777216, maxProfileBytes:1048576, retainedAssessments:32, maxAutomaticBytes:4096 });
 export const memoryStorageVersion = 3;
@@ -16,7 +17,6 @@ export const memoryOutputSchema = Object.freeze({ type:'object',oneOf:[
   { properties:{kind:{const:'replace'},explanation:{type:'string',minLength:1,maxLength:512,pattern:'\\S'},entries:{type:'array',maxItems:32,items:{type:'object',properties:{sourceId:{type:'string',minLength:1,maxLength:128},weight:{type:'number',minimum:0,maximum:1},generality:{type:'number',minimum:0,maximum:1},note:{type:'string',maxLength:2048}},required:['sourceId','weight'],additionalProperties:false}}},required:['kind','entries','explanation'],additionalProperties:false },
 ] });
 const validateOutput = new Ajv({strict:true,ownProperties:true}).compile(memoryOutputSchema);
-const terminal = ['succeeded','failed','cancelled','skipped'];
 const text = (value,name,maximum=4096) => { if(typeof value!=='string' || !value.length || Buffer.byteLength(value)>maximum) fail('INVALID_ARGUMENT',`Invalid ${name}`);return value; };
 const exact = (value,required,optional=[]) => { if(!value || typeof value!=='object' || Array.isArray(value) || required.some(key=>!Object.hasOwn(value,key)) || Object.keys(value).some(key=>![...required,...optional].includes(key))) fail('INVALID_ARGUMENT','Unexpected session memory input shape'); };
 const integer = (value,min,max,name) => {if(!Number.isSafeInteger(value) || value<min || value>max) fail('INVALID_ARGUMENT',`Invalid ${name}`);return value;};
@@ -29,9 +29,7 @@ export function resolveMemoryLimits(options={}){
   return limits;
 }
 export function memorySelection(request) {
-  const selectableSourceIds=[...new Set([...request.cache.map(entry=>entry.sourceId),...request.incomingSourceIds,...request.focusSourceIds??[]])];
-  const selected=new Set(selectableSourceIds);
-  return {selectableSourceIds,contextOnlySourceIds:request.sources.filter(source=>!selected.has(source.id)).map(source=>source.id),maximumEntries:Math.min(request.capacity,selectableSourceIds.length)};
+  return core.memorySelection(request.cache.map(entry=>entry.sourceId),request.incomingSourceIds,request.focusSourceIds??[],request.sources.map(source=>source.id),request.capacity);
 }
 export const memoryInputRenderer = 'moment-memory-input/2';
 /** Render complete evidence text without repeating private file locators and selection metadata.
@@ -129,7 +127,7 @@ export class SessionMemory {
   session(session,create=false) {
     const key=memorySessionKey(session),stored=parse(this.db.prepare('SELECT value FROM memory_sessions WHERE key=?').get(key));
     if(stored || !create) return stored;
-    if(this.db.prepare('SELECT count(*) AS count FROM memory_sessions').get().count>=this.limits.maxSessions) fail('LIMIT_EXCEEDED','Session memory session capacity is full');
+    if(!core.resourceLessOrEqual(core.counterNext(this.db.prepare('SELECT count(*) AS count FROM memory_sessions').get().count),this.limits.maxSessions)) fail('LIMIT_EXCEEDED','Session memory session capacity is full');
     const value={session,key,revision:0,processedThrough:0,nextSequence:1,entries:[],createdAt:now()};
     this.continuity.createDefault(value);
     this.putSession(value);return value;
@@ -153,8 +151,8 @@ export class SessionMemory {
       const previous=this.continuity.focusReceipt(key,input.idempotencyKey);
       if(previous){if(previous.requestDigest!==requestDigest)fail('IDEMPOTENCY_CONFLICT','Focus retry key names another request');return {...previous.result,replayed:true};}
       const state=this.session(input.session,true),current=this.continuity.focus(key),action=input.action;
-      if(current.revision!==input.expectedFocusRevision)fail('REVISION_CONFLICT','Memory focus changed since observation','refresh');
-      if(canonical(state.entries)!==canonical(this.continuity.value(this.continuity.workingSet(key,current.workingSetId).entries)))fail('IDENTITY_CONFLICT','Active cache projection disagrees with its retained working set');
+      if(core.memoryFocusHeader(current.revision,input.expectedFocusRevision)==='MemoryFocusStale')fail('REVISION_CONFLICT','Memory focus changed since observation','refresh');
+      if(core.memoryFocusProjection(core.sameValue(state.entries,this.continuity.value(this.continuity.workingSet(key,current.workingSetId).entries)))==='MemoryProjectionChanged')fail('IDENTITY_CONFLICT','Active cache projection disagrees with its retained working set');
       let target,created=false,releasedWorkingSetId,changed=false;
       if(action?.kind==='select'){
         exact(action,['kind','purposeKey'],['label','purpose','returnPoint','basisSourceIds','seedFrom','work','guidance']);text(action.purposeKey,'working-set purpose identity',256);
@@ -170,35 +168,37 @@ export class SessionMemory {
           if(!Array.isArray(action.basisSourceIds)||action.basisSourceIds.length>16||new Set(action.basisSourceIds).size!==action.basisSourceIds.length)fail('INVALID_ARGUMENT','Focus selects at most sixteen distinct source IDs');
           for(const id of action.basisSourceIds){text(id,'focus source identity',128);if(!this.db.prepare('SELECT 1 FROM associations WHERE session_key=? AND source_id=?').get(key,id))fail('NOT_FOUND','Focus source is unavailable for this session');this.source(id);}
         }
-        target=this.continuity.workingSets(key).find(value=>value.purposeKey===action.purposeKey);
-        if(!target){
-          if(this.continuity.workingSets(key).length>=this.limits.maxWorkingSets)fail('LIMIT_EXCEEDED','Session working-set capacity is full; explicitly release an eligible dormant set');
+        target=this.continuity.workingSets(key).find(value=>core.sameText(value.purposeKey,action.purposeKey));
+        const choice=core.memoryFocusSelect(!!target,action.seedFrom!==undefined,this.continuity.workingSets(key).length,this.limits.maxWorkingSets);
+        if(choice==='MemorySetFull')fail('LIMIT_EXCEEDED','Session working-set capacity is full; explicitly release an eligible dormant set');
+        if(choice==='MemoryCreateSet'){
           let entries=this.continuity.putValue('entries',[]);
           if(action.seedFrom!==undefined){text(action.seedFrom,'working-set seed identity',128);const seed=this.continuity.workingSet(key,action.seedFrom);if(!seed)fail('NOT_FOUND','Selected working-set seed is unavailable');entries=seed.entries;this.continuity.value(entries);}
           target={id:randomUUID(),key,purposeKey:action.purposeKey,label:action.label??action.purposeKey,revision:0,basisSourceIds:[],entries,createdAt:now()};created=true;
-        }else if(action.seedFrom!==undefined)fail('INVALID_ARGUMENT','A seed is only used when creating a new working set');
+        }else if(choice==='MemorySeedForExisting')fail('INVALID_ARGUMENT','A seed is only used when creating a new working set');
         const original=canonical(target);
         for(const field of ['label','purpose','returnPoint','basisSourceIds'])if(Object.hasOwn(action,field)){if(['purpose','returnPoint'].includes(field)&&action[field]==='')delete target[field];else target[field]=action[field];}
         if(Object.hasOwn(action,'work')){if(action.work===null)delete target.work;else target.work=action.work;}
         if(Object.hasOwn(action,'guidance')){if(!action.guidance.length)delete target.guidance;else target.guidance=action.guidance;}
-        if(!created&&canonical(target)!==original){if(target.revision===Number.MAX_SAFE_INTEGER)fail('LIMIT_EXCEEDED','Working-set revision is exhausted');target.revision++;target.updatedAt=now();changed=true;}
+        if(!created&&!core.sameText(canonical(target),original)){target.revision=core.counterNext(target.revision,'Working-set revision');target.updatedAt=now();changed=true;}
         if(created||changed)this.continuity.putWorkingSet(target);
-        changed=changed||created||target.id!==current.workingSetId;
+        changed=core.memoryFocusChanged(created,changed,target.id,current.workingSetId);
       }else if(action?.kind==='release'){
         exact(action,['kind','workingSetId'],['replacementId']);text(action.workingSetId,'released working-set identity',128);
-        const released=this.continuity.workingSet(key,action.workingSetId);if(!released)fail('NOT_FOUND','Selected working set is unavailable');
-        const pending=this.db.prepare("SELECT 1 FROM memory_input_sets b JOIN inputs i ON i.session_key=b.session_key AND i.sequence=b.sequence WHERE b.session_key=? AND b.working_set_id=? AND i.status IN ('pending','running','unknown') LIMIT 1").get(key,released.id);
-        if(pending)fail('CAPABILITY_UNAVAILABLE','A pending or uncertain input still belongs to this working set');
-        const nextId=current.workingSetId===released.id?action.replacementId:current.workingSetId;
-        if(!nextId||nextId===released.id)fail('INVALID_ARGUMENT','Releasing the active working set requires a different retained replacement');
-        if(action.replacementId!==undefined&&current.workingSetId!==released.id)fail('INVALID_ARGUMENT','An inactive release does not select a replacement');
-        target=this.continuity.workingSet(key,nextId);if(!target)fail('NOT_FOUND','Replacement working set is unavailable');
+        const released=this.continuity.workingSet(key,action.workingSetId);
+        const bound=this.db.prepare("SELECT i.status FROM memory_input_sets b JOIN inputs i ON i.session_key=b.session_key AND i.sequence=b.sequence WHERE b.session_key=? AND b.working_set_id=?").all(key,action.workingSetId);
+        const choice=core.memoryFocusRelease(!!released,core.any(bound.map(row=>core.memoryPending(row.status)))===true,action.workingSetId,current.workingSetId,action.replacementId);
+        if(choice.kind==='MemoryReleaseMissing')fail('NOT_FOUND','Selected working set is unavailable');
+        if(choice.kind==='MemoryReleasePending')fail('CAPABILITY_UNAVAILABLE','A pending or uncertain input still belongs to this working set');
+        if(choice.kind==='MemoryReleaseReplacement')fail('INVALID_ARGUMENT','Releasing the active working set requires a different retained replacement');
+        if(choice.kind==='MemoryReleaseUnexpected')fail('INVALID_ARGUMENT','An inactive release does not select a replacement');
+        target=this.continuity.workingSet(key,choice.id);if(!target)fail('NOT_FOUND','Replacement working set is unavailable');
         this.db.prepare('DELETE FROM memory_working_sets WHERE session_key=? AND id=?').run(key,released.id);releasedWorkingSetId=released.id;changed=true;
       }else fail('INVALID_ARGUMENT','Select or release a memory working set');
-      if(changed&&current.revision===Number.MAX_SAFE_INTEGER)fail('LIMIT_EXCEEDED','Focus revision is exhausted');
+      const focusRevision=changed?core.counterNext(current.revision,'Focus revision'):current.revision;
       const selected=this.continuity.value(target.entries);
-      if(canonical(state.entries)!==canonical(selected)){if(state.revision===Number.MAX_SAFE_INTEGER)fail('LIMIT_EXCEEDED','Cache-content revision is exhausted');state.entries=selected;state.revision++;this.putSession(state);}
-      const focus={workingSetId:target.id,revision:current.revision+(changed?1:0)};
+      if(!core.sameValue(state.entries,selected)){state.revision=core.counterNext(state.revision,'Cache-content revision');state.entries=selected;this.putSession(state);}
+      const focus={workingSetId:target.id,revision:focusRevision};
       if(changed)this.db.prepare('UPDATE memory_focus SET working_set_id=?,revision=? WHERE session_key=?').run(focus.workingSetId,focus.revision,key);
       const result={session:input.session,focus,workingSet:{id:target.id,revision:target.revision,purposeKey:target.purposeKey,label:target.label},cacheRevision:state.revision,created,replayed:false,...(releasedWorkingSetId?{releasedWorkingSetId}:{})};
       this.continuity.putFocusReceipt(key,input.idempotencyKey,{requestDigest,result});this.continuity.collectValues();return result;
@@ -241,20 +241,20 @@ export class SessionMemory {
       const prior=parse(this.db.prepare('SELECT value FROM metadata WHERE key=?').get(receiptKey));
       if(prior){if(prior.requestDigest!==requestDigest)fail('IDEMPOTENCY_CONFLICT','Memory configuration key names another input');return {...prior.value,replayed:true};}
       const current=this.subscription(input.session);
-      if(current.revision!==input.expectedRevision)fail('REVISION_CONFLICT','Memory enrollment changed since observation','refresh');
       const receipts=this.db.prepare("SELECT count(*) AS count FROM metadata WHERE key LIKE 'memory-config-receipt:%'").get().count;
-      if(receipts>=this.limits.maxConfigurationReceipts)fail('LIMIT_EXCEEDED','Memory configuration receipt retention is full; preserve uncertain requests before selecting retention');
+      const choice=core.memoryConfigure(current,input.expectedRevision,receipts,this.limits.maxConfigurationReceipts,input.enabled);
+      if(choice==='MemoryConfigurationStale')fail('REVISION_CONFLICT','Memory enrollment changed since observation','refresh');
+      if(choice==='MemoryConfigurationFull')fail('LIMIT_EXCEEDED','Memory configuration receipt retention is full; preserve uncertain requests before selecting retention');
       this.session(input.session,true);
       let subscription=current;
-      if(current.revision===0 || current.enabled!==input.enabled){
-        if(current.revision===Number.MAX_SAFE_INTEGER)fail('LIMIT_EXCEEDED','Memory enrollment revision is exhausted');
-        subscription={...current,revision:current.revision+1,enabled:input.enabled,changedAt:now(),changedBy:principalId};
+      if(choice==='MemoryConfigurationChange'){
+        subscription={...current,revision:core.counterNext(current.revision,'Memory enrollment revision'),enabled:input.enabled,changedAt:now(),changedBy:principalId};
         this.db.prepare('INSERT OR REPLACE INTO metadata VALUES (?,?)').run('subscription:'+key,canonical(subscription));
       }
       const cancelledSequences=[];
       if(!input.enabled){
         for(const row of this.db.prepare("SELECT value FROM inputs WHERE session_key=? AND status='pending' ORDER BY sequence").all(key)){
-          const value=parse(row);if(!value.automatic)continue;
+          const value=parse(row);if(!core.memoryDisableInput(input.enabled,value))continue;
           value.status='cancelled';value.error={code:'MEMORY_DISABLED',message:'Automatic memory was disabled before dispatch'};
           this.putInput(value);cancelledSequences.push(value.sequence);
         }
@@ -283,7 +283,7 @@ export class SessionMemory {
     const value={id:randomUUID(),session,text:message.text,digest:bytesDigest(message.text),authorship:message.authorship,origin,observedAt:now(),...(contextIds?{contextIds}:{}),...(message.nativeItemId?{nativeItemId:message.nativeItemId}:{}),...(message.turnId?{turnId:message.turnId}:{}),...(message.selection?{selection:message.selection}:{})};
     const bytes=Buffer.byteLength(canonical(value));
     const stored=this.db.prepare('SELECT coalesce(sum(bytes),0) AS bytes FROM sources').get().bytes;
-    if(stored+bytes>this.limits.maxStoredBytes) fail('LIMIT_EXCEEDED','Session memory source storage is full; preserve recovery state and select explicit retention');
+    if(!core.resourceLessOrEqual(core.counterAdd(stored,bytes,'Session memory source bytes'),this.limits.maxStoredBytes)) fail('LIMIT_EXCEEDED','Session memory source storage is full; preserve recovery state and select explicit retention');
     this.db.prepare('INSERT INTO sources VALUES (?,?,?)').run(value.id,canonical(value),bytes);
     this.db.prepare('INSERT INTO associations VALUES (?,?)').run(memorySessionKey(associatedSession),value.id);
     return value;
@@ -298,19 +298,21 @@ export class SessionMemory {
       }
       if(input.automatic){
         const subscription=this.subscription(input.session);
-        if(!subscription.enabled)fail('FORBIDDEN','Automatic memory intake is disabled for this session');
-        if(subscription.revision!==input.automatic.subscriptionRevision)fail('REVISION_CONFLICT','Memory enrollment changed before automatic intake','refresh');
+        const choice=core.memoryEnrollment(subscription,input.automatic.subscriptionRevision);
+        if(choice==='MemoryEnrollmentDisabled')fail('FORBIDDEN','Automatic memory intake is disabled for this session');
+        if(choice==='MemoryEnrollmentStale')fail('REVISION_CONFLICT','Memory enrollment changed before automatic intake','refresh');
       }
       const state=this.session(input.session,true);
       const focus=this.continuity.focus(key),workingSetId=input.workingSetId??focus.workingSetId,target=this.continuity.workingSet(key,workingSetId);
-      if(!target)fail('NOT_FOUND','Destination working set is unavailable');
-      if(input.workingSetId===undefined&&!input.automatic&&focus.revision>0)fail('INVALID_ARGUMENT','A fresh operator input after focus changes needs an explicit workingSetId');
-      if(state.nextSequence>this.limits.maxInputs) fail('LIMIT_EXCEEDED','Session memory input/receipt retention is full');
-      const pending=this.db.prepare("SELECT count(*) AS count FROM inputs WHERE session_key=? AND status IN ('pending','running','unknown')").get(key).count;
-      if(pending>=this.limits.maxPending) fail('LIMIT_EXCEEDED','Session memory backlog is full; this input was not observed');
+      const pending=this.db.prepare("SELECT status FROM inputs WHERE session_key=?").all(key).filter(row=>core.memoryPending(row.status)).length;
+      const choice=core.memoryAdmission(!!target,input.workingSetId!==undefined,!!input.automatic,focus.revision,state.nextSequence,this.limits.maxInputs,pending,this.limits.maxPending);
+      if(choice==='MemoryTargetMissing')fail('NOT_FOUND','Destination working set is unavailable');
+      if(choice==='MemoryTargetAmbiguous')fail('INVALID_ARGUMENT','A fresh operator input after focus changes needs an explicit workingSetId');
+      if(choice==='MemoryInputFull')fail('LIMIT_EXCEEDED','Session memory input/receipt retention is full');
+      if(choice==='MemoryBacklogFull')fail('LIMIT_EXCEEDED','Session memory backlog is full; this input was not observed');
       const selection=prepare(state,target),value={key,session:input.session,sequence:state.nextSequence,deliveryId:input.deliveryId,digest:identity,kind,primaryIds:selection.primaryIds,contextIds:selection.contextIds,status:selection.skip?'skipped':'pending',observedAt:now(),...(input.automatic?{automatic:input.automatic}:{})};
       this.continuity.bindInput(key,value.sequence,target.id,focus.revision);
-      this.putInput(value);state.nextSequence++;this.putSession(state);this.advance(key);
+      this.putInput(value);state.nextSequence=core.counterNext(state.nextSequence,'Memory input sequence');this.putSession(state);this.advance(key);
       if(input.automatic){
         const subscription=this.subscription(input.session);
         subscription.lastIntake={sequence:value.sequence,at:value.observedAt,subscriptionRevision:subscription.revision};
@@ -324,12 +326,12 @@ export class SessionMemory {
     if(input.workingSetId!==undefined)text(input.workingSetId,'destination working-set identity',128);
     if(input.automatic!==undefined){exact(input.automatic,['subscriptionRevision']);integer(input.automatic.subscriptionRevision,1,Number.MAX_SAFE_INTEGER,'automatic subscription revision');}
     messageInput(input.message,this.limits.maxSourceBytes);
-    if(input.message.authorship==='assistant') fail('INVALID_ARGUMENT','A foreground memory observation requires submitted user evidence');
+    if(core.memoryObservation(input.message.authorship)==='MemoryObservationReject') fail('INVALID_ARGUMENT','A foreground memory observation requires submitted user evidence');
     if(input.exchange!==undefined && (!Array.isArray(input.exchange) || input.exchange.length>16)) fail('INVALID_ARGUMENT','Use at most sixteen explicit preceding exchange items');
     for(const message of input.exchange??[]) messageInput(message,this.limits.maxSourceBytes);
     return this.admit(input,'message',()=>{
       const contextIds=(input.exchange??[]).map(message=>this.addSource(input.session,message,'referenced-exchange').id);
-      return {primaryIds:[this.addSource(input.session,input.message,'submission',input.session,contextIds).id],contextIds,skip:input.message.authorship==='harness'};
+      return {primaryIds:[this.addSource(input.session,input.message,'submission',input.session,contextIds).id],contextIds,skip:core.memoryObservation(input.message.authorship)==='MemoryObservationSkip'};
     });
   }
   rebuild(input) {
@@ -340,17 +342,17 @@ export class SessionMemory {
     input.sourceIds.forEach(id=>text(id,'source identity',128));
     for(const capture of input.captures??[]) {
       exact(capture,['session','message'],['exchange']);memorySessionKey(capture.session);messageInput(capture.message,this.limits.maxSourceBytes);
-      if(!['human','unknown'].includes(capture.message.authorship))fail('INVALID_ARGUMENT','History captures select user evidence; assistant/harness items remain context');
+      if(!core.memoryUser(capture.message.authorship))fail('INVALID_ARGUMENT','History captures select user evidence; assistant/harness items remain context');
       if(!Array.isArray(capture.exchange??[]) || (capture.exchange?.length??0)>16)fail('INVALID_ARGUMENT','Select at most sixteen preceding exchange items');
       for(const message of capture.exchange??[])messageInput(message,this.limits.maxSourceBytes);
     }
     return this.admit(input,'rebuild',(state,target)=>{
       if(input.workingSetId!==undefined){
         integer(input.expectedWorkingSetRevision,0,Number.MAX_SAFE_INTEGER,'working-set revision');
-        if(target.revision!==input.expectedWorkingSetRevision)fail('REVISION_CONFLICT','Destination working set changed before reconstruction admission','refresh');
-      }else if(state.revision!==input.expectedRevision) fail('REVISION_CONFLICT','Destination memory changed before reconstruction admission','refresh');
+        if(!core.memoryRebuildBasis(true,state.revision,input.expectedRevision,target.revision,input.expectedWorkingSetRevision))fail('REVISION_CONFLICT','Destination working set changed before reconstruction admission','refresh');
+      }else if(!core.memoryRebuildBasis(false,state.revision,input.expectedRevision,target.revision,input.expectedWorkingSetRevision)) fail('REVISION_CONFLICT','Destination memory changed before reconstruction admission','refresh');
       const sources=input.sourceIds.map(id=>this.source(id));
-      if(sources.some(source=>!['human','unknown'].includes(source.authorship))) fail('INVALID_ARGUMENT','Reconstruction selects submitted user evidence; assistant/harness sources remain context');
+      if(sources.some(source=>!core.memoryUser(source.authorship))) fail('INVALID_ARGUMENT','Reconstruction selects submitted user evidence; assistant/harness sources remain context');
       const contextIds=sources.flatMap(source=>this.contextIds(source)),primaryIds=[...input.sourceIds];
       for(const capture of input.captures??[]) {
         const exchangeIds=(capture.exchange??[]).map(message=>this.addSource(capture.session,message,'referenced-exchange',input.session).id);
@@ -362,7 +364,7 @@ export class SessionMemory {
   }
   advance(key) {
     const state=parse(this.db.prepare('SELECT value FROM memory_sessions WHERE key=?').get(key));
-    while(terminal.includes(this.input(key,state.processedThrough+1)?.status)) state.processedThrough++;
+    while(core.resourceLessOrEqual(state.processedThrough,Number.MAX_SAFE_INTEGER-1)&&core.memoryTerminal(this.input(key,core.counterNext(state.processedThrough,'Memory processing cursor'))?.status))state.processedThrough=core.counterNext(state.processedThrough,'Memory processing cursor');
     this.putSession(state);
   }
   active() {return parse(this.db.prepare('SELECT value FROM dispatches LIMIT 1').get());}
@@ -370,24 +372,31 @@ export class SessionMemory {
     const receipt=parse(this.db.prepare('SELECT value FROM receipts WHERE id=?').get(id));
     return receipt?{kind:'receipt',receipt}:parse(this.db.prepare('SELECT value FROM metadata WHERE key=?').get('settled-dispatch:'+id));
   }
-  nextInput() {return parse(this.db.prepare("SELECT i.value FROM inputs i JOIN memory_sessions s ON s.key=i.session_key WHERE i.status='pending' AND i.sequence=json_extract(s.value,'$.processedThrough')+1 ORDER BY i.rowid LIMIT 1").get());}
-  hasPending() {return !!this.nextInput();}
+  nextInput() {
+    const heads=[];
+    for(const row of this.db.prepare('SELECT value FROM memory_sessions ORDER BY rowid').all()) {
+      const state=parse(row),sequence=core.resourceAdd(state.processedThrough,1);if(sequence===Infinity)continue;
+      const head=this.db.prepare('SELECT CAST(rowid AS TEXT) AS ordinal,value FROM inputs WHERE session_key=? AND sequence=?').get(state.key,sequence);
+      if(head)heads.push({input:parse(head),order:head.ordinal,processedThrough:state.processedThrough});
+    }
+    const index=core.memoryNextHead(heads);return index===undefined?undefined:heads[index].input;
+  }
+  hasPending() {return this.transaction(()=>!!this.nextInput(),false);}
   claim(provider) {
     exact(provider,['id','model']);text(provider.id,'provider identity',256);text(provider.model,'model identity',256);
     return this.transaction(()=>{
-      if(this.active()) return null;
-      const input=this.nextInput();if(!input) return null;
+      const active=this.active(),input=this.nextInput();if(core.memoryClaim(!!active,!!input)!=='MemoryLoadInput')return null;
       const state=parse(this.db.prepare('SELECT value FROM memory_sessions WHERE key=?').get(input.key));
       const binding=this.continuity.inputBinding(input.key,input.sequence),target=this.continuity.workingSet(input.key,binding.workingSetId),focus=this.continuity.focus(input.key);
       if(!target)fail('IDENTITY_CONFLICT','Pending memory destination is unavailable');
-      const entries=this.continuity.value(target.entries),focusSourceIds=target.basisSourceIds.filter(id=>{const source=this.source(id);return ['human','unknown'].includes(source.authorship)&&source.origin!=='referenced-exchange';});
+      const entries=this.continuity.value(target.entries),focusSourceIds=target.basisSourceIds.filter(id=>{const source=this.source(id);return core.memoryFocusSource(source);});
       const sourceIds=[...new Set([...entries.map(entry=>entry.sourceId),...input.primaryIds,...target.basisSourceIds,...input.contextIds])];
       // Carry exact preceding exchanges for entries such as "yes, do that".
       for(const id of [...sourceIds]) {
         for(const contextId of this.contextIds(this.source(id))) if(!sourceIds.includes(contextId)) sourceIds.push(contextId);
       }
       const request={session:input.session,capacity:this.limits.capacity,cache:entries,incomingSourceIds:input.primaryIds,sources:sourceIds.map(id=>this.source(id)),workingSet:{id:target.id,purposeKey:target.purposeKey,label:target.label,...(target.purpose?{purpose:target.purpose}:{}),...(target.returnPoint?{returnPoint:target.returnPoint}:{})},...(focusSourceIds.length?{focusSourceIds}:{})};
-      if(Buffer.byteLength(renderMemoryPrompt(request))>this.limits.maxPromptBytes) {
+      if(!core.resourceLessOrEqual(Buffer.byteLength(renderMemoryPrompt(request)),this.limits.maxPromptBytes)) {
         input.status='failed';input.error={code:'LIMIT_EXCEEDED',message:'Whole selected checker input exceeds the configured prompt bound'};this.putInput(input);this.advance(input.key);return {kind:'refused',session:input.session,sequence:input.sequence,error:input.error};
       }
       const dispatch={id:randomUUID(),key:input.key,sequence:input.sequence,cacheRevision:state.revision,processedThrough:state.processedThrough,workingSetId:target.id,workingSetRevision:target.revision,focusRevision:focus.revision,admittedFocusRevision:binding.focusRevision,provider,promptVersion:memoryPromptVersion,promptDigest:bytesDigest(memoryPrompt),outputSchemaDigest:digest(memoryOutputSchema),inputDigest:digest(request),request,status:'running',startedAt:now()};
@@ -399,7 +408,7 @@ export class SessionMemory {
   prepareProfile(id,preparation) {
     exact(preparation,['profile','request']);
     return this.transaction(()=>{
-      const dispatch=this.active();if(!dispatch||dispatch.id!==id||dispatch.status!=='running')fail('NOT_FOUND','Native profile needs the current prepared dispatch');
+      const dispatch=this.active();if(!core.memoryDispatch(dispatch,id,true))fail('NOT_FOUND','Native profile needs the current prepared dispatch');
       canonical(preparation);
       this.continuity.prepareNative(id,preparation.profile,preparation.request);
       return {assessmentId:id,prepared:true};
@@ -408,7 +417,7 @@ export class SessionMemory {
   unknown(id,detail) {
     text(detail,'uncertain dispatch detail',2048);
     return this.transaction(()=>{
-      const dispatch=this.active();if(!dispatch || dispatch.id!==id) fail('NOT_FOUND','Memory dispatch is not current');
+      const dispatch=this.active();if(!core.memoryDispatch(dispatch,id)) fail('NOT_FOUND','Memory dispatch is not current');
       dispatch.status='unknown';dispatch.detail=detail;
       this.continuity.status(id,'unknown');
       this.db.prepare('UPDATE dispatches SET value=? WHERE id=?').run(canonical(dispatch),id);
@@ -427,28 +436,31 @@ export class SessionMemory {
     return this.transaction(()=>{
       const prior=parse(this.db.prepare('SELECT value FROM receipts WHERE id=?').get(id));
       if(prior) {if(prior.resultDigest!==resultDigest) fail('IDEMPOTENCY_CONFLICT','Memory dispatch already has a different result');return prior;}
-      const dispatch=this.active();if(!dispatch || dispatch.id!==id) fail('NOT_FOUND','Memory dispatch is not current');
+      const dispatch=this.active();if(!core.memoryDispatch(dispatch,id)) fail('NOT_FOUND','Memory dispatch is not current');
       const state=parse(this.db.prepare('SELECT value FROM memory_sessions WHERE key=?').get(dispatch.key)),input=this.input(dispatch.key,dispatch.sequence);
       const binding=this.continuity.inputBinding(dispatch.key,dispatch.sequence),target=this.continuity.workingSet(dispatch.key,binding.workingSetId),focus=this.continuity.focus(dispatch.key);
-      if(!target||dispatch.workingSetId&&target.id!==dispatch.workingSetId)fail('IDENTITY_CONFLICT','Retained dispatch working-set identity disagrees with its admission');
+      const basis=core.memoryCompletionBasis(state,binding,target,focus,dispatch);
+      if(basis==='MemoryBasisIdentity')fail('IDENTITY_CONFLICT','Retained dispatch working-set identity disagrees with its admission');
       const previousEntries=this.continuity.value(target.entries);let entries=previousEntries,error;
       try {
-        if(target.revision!==(dispatch.workingSetRevision??dispatch.cacheRevision) || state.processedThrough!==dispatch.processedThrough || focus.revision===(dispatch.focusRevision??binding.focusRevision)&&focus.workingSetId===target.id&&state.revision!==dispatch.cacheRevision) fail('REVISION_CONFLICT','Memory working set changed while the checker was running','refresh');
-        if(failure) fail(failure.code,failure.message);
-        if(Buffer.byteLength(canonical(output))>this.limits.maxOutputBytes || !validateOutput(output)) fail('INVALID_ARGUMENT','Checker output does not match its bounded schema');
-        if(output.kind==='replace') {
-          if(output.entries.length>this.limits.capacity || new Set(output.entries.map(entry=>entry.sourceId)).size!==output.entries.length) fail('INVALID_ARGUMENT','Checker returned duplicate or too many entries');
-          const eligible=new Set(memorySelection(dispatch.request).selectableSourceIds);
-          if(output.entries.some(entry=>!eligible.has(entry.sourceId))) fail('INVALID_ARGUMENT','Checker selected an unknown or context-only source');
+        if(basis==='MemoryBasisStale')fail('REVISION_CONFLICT','Memory working set changed while the checker was running','refresh');
+        const bounded=core.resourceLessOrEqual(Buffer.byteLength(canonical(output)),this.limits.maxOutputBytes);
+        const decision=core.memoryOutput(!!failure,bounded,!failure&&bounded?validateOutput(output):false,output?.kind==='replace');
+        if(decision==='MemoryObservedFailure')fail(failure.code,failure.message);
+        if(decision==='MemoryInvalidOutput')fail('INVALID_ARGUMENT','Checker output does not match its bounded schema');
+        if(decision==='MemoryCheckSelection'){
+          const selected=core.memoryEntrySelection(output.entries.map(entry=>entry.sourceId),memorySelection(dispatch.request).selectableSourceIds,this.limits.capacity);
+          if(selected==='MemorySelectionBound')fail('INVALID_ARGUMENT','Checker returned duplicate or too many entries');
+          if(selected==='MemorySelectionUnknown')fail('INVALID_ARGUMENT','Checker selected an unknown or context-only source');
           entries=output.entries;
         }
       } catch(fault) {if(!(fault instanceof DomainError)) throw fault;error={code:fault.code,message:fault.message};}
       if(!error) {
-        if(target.revision===Number.MAX_SAFE_INTEGER)fail('LIMIT_EXCEEDED','Working-set revision is exhausted');
-        target.entries=this.continuity.putValue('entries',entries);target.revision++;target.updatedAt=now();
+        const targetRevision=core.counterNext(target.revision,'Working-set revision');
+        target.entries=this.continuity.putValue('entries',entries);target.revision=targetRevision;target.updatedAt=now();
         const assessment={dispatchId:id,sequence:input.sequence,explanation:output.explanation,workingSetId:target.id};
         target.lastAssessment=assessment;this.continuity.putWorkingSet(target);
-        if(focus.workingSetId===target.id&&canonical(entries)!==canonical(state.entries)){if(state.revision===Number.MAX_SAFE_INTEGER)fail('LIMIT_EXCEEDED','Cache-content revision is exhausted');state.entries=entries;state.revision++;}
+        if(basis==='MemoryBasisActive'&&!core.sameValue(entries,state.entries)){state.revision=core.counterNext(state.revision,'Cache-content revision');state.entries=entries;}
         state.lastAssessment=assessment;this.putSession(state);
       }
       input.status=error?'failed':'succeeded';if(error) input.error=error;else delete input.error;this.putInput(input);
@@ -459,25 +471,24 @@ export class SessionMemory {
     });
   }
   reconcile(id,resolution) {
-    const active=this.active();if(!active || active.id!==id || active.status!=='unknown') fail('INVALID_ARGUMENT','Reconciliation requires the current unknown dispatch');
-    if(resolution?.kind==='observed') {exact(resolution,['kind','output'],['usage','rawOutput']);return this.finish(id,resolution.output,resolution.usage??{},{...(resolution.rawOutput===undefined?{}:{rawOutput:resolution.rawOutput})});}
-    if(resolution?.kind==='failed') {exact(resolution,['kind','code','message','evidence'],['usage','rawOutput']);text(resolution.evidence,'observed failure evidence',2048);return this.failObserved(id,{code:resolution.code,message:resolution.message},resolution.usage??{},resolution.rawOutput);}
+    const active=this.active(),choice=core.memoryReconcile(active,id,resolution?.kind);if(choice==='MemoryReconcileInvalid')fail('INVALID_ARGUMENT','Reconciliation requires the current unknown dispatch and a supported observation');
+    if(choice==='MemoryReconcileOutput') {exact(resolution,['kind','output'],['usage','rawOutput']);return this.finish(id,resolution.output,resolution.usage??{},{...(resolution.rawOutput===undefined?{}:{rawOutput:resolution.rawOutput})});}
+    if(choice==='MemoryReconcileFailure') {exact(resolution,['kind','code','message','evidence'],['usage','rawOutput']);text(resolution.evidence,'observed failure evidence',2048);return this.failObserved(id,{code:resolution.code,message:resolution.message},resolution.usage??{},resolution.rawOutput);}
     exact(resolution,['kind','evidence']);text(resolution.evidence,'reconciliation evidence',2048);
-    if(!['not_started','cancelled'].includes(resolution.kind)) fail('INVALID_ARGUMENT','Use observed output, proven not-started, or observed cancellation');
     return this.transaction(()=>{
-      const dispatch=this.active();if(!dispatch || dispatch.id!==id || dispatch.status!=='unknown') fail('INVALID_ARGUMENT','Reconciliation requires the current unknown dispatch');
-      const input=this.input(dispatch.key,dispatch.sequence);input.status=resolution.kind==='not_started'?'pending':'cancelled';input.reconciliation=resolution;delete input.error;this.putInput(input);
+      const dispatch=this.active(),current=core.memoryReconcile(dispatch,id,resolution.kind);if(current==='MemoryReconcileInvalid')fail('INVALID_ARGUMENT','Reconciliation requires the current unknown dispatch');
+      const input=this.input(dispatch.key,dispatch.sequence);input.status=current==='MemoryReconcileRetry'?'pending':'cancelled';input.reconciliation=resolution;delete input.error;this.putInput(input);
       this.db.prepare('INSERT INTO metadata VALUES (?,?)').run('settled-dispatch:'+id,canonical({kind:resolution.kind,dispatch:{id,inputDigest:dispatch.inputDigest},evidence:resolution.evidence}));
-      this.continuity.status(id,resolution.kind==='cancelled'?'cancelled':'not-started');
+      this.continuity.status(id,current==='MemoryReconcileCancelled'?'cancelled':'not-started');
       this.db.prepare('DELETE FROM dispatches WHERE id=?').run(id);this.advance(input.key);return {dispatchId:id,status:input.status};
     });
   }
   cancel(session,sequence) {
     const key=memorySessionKey(session);integer(sequence,1,Number.MAX_SAFE_INTEGER,'input sequence');
-    const active=this.active();if(active?.key===key && active.sequence===sequence) {this.unknown(active.id,'Cancellation requested after possible dispatch; observe provider termination or reconcile its output');return {session,sequence,status:'unknown'};}
+    const active=this.active();if(core.memoryCancelUncertain(active,key,sequence)) {this.unknown(active.id,'Cancellation requested after possible dispatch; observe provider termination or reconcile its output');return {session,sequence,status:'unknown'};}
     return this.transaction(()=>{
       const input=this.input(key,sequence);if(!input) fail('NOT_FOUND','Memory input is unavailable');
-      if(input.status==='pending') {input.status='cancelled';this.putInput(input);this.advance(key);}
+      const status=core.memoryCancelStatus(input.status);if(!core.sameText(status,input.status)){input.status=status;this.putInput(input);this.advance(key);}
       return {session,sequence,status:input.status};
     });
   }
@@ -623,15 +634,16 @@ export class SessionMemory {
         selected.push(contextId);
       }
     }
-    const gaps=inputs.filter(item=>['failed','cancelled'].includes(item.status));
+    const gaps=inputs.filter(item=>core.memoryGap(item.status));
     const active=this.active();
     const subscription=this.subscription(session);
-    const automation=!subscription.enabled?{state:'off',reason:'Automatic session memory is off; retained history remains available.'}
-      :automationIssue?{state:'unavailable',reason:automationIssue}
-      :subscription.lastIntake?.subscriptionRevision===subscription.revision?{state:'input-observed',reason:'Automatic intake was observed for this enrollment; processing coverage is reported separately.'}
+    const automationState=core.memoryAutomation(subscription,automationIssue);
+    const automation=automationState==='MemoryAutomationOff'?{state:'off',reason:'Automatic session memory is off; retained history remains available.'}
+      :automationState==='MemoryAutomationUnavailable'?{state:'unavailable',reason:automationIssue}
+      :automationState==='MemoryAutomationObserved'?{state:'input-observed',reason:'Automatic intake was observed for this enrollment; processing coverage is reported separately.'}
       :{state:'awaiting-input',reason:'Enabled for future input; no automatic intake is observed for this enrollment. Host integration installation, trust and loaded state are separate prerequisites.'};
     const lastAssessment=this.assessmentDescriptor(state?.lastAssessment,key),activeAssessment=this.assessmentDescriptor(activeSet?.lastAssessment,key),selectedAssessment=this.assessmentDescriptor(target?.lastAssessment,key);
-    const packet={session,subscription,automation,exists:!!state,historyCoverage:'selected-inputs',cacheRevision:state?.revision??0,processedThrough:state?.processedThrough??0,observedThrough:state?(state.nextSequence-1):0,entries,pending:inputs.filter(item=>['pending','running','unknown'].includes(item.status)).map(item=>({sequence:item.sequence,status:item.status,workingSetId:this.continuity.inputBinding(key,item.sequence).workingSetId,...(active?.key===key && active.sequence===item.sequence?{dispatchId:active.id}:{})})),gaps:gaps.slice(-100).map(item=>({sequence:item.sequence,status:item.status,workingSetId:this.continuity.inputBinding(key,item.sequence).workingSetId,...(item.error?{error:item.error}:{})})),gapCount:gaps.length,omittedGapCount:Math.max(0,gaps.length-100),sources:[],omittedSourceIds:[...selected],...(focus?{focus}:{}),...(target?{workingSet:this.workingSetDescriptor(target)}:{}),...(includeWorkingSets?{workingSets:this.continuity.workingSets(key).map(value=>({id:value.id,revision:value.revision,purposeKey:value.purposeKey,label:value.label,active:value.id===focus?.workingSetId}))}:{}),...(activeAssessment?{activeAssessment}:{}),...(selectedAssessment?{selectedAssessment}:{}),...(lastAssessment?{lastAssessment}:{}),...(worker?{worker}:{})};
+    const packet={session,subscription,automation,exists:!!state,historyCoverage:'selected-inputs',cacheRevision:state?.revision??0,processedThrough:state?.processedThrough??0,observedThrough:state?(state.nextSequence-1):0,entries,pending:inputs.filter(item=>core.memoryPending(item.status)).map(item=>({sequence:item.sequence,status:item.status,workingSetId:this.continuity.inputBinding(key,item.sequence).workingSetId,...(active?.key===key && active.sequence===item.sequence?{dispatchId:active.id}:{})})),gaps:gaps.slice(-100).map(item=>({sequence:item.sequence,status:item.status,workingSetId:this.continuity.inputBinding(key,item.sequence).workingSetId,...(item.error?{error:item.error}:{})})),gapCount:gaps.length,omittedGapCount:Math.max(0,gaps.length-100),sources:[],omittedSourceIds:[...selected],...(focus?{focus}:{}),...(target?{workingSet:this.workingSetDescriptor(target)}:{}),...(includeWorkingSets?{workingSets:this.continuity.workingSets(key).map(value=>({id:value.id,revision:value.revision,purposeKey:value.purposeKey,label:value.label,active:value.id===focus?.workingSetId}))}:{}),...(activeAssessment?{activeAssessment}:{}),...(selectedAssessment?{selectedAssessment}:{}),...(lastAssessment?{lastAssessment}:{}),...(worker?{worker}:{})};
     const size=()=>Buffer.byteLength(canonical(packet));
     packet.presentation={maximumBytes:this.limits.maxAutomaticBytes};
     const bindings=this.workingSetBindings(target);if(bindings)packet.bindings=bindings;

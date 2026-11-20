@@ -9,6 +9,7 @@ import ./policy-query.bend as PQ
 import ./control.bend as Control
 import ./awareness.bend as Aware
 import ./guidance.bend as Guide
+import ./memory.bend as Mem
 
 def execution_step(state: Run.State, action: Run.Action) -> Run.Step:
   Run.step(state, action)
@@ -1008,3 +1009,115 @@ def guidance_capture_room(count: U32) -> Bool:
 
 def guidance_settlement(state: Run.State, blocked: Bool) -> Bool:
   Guide.settlement(state, blocked)
+
+
+def memory_terminal(status: String) -> Bool:
+  Mem.terminal(status)
+
+
+def memory_pending(status: String) -> Bool:
+  Mem.pending(status)
+
+
+def memory_gap(status: String) -> Bool:
+  Mem.gap(status)
+
+
+def memory_user(+authorship: String) -> Bool:
+  Mem.user(authorship)
+
+
+def memory_focus_source(authorship: String, origin: String) -> Bool:
+  Mem.focus_source(authorship, origin)
+
+
+def memory_selectable(cache: +List<String>, incoming: +List<String>, focus: +List<String>) -> +List<String>:
+  Mem.selectable(cache, incoming, focus)
+
+
+def memory_context(sources: +List<String>, selected: +List<String>) -> +List<String>:
+  Mem.context(sources, selected)
+
+
+def memory_focus_header(current: Budget.Count, expected: Budget.Count) -> Mem.FocusHeader:
+  Mem.focus_header(current, expected)
+
+def memory_focus_projection(projection: Bool) -> Mem.FocusHeader:
+  Mem.focus_projection(projection)
+
+
+def memory_focus_select(present: Bool, seed: Bool, count: Budget.Count, maximum: Budget.Count) -> Mem.FocusSelect:
+  Mem.focus_select(present, seed, count, maximum)
+
+
+def memory_focus_release(present: Bool, pending: Bool, +released: String, +current: String, replacement_present: Bool, replacement: String) -> Mem.FocusRelease:
+  Mem.focus_release(present, pending, released, current, replacement_present, replacement)
+
+
+def memory_focus_changed(created: Bool, edited: Bool, target: String, current: String) -> Bool:
+  Mem.focus_changed(created, edited, target, current)
+
+
+def memory_configure(+revision: Budget.Count, expected: Budget.Count, receipts: Budget.Count, maximum: Budget.Count, current: Bool, requested: Bool) -> Mem.Configuration:
+  Mem.configure(revision, expected, receipts, maximum, current, requested)
+
+
+def memory_disable_input(enabled: Bool, automatic: Bool, status: String) -> Bool:
+  Mem.disable_input(enabled, automatic, status)
+
+
+def memory_enrollment(enabled: Bool, revision: Budget.Count, expected: Budget.Count) -> Mem.Enrollment:
+  Mem.enrollment(enabled, revision, expected)
+
+
+def memory_admission(present: Bool, explicit: Bool, automatic: Bool, focus: Budget.Count, sequence: Budget.Count, maximum_inputs: Budget.Count, pending: Budget.Count, maximum_pending: Budget.Count) -> Mem.Admission:
+  Mem.admission(present, explicit, automatic, focus, sequence, maximum_inputs, pending, maximum_pending)
+
+
+def memory_claim(active: Bool, pending: Bool) -> Mem.Claim:
+  Mem.claim(active, pending)
+
+
+def memory_basis(present: Bool, +target: String, dispatch_target_present: Bool, dispatch_target: String, target_revision: Budget.Count, target_basis: Budget.Count, processed: Budget.Count, processed_basis: Budget.Count, focus_revision: Budget.Count, focus_basis: Budget.Count, current: String, cache_revision: Budget.Count, cache_basis: Budget.Count) -> Mem.CompletionBasis:
+  Mem.basis(present, target, dispatch_target_present, dispatch_target, target_revision, target_basis, processed, processed_basis, focus_revision, focus_basis, current, cache_revision, cache_basis)
+
+
+def memory_output(failure: Bool, bounded: Bool, schema: Bool, replace: Bool) -> Mem.Output:
+  Mem.output(failure, bounded, schema, replace)
+
+
+def memory_selection(count: Budget.Count, capacity: Budget.Count, +selected: +List<String>, eligible: +List<String>) -> Mem.Selection:
+  Mem.selection(count, capacity, selected, eligible)
+
+
+def memory_reconcile(present: Bool, actual: String, expected: String, status: String, +kind: String) -> Mem.Reconciliation:
+  Mem.reconcile(present, actual, expected, status, kind)
+
+
+def memory_cancel_uncertain(present: Bool, current: String, requested: String, sequence: Budget.Count, expected: Budget.Count) -> Bool:
+  Mem.cancel_uncertain(present, current, requested, sequence, expected)
+
+
+def memory_cancel_status(+status: String) -> String:
+  Mem.cancel_status(status)
+
+
+def memory_automation(enabled: Bool, issue: Bool, observed: Bool, revision: Budget.Count, observed_revision: Budget.Count) -> Mem.Automation:
+  Mem.automation(enabled, issue, observed, revision, observed_revision)
+
+
+def memory_observation(authorship: String) -> Mem.Observation:
+  Mem.observation(authorship)
+
+def memory_head_due(status: String, sequence: Budget.Count, processed: Budget.Count) -> Bool:
+  Mem.head_due(status, sequence, processed)
+
+def memory_next_head(heads: +List<Mem.Head>) -> Mem.NextHead:
+  Mem.next_head(heads)
+
+
+def memory_rebuild_basis(explicit: Bool, cache: Budget.Count, expected_cache: Budget.Count, working: Budget.Count, expected_working: Budget.Count) -> Bool:
+  Mem.rebuild_basis(explicit, cache, expected_cache, working, expected_working)
+
+def memory_dispatch(present: Bool, actual: String, expected: String, status: String, preparing: Bool) -> Bool:
+  Mem.dispatch(present, actual, expected, status, preparing)
