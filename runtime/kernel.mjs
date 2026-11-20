@@ -60,48 +60,28 @@ export class Kernel {
     return {operator,chain,scopeKey:operator?'operator':digest(chain.map(grant=>grant.id)),...core.accessScopes(operator,chain)};
   }
   policyQueries(snapshot, access, principalId) {
-    if (snapshot.records.length>4096 || snapshot.assertions.length>16384) return { exists:()=> 'unknown',related:()=> 'unknown' };
-    let queryBudget=32768-snapshot.records.length-snapshot.assertions.length;
     const issuers=this.lookup(snapshot,snapshot.context.policy).value.authorityIssuers ?? [snapshot.controlState.owners.principalId];
-    const assertions=snapshot.assertions.filter(item=>item.assertion.ref.systemId===snapshot.context.systemId && item.assertion.ref.contextId===snapshot.context.id && issuers.includes(item.assertion.recordedBy));
-    let provenanceCost=0;
-    for (const item of assertions) { provenanceCost+=item.assertion.value.evidence.sources.length;queryBudget-=item.assertion.value.evidence.sources.length;if (queryBudget<0) return { exists:()=> 'unknown',related:()=> 'unknown' }; }
-    const activeSupported=new Set(assertions.filter(item=>item.status==='asserted' && item.assertion.value.evidence.sources.every(access.canRead)).map(item=>item.assertion.value.record.id));
-    const ids=new Set(assertions.map(item=>item.assertion.value.record.id));
-    const trusted={ ...snapshot,assertions,records:snapshot.records.filter(item=>ids.has(item.ref.id)) };
+    const projection=core.policyQueryProjection(snapshot,issuers);
+    if(!projection)return {exists:()=> 'unknown',related:()=> 'unknown'};
+    let queryBudget=projection.budget;
+    const assertions=projection.indices.map(index=>snapshot.assertions[index]);
+    const activeSupported=new Set(assertions.filter(item=>core.policyQuerySupported(item.status,item.assertion.value.evidence.sources,access)).map(item=>item.assertion.value.record.id));
+    const ids=new Set(projection.records),trusted={...snapshot,assertions,records:snapshot.records.filter(item=>ids.has(item.ref.id))};
     const exists=selector=>{
-      queryBudget-=trusted.records.length+assertions.length+provenanceCost+1;
-      if (selector.relatedTo) for (const item of trusted.records) if (item.value.kind==='relation') for (const refs of Object.values(item.value.roles)) queryBudget-=2*refs.length;
-      if (queryBudget<0) return 'unknown';
-      if (selector.relatedTo && !access.canRead(selector.relatedTo)) return 'unknown';
-      const result=this.query(trusted,{ contextId:snapshot.context.id,selector,limit:1 },principalId,access);
-      return result.items.length?true:access.operator?false:'unknown';
+      queryBudget=core.policyQueryExistsBudget(queryBudget,trusted,projection.provenance,selector.relatedTo!==undefined);
+      if(!core.policyQueryAvailable(queryBudget))return 'unknown';
+      if(selector.relatedTo && core.policyQueryEndpoint(snapshot.context,selector.relatedTo,access)===undefined)return 'unknown';
+      const result=this.query(trusted,{contextId:snapshot.context.id,selector,limit:1},principalId,access);
+      return core.policyQueryObserved(result.items.length>0,access.operator);
     };
     const related=(from,to,names,maxHops)=>{
-      const ref=value=>typeof value==='string'?this.ref(snapshot.context.id,value):value;
-      const start=ref(from),end=ref(to);
-      if (!start || !end || typeof start!=='object' || typeof end!=='object' || start.systemId!==snapshot.context.systemId || end.systemId!==snapshot.context.systemId || start.contextId!==snapshot.context.id || end.contextId!==snapshot.context.id || !access.canRead(start) || !access.canRead(end)) return 'unknown';
-      queryBudget-=trusted.records.length+names.length;if (queryBudget<0) return 'unknown';
-      const schemas=new Set(names);
-      const edges=trusted.records.filter(item=>item.value.kind==='relation' && schemas.has(item.value.schema.name) && access.canRead(item.ref) && activeSupported.has(item.ref.id));
-      if (edges.length>4096) return 'unknown';
-      let frontier=[start];const seen=new Set([canonical(start)]);
-      for (let hop=0;hop<maxHops;hop++) {
-        const next=[];
-        for (const source of frontier) for (const edge of edges) {
-          queryBudget-=1+(edge.value.roles.subject?.length ?? 0)+(edge.value.roles.object?.length ?? 0);
-          if (queryBudget<0) return 'unknown';
-          if (!(edge.value.roles.subject ?? []).some(item=>sameRef(item,source))) continue;
-          for (const target of edge.value.roles.object ?? []) if (access.canRead(target)) {
-            if (sameRef(target,end)) return true;
-            const key=canonical(target);if (!seen.has(key)) { seen.add(key);next.push(target);if (seen.size>512) return 'unknown'; }
-          }
-        }
-        frontier=next;if (!frontier.length) break;
-      }
-      return access.operator?false:'unknown';
+      const start=core.policyQueryEndpoint(snapshot.context,from,access),end=core.policyQueryEndpoint(snapshot.context,to,access);
+      if(start===undefined||end===undefined)return 'unknown';
+      queryBudget=core.policyQueryCharge(queryBudget,[trusted.records.length,names.length]);
+      if(!core.policyQueryAvailable(queryBudget))return 'unknown';
+      const result=core.policyQueryRelated(queryBudget,trusted.records,activeSupported,names,start,end,maxHops,access);queryBudget=result.budget;return result.value;
     };
-    return { exists,related };
+    return {exists,related};
   }
   authorize(snapshot, method, principalId, input, boundGrant) {
     const access = this.admission(snapshot, principalId, boundGrant);

@@ -1557,6 +1557,393 @@ function $capability_selected(_advertised_0, _requested_0, _readable_0) {
   return $Bool_and(_readable_0, $$String_eq(_advertised_0, _requested_0));
 }
 
+function $policy_query_initial(_records_0, _assertions_0) {
+  const _x_0 = ((32768 - _records_0) >>> 0);
+  return $Bool_pick($$Bool_and((_records_0 <= 4096), (_assertions_0 <= 16384)), {$: "PQBudget", "remaining": ((_x_0 - _assertions_0) >>> 0)}, {$: "PQExhausted"});
+}
+
+function $policy_query_charge(_budget_0, _cost_0) {
+  if (_budget_0.$ === "PQExhausted") {
+    return {$: "PQExhausted"};
+  } else {
+    const _remaining_0 = _budget_0["remaining"];
+    return $Bool_pick((_cost_0 <= _remaining_0), {$: "PQBudget", "remaining": ((_remaining_0 - _cost_0) >>> 0)}, {$: "PQExhausted"});
+  }
+}
+
+function $policy_query_available(_budget_0) {
+  if (_budget_0.$ === "PQExhausted") {
+    return false;
+  } else {
+    return true;
+  }
+}
+
+function $policy_query_edge_charge(_budget_0, _subjects_0, _objects_0) {
+  return $policy_query_charge($$policy_query_charge($$policy_query_charge(_budget_0, 1), _subjects_0), _objects_0);
+}
+
+function $policy_query_charges($0, $1) {
+  for (;;) {
+    {
+      const _costs_0 = $0;
+      const _budget_0 = $1;
+      if (_costs_0.$ === "Nil") {
+        return _budget_0;
+      } else {
+        const _head_0 = _costs_0["head"];
+        const _tail_0 = _costs_0["tail"];
+        $0 = _tail_0;
+        $1 = $$policy_query_charge(_budget_0, _head_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $policy_query_projected(_accepted_0, _index_0, _record_0, _cost_0, _projection_0) {
+  const _budget_0 = _projection_0["budget"];
+  const _indices_0 = _projection_0["indices"];
+  const _records_0 = _projection_0["records"];
+  const _provenance_0 = _projection_0["provenance"];
+  return $Bool_pick(_accepted_0, {$: "PQProjection", "budget": $$policy_query_charge(_budget_0, _cost_0), "indices": {$: "Con", "head": _index_0, "tail": _indices_0}, "records": {$: "Con", "head": _record_0, "tail": _records_0}, "provenance": ((_provenance_0 + _cost_0) >>> 0)}, {$: "PQProjection", "budget": _budget_0, "indices": _indices_0, "records": _records_0, "provenance": _provenance_0});
+}
+
+function $policy_query_project_step(_assertion_0, _system_0, _context_0, _issuers_0, _projection_0) {
+  const _index_0 = _assertion_0["index"];
+  const _owner_system_0 = _assertion_0["system"];
+  const _owner_context_0 = _assertion_0["context"];
+  const _issuer_0 = _assertion_0["issuer"];
+  const _record_0 = _assertion_0["record"];
+  const _sources_0 = _assertion_0["sources"];
+  return $policy_query_projected($$Bool_and($$String_eq(_system_0, _owner_system_0), $$Bool_and($$String_eq(_context_0, _owner_context_0), $$collections_contains(_issuers_0, _issuer_0))), _index_0, _record_0, _sources_0, _projection_0);
+}
+
+function $policy_query_project_fold($0, $1, $2, $3, $4) {
+  for (;;) {
+    {
+      const _assertions_0 = $0;
+      const _system_0 = $1;
+      const _context_0 = $2;
+      const _issuers_0 = $3;
+      const _projection_0 = $4;
+      if (_assertions_0.$ === "Nil") {
+        return _projection_0;
+      } else {
+        const _head_0 = _assertions_0["head"];
+        const _tail_0 = _assertions_0["tail"];
+        $0 = _tail_0;
+        $1 = _system_0;
+        $2 = _context_0;
+        $3 = _issuers_0;
+        $4 = $$policy_query_project_step(_head_0, _system_0, _context_0, _issuers_0, _projection_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $policy_query_project_finish(_projection_0) {
+  const _budget_0 = _projection_0["budget"];
+  const _indices_0 = _projection_0["indices"];
+  const _records_0 = _projection_0["records"];
+  const _provenance_0 = _projection_0["provenance"];
+  return {$: "PQProjection", "budget": _budget_0, "indices": $$List_reverse(_indices_0), "records": $$List_reverse(_records_0), "provenance": _provenance_0};
+}
+
+function $policy_query_project(_assertions_0, _system_0, _context_0, _issuers_0, _budget_0) {
+  return $policy_query_project_finish($$policy_query_project_fold(_assertions_0, _system_0, _context_0, _issuers_0, {$: "PQProjection", "budget": _budget_0, "indices": {$: "Nil"}, "records": {$: "Nil"}, "provenance": 0}));
+}
+
+function $policy_query_readable_fold($0, $1) {
+  for (;;) {
+    {
+      const _values_0 = $0;
+      const _accepted_0 = $1;
+      if (_values_0.$ === "Nil") {
+        return _accepted_0;
+      } else {
+        const _head_0 = _values_0["head"];
+        const _tail_0 = _values_0["tail"];
+        $0 = _tail_0;
+        $1 = $$Bool_and(_accepted_0, _head_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $policy_query_supported(_status_0, _sources_0) {
+  return $Bool_and($$String_eq(_status_0, "asserted"), $$policy_query_readable_fold(_sources_0, true));
+}
+
+function $policy_query_selected(_kind_0, _schema_0, _names_0, _readable_0, _asserted_0) {
+  return $Bool_and($$String_eq(_kind_0, "relation"), $$Bool_and($$collections_contains(_names_0, _schema_0), $$Bool_and(_readable_0, _asserted_0)));
+}
+
+function $policy_query_observed(_found_0, _operator_0) {
+  return $Bool_pick(_found_0, {$: "PQYes"}, $$Bool_pick(_operator_0, {$: "PQNo"}, {$: "PQUnknown"}));
+}
+
+function $policy_query_plan_step(_header_0, _plan_0) {
+  const _index_0 = _header_0["index"];
+  const _subjects_0 = _header_0["subjects"];
+  const _objects_0 = _header_0["objects"];
+  const _budget_0 = _plan_0["budget"];
+  const _indices_0 = _plan_0["indices"];
+  const _omitted_0 = _plan_0["omitted"];
+  const _next_0 = $$policy_query_edge_charge(_budget_0, _subjects_0, _objects_0);
+  const _x_0 = $$Bool_not($$policy_query_available(_next_0));
+  return $Bool_pick((_omitted_0 || _x_0), {$: "PQPlan", "budget": _budget_0, "indices": _indices_0, "omitted": true}, {$: "PQPlan", "budget": _next_0, "indices": {$: "Con", "head": _index_0, "tail": _indices_0}, "omitted": false});
+}
+
+function $policy_query_plan_fold($0, $1) {
+  for (;;) {
+    {
+      const _headers_0 = $0;
+      const _plan_0 = $1;
+      if (_headers_0.$ === "Nil") {
+        return _plan_0;
+      } else {
+        const _head_0 = _headers_0["head"];
+        const _tail_0 = _headers_0["tail"];
+        $0 = _tail_0;
+        $1 = $$policy_query_plan_step(_head_0, _plan_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $policy_query_plan_finish(_plan_0) {
+  const _budget_0 = _plan_0["budget"];
+  const _indices_0 = _plan_0["indices"];
+  const _omitted_0 = _plan_0["omitted"];
+  return {$: "PQPlan", "budget": _budget_0, "indices": $$List_reverse(_indices_0), "omitted": _omitted_0};
+}
+
+function $policy_query_plan(_headers_0, _budget_0) {
+  return $policy_query_plan_finish($$policy_query_plan_fold(_headers_0, {$: "PQPlan", "budget": _budget_0, "indices": {$: "Nil"}, "omitted": false}));
+}
+
+function $policy_query_target_fields(_traversal_0, _key_0, _readable_0, _destination_0) {
+  if (_traversal_0.$ === "PQAdvance") {
+    const _budget_0 = _traversal_0["budget"];
+    const _next_0 = _traversal_0["next"];
+    const _seen_0 = _traversal_0["seen"];
+    const _count_0 = _traversal_0["count"];
+    return $Bool_pick(_readable_0, $$Bool_pick($$String_eq(_key_0, _destination_0), {$: "PQFound", "budget": _budget_0}, $$Bool_pick($$collections_contains(_seen_0, _key_0), {$: "PQAdvance", "budget": _budget_0, "next": _next_0, "seen": _seen_0, "count": _count_0}, $$Bool_pick((_count_0 < 512), {$: "PQAdvance", "budget": _budget_0, "next": {$: "Con", "head": _key_0, "tail": _next_0}, "seen": {$: "Con", "head": _key_0, "tail": _seen_0}, "count": ((_count_0 + 1) >>> 0)}, {$: "PQUnresolved", "budget": _budget_0}))), {$: "PQAdvance", "budget": _budget_0, "next": _next_0, "seen": _seen_0, "count": _count_0});
+  } else {
+    return _traversal_0;
+  }
+}
+
+function $policy_query_target_step(_target_0, _destination_0, _traversal_0) {
+  const _key_0 = _target_0["key"];
+  const _readable_0 = _target_0["readable"];
+  return $policy_query_target_fields(_traversal_0, _key_0, _readable_0, _destination_0);
+}
+
+function $policy_query_targets_fold($0, $1, $2) {
+  for (;;) {
+    {
+      const _targets_0 = $0;
+      const _destination_0 = $1;
+      const _traversal_0 = $2;
+      if (_targets_0.$ === "Nil") {
+        return _traversal_0;
+      } else {
+        const _head_0 = _targets_0["head"];
+        const _tail_0 = _targets_0["tail"];
+        $0 = _tail_0;
+        $1 = _destination_0;
+        $2 = $$policy_query_target_step(_head_0, _destination_0, _traversal_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $policy_query_edge_targets(_matched_0, _targets_0, _destination_0, _traversal_0) {
+  if (!_matched_0) {
+    return _traversal_0;
+  } else {
+    return $policy_query_targets_fold(_targets_0, _destination_0, _traversal_0);
+  }
+}
+
+function $policy_query_edge_ready(_budget_0, _subjects_0, _targets_0, _source_0, _destination_0, _next_0, _seen_0, _count_0) {
+  if (_budget_0.$ === "PQExhausted") {
+    return {$: "PQUnresolved", "budget": {$: "PQExhausted"}};
+  } else {
+    const _remaining_0 = _budget_0["remaining"];
+    return $policy_query_edge_targets($$collections_contains(_subjects_0, _source_0), _targets_0, _destination_0, {$: "PQAdvance", "budget": {$: "PQBudget", "remaining": _remaining_0}, "next": _next_0, "seen": _seen_0, "count": _count_0});
+  }
+}
+
+function $policy_query_count_budget(_budget_0, _cost_0) {
+  const _high_0 = _cost_0["high"];
+  const _low_0 = _cost_0["low"];
+  return $Bool_pick((_high_0 === 0), $$policy_query_charge(_budget_0, _low_0), {$: "PQExhausted"});
+}
+
+function $policy_query_role_budget(_subjects_0, _objects_0, _budget_0) {
+  return $policy_query_count_budget($$policy_query_count_budget($$policy_query_charge(_budget_0, 1), _subjects_0), _objects_0);
+}
+
+function $policy_query_edge_body(_edge_0, _source_0, _destination_0, _budget_0, _next_0, _seen_0, _count_0) {
+  if (_edge_0.$ === "PQOmittedEdge") {
+    return {$: "PQUnresolved", "budget": {$: "PQExhausted"}};
+  } else {
+    const _subject_count_0 = _edge_0["subject_count"];
+    const _target_count_0 = _edge_0["target_count"];
+    const _subjects_0 = _edge_0["subjects"];
+    const _targets_0 = _edge_0["targets"];
+    return $policy_query_edge_ready($$policy_query_role_budget(_subject_count_0, _target_count_0, _budget_0), _subjects_0, _targets_0, _source_0, _destination_0, _next_0, _seen_0, _count_0);
+  }
+}
+
+function $policy_query_edge_step(_edge_0, _source_0, _destination_0, _traversal_0) {
+  if (_traversal_0.$ === "PQAdvance") {
+    const _budget_0 = _traversal_0["budget"];
+    const _next_0 = _traversal_0["next"];
+    const _seen_0 = _traversal_0["seen"];
+    const _count_0 = _traversal_0["count"];
+    return $policy_query_edge_body(_edge_0, _source_0, _destination_0, _budget_0, _next_0, _seen_0, _count_0);
+  } else {
+    return _traversal_0;
+  }
+}
+
+function $policy_query_edges_fold($0, $1, $2, $3) {
+  for (;;) {
+    {
+      const _edges_0 = $0;
+      const _source_0 = $1;
+      const _destination_0 = $2;
+      const _traversal_0 = $3;
+      if (_edges_0.$ === "Nil") {
+        return _traversal_0;
+      } else {
+        const _head_0 = _edges_0["head"];
+        const _tail_0 = _edges_0["tail"];
+        $0 = _tail_0;
+        $1 = _source_0;
+        $2 = _destination_0;
+        $3 = $$policy_query_edge_step(_head_0, _source_0, _destination_0, _traversal_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $policy_query_source_step(_source_0, _edges_0, _destination_0, _traversal_0) {
+  if (_traversal_0.$ === "PQAdvance") {
+    const _budget_0 = _traversal_0["budget"];
+    const _next_0 = _traversal_0["next"];
+    const _seen_0 = _traversal_0["seen"];
+    const _count_0 = _traversal_0["count"];
+    return $policy_query_edges_fold(_edges_0, _source_0, _destination_0, {$: "PQAdvance", "budget": _budget_0, "next": _next_0, "seen": _seen_0, "count": _count_0});
+  } else {
+    return _traversal_0;
+  }
+}
+
+function $policy_query_sources_fold($0, $1, $2, $3) {
+  for (;;) {
+    {
+      const _sources_0 = $0;
+      const _edges_0 = $1;
+      const _destination_0 = $2;
+      const _traversal_0 = $3;
+      if (_sources_0.$ === "Nil") {
+        return _traversal_0;
+      } else {
+        const _head_0 = _sources_0["head"];
+        const _tail_0 = _sources_0["tail"];
+        $0 = _tail_0;
+        $1 = _edges_0;
+        $2 = _destination_0;
+        $3 = $$policy_query_source_step(_head_0, _edges_0, _destination_0, _traversal_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $policy_query_layer_result(_traversal_0, _operator_0) {
+  if (_traversal_0.$ === "PQFound") {
+    const _budget_0 = _traversal_0["budget"];
+    return {$: "PQDone", "verdict": {$: "PQYes"}, "budget": _budget_0};
+  } else if (_traversal_0.$ === "PQUnresolved") {
+    const _budget_1 = _traversal_0["budget"];
+    return {$: "PQDone", "verdict": {$: "PQUnknown"}, "budget": _budget_1};
+  } else {
+    const _budget_2 = _traversal_0["budget"];
+    const _next_0 = _traversal_0["next"];
+    const _seen_0 = _traversal_0["seen"];
+    const _count_0 = _traversal_0["count"];
+    return $Bool_pick($$List_is_empty(_next_0), {$: "PQDone", "verdict": $$policy_query_observed(false, _operator_0), "budget": _budget_2}, {$: "PQSearch", "frontier": $$List_reverse(_next_0), "seen": _seen_0, "count": _count_0, "budget": _budget_2});
+  }
+}
+
+function $policy_query_layer(_search_0, _edges_0, _destination_0, _operator_0) {
+  if (_search_0.$ === "PQSearch") {
+    const _frontier_0 = _search_0["frontier"];
+    const _seen_0 = _search_0["seen"];
+    const _count_0 = _search_0["count"];
+    const _budget_0 = _search_0["budget"];
+    return $policy_query_layer_result($$policy_query_sources_fold(_frontier_0, _edges_0, _destination_0, {$: "PQAdvance", "budget": _budget_0, "next": {$: "Nil"}, "seen": _seen_0, "count": _count_0}), _operator_0);
+  } else {
+    return _search_0;
+  }
+}
+
+function $policy_query_layers($0, $1, $2, $3, $4) {
+  for (;;) {
+    {
+      const _hops_0 = $0;
+      const _edges_0 = $1;
+      const _destination_0 = $2;
+      const _operator_0 = $3;
+      const _search_0 = $4;
+      if (_hops_0 == 0) {
+        return _search_0;
+      } else {
+        const _p_0 = (_hops_0 - 1);
+        $0 = _p_0;
+        $1 = _edges_0;
+        $2 = _destination_0;
+        $3 = _operator_0;
+        $4 = $$policy_query_layer(_search_0, _edges_0, _destination_0, _operator_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $policy_query_search_finish(_search_0, _operator_0) {
+  if (_search_0.$ === "PQSearch") {
+    const _budget_0 = _search_0["budget"];
+    return {$: "PQDone", "verdict": $$policy_query_observed(false, _operator_0), "budget": _budget_0};
+  } else {
+    return _search_0;
+  }
+}
+
+function $policy_query_related_budget(_budget_0, _edges_0, _start_0, _destination_0, _hops_0, _operator_0) {
+  if (_budget_0.$ === "PQExhausted") {
+    return {$: "PQDone", "verdict": {$: "PQUnknown"}, "budget": {$: "PQExhausted"}};
+  } else {
+    const _remaining_0 = _budget_0["remaining"];
+    return $policy_query_search_finish($$policy_query_layers(_hops_0, _edges_0, _destination_0, _operator_0, {$: "PQSearch", "frontier": {$: "Con", "head": _start_0, "tail": {$: "Nil"}}, "seen": {$: "Con", "head": _start_0, "tail": {$: "Nil"}}, "count": 1, "budget": {$: "PQBudget", "remaining": _remaining_0}}), _operator_0);
+  }
+}
+
+function $policy_query_related(_edges_0, _start_0, _destination_0, _hops_0, _operator_0, _budget_0) {
+  return $policy_query_related_budget(_budget_0, _edges_0, _start_0, _destination_0, _hops_0, _operator_0);
+}
+
 function $execution_step_1(_state_0, _action_0) {
   return $execution_step(_state_0, _action_0);
 }
@@ -2438,6 +2825,46 @@ function $capability_selected_1(_advertised_0, _requested_0, _readable_0) {
   return $capability_selected(_advertised_0, _requested_0, _readable_0);
 }
 
+function $policy_query_initial_1(_records_0, _assertions_0) {
+  return $policy_query_initial(_records_0, _assertions_0);
+}
+
+function $policy_query_available_1(_budget_0) {
+  return $policy_query_available(_budget_0);
+}
+
+function $policy_query_charges_1(_costs_0, _budget_0) {
+  return $policy_query_charges(_costs_0, _budget_0);
+}
+
+function $policy_query_projection(_assertions_0, _system_0, _context_0, _issuers_0, _budget_0) {
+  return $policy_query_project(_assertions_0, _system_0, _context_0, _issuers_0, _budget_0);
+}
+
+function $policy_query_supported_1(_status_0, _sources_0) {
+  return $policy_query_supported(_status_0, _sources_0);
+}
+
+function $policy_query_selected_1(_kind_0, _schema_0, _names_0, _readable_0, _asserted_0) {
+  return $policy_query_selected(_kind_0, _schema_0, _names_0, _readable_0, _asserted_0);
+}
+
+function $policy_query_observed_1(_found_0, _operator_0) {
+  return $policy_query_observed(_found_0, _operator_0);
+}
+
+function $policy_query_plan_1(_headers_0, _budget_0) {
+  return $policy_query_plan(_headers_0, _budget_0);
+}
+
+function $policy_query_related_1(_edges_0, _start_0, _destination_0, _hops_0, _operator_0, _budget_0) {
+  return $policy_query_related(_edges_0, _start_0, _destination_0, _hops_0, _operator_0, _budget_0);
+}
+
+function $policy_query_exists_budget(_budget_0, _records_0, _assertions_0, _provenance_0, _roles_0) {
+  return $policy_query_charges(_roles_0, $$policy_query_charges(_roles_0, $$policy_query_charge($$policy_query_charge($$policy_query_charge($$policy_query_charge(_budget_0, _records_0), _assertions_0), _provenance_0), 1)));
+}
+
 function $Bool_not(_b_0) {
   if (!_b_0) {
     return true;
@@ -2754,6 +3181,24 @@ const $$capability_incident_fold = $capability_incident_fold;
 const $$String_order = $String_order;
 const $$capability_eligibility_rank = $capability_eligibility_rank;
 const $$capability_room = $capability_room;
+const $$policy_query_charge = $policy_query_charge;
+const $$policy_query_project_step = $policy_query_project_step;
+const $$List_reverse = $List_reverse;
+const $$policy_query_project_fold = $policy_query_project_fold;
+const $$policy_query_readable_fold = $policy_query_readable_fold;
+const $$policy_query_edge_charge = $policy_query_edge_charge;
+const $$policy_query_available = $policy_query_available;
+const $$policy_query_plan_step = $policy_query_plan_step;
+const $$policy_query_plan_fold = $policy_query_plan_fold;
+const $$policy_query_target_step = $policy_query_target_step;
+const $$policy_query_count_budget = $policy_query_count_budget;
+const $$policy_query_role_budget = $policy_query_role_budget;
+const $$policy_query_edge_step = $policy_query_edge_step;
+const $$policy_query_source_step = $policy_query_source_step;
+const $$policy_query_observed = $policy_query_observed;
+const $$policy_query_sources_fold = $policy_query_sources_fold;
+const $$policy_query_layer = $policy_query_layer;
+const $$policy_query_layers = $policy_query_layers;
 const $$truth_all = $truth_all;
 const $$truth_any = $truth_any;
 const $$same_scope = $same_scope;
@@ -2782,6 +3227,7 @@ const $$lease_frame = $lease_frame;
 const $$expiry_fold = $expiry_fold;
 const $$queued_maintenance = $queued_maintenance;
 const $$marker_present = $marker_present;
+const $$policy_query_charges = $policy_query_charges;
 const $$Char_is_eq = $Char_is_eq;export default {
   "execution:terminal": run_lib((a0) => run_loop($execution_terminal(a0)), 1),
   "execution:result": run_lib((a0) => run_loop($execution_result(a0)), 1),
@@ -2908,6 +3354,42 @@ const $$Char_is_eq = $Char_is_eq;export default {
   "capability:reconcile": run_lib((a0,a1,a2,a3) => run_loop($capability_reconcile(str_in(a0),str_in(a1),a2,a3)), 4),
   "capability:evidence": run_lib((a0,a1) => run_loop($capability_evidence(a0,a1)), 2),
   "capability:selected": run_lib((a0,a1,a2) => run_loop($capability_selected(str_in(a0),str_in(a1),a2)), 3),
+  "policy-query:initial": run_lib((a0,a1) => run_loop($policy_query_initial(a0,a1)), 2),
+  "policy-query:charge": run_lib((a0,a1) => run_loop($policy_query_charge(a0,a1)), 2),
+  "policy-query:available": run_lib((a0) => run_loop($policy_query_available(a0)), 1),
+  "policy-query:edge_charge": run_lib((a0,a1,a2) => run_loop($policy_query_edge_charge(a0,a1,a2)), 3),
+  "policy-query:charges": run_lib((a0,a1) => run_loop($policy_query_charges(a0,a1)), 2),
+  "policy-query:projected": run_lib((a0,a1,a2,a3,a4) => run_loop($policy_query_projected(a0,a1,str_in(a2),a3,a4)), 5),
+  "policy-query:project_step": run_lib((a0,a1,a2,a3,a4) => run_loop($policy_query_project_step(a0,str_in(a1),str_in(a2),a3,a4)), 5),
+  "policy-query:project_fold": run_lib((a0,a1,a2,a3,a4) => run_loop($policy_query_project_fold(a0,str_in(a1),str_in(a2),a3,a4)), 5),
+  "policy-query:project_finish": run_lib((a0) => run_loop($policy_query_project_finish(a0)), 1),
+  "policy-query:project": run_lib((a0,a1,a2,a3,a4) => run_loop($policy_query_project(a0,str_in(a1),str_in(a2),a3,a4)), 5),
+  "policy-query:readable_fold": run_lib((a0,a1) => run_loop($policy_query_readable_fold(a0,a1)), 2),
+  "policy-query:supported": run_lib((a0,a1) => run_loop($policy_query_supported(str_in(a0),a1)), 2),
+  "policy-query:selected": run_lib((a0,a1,a2,a3,a4) => run_loop($policy_query_selected(str_in(a0),str_in(a1),a2,a3,a4)), 5),
+  "policy-query:observed": run_lib((a0,a1) => run_loop($policy_query_observed(a0,a1)), 2),
+  "policy-query:plan_step": run_lib((a0,a1) => run_loop($policy_query_plan_step(a0,a1)), 2),
+  "policy-query:plan_fold": run_lib((a0,a1) => run_loop($policy_query_plan_fold(a0,a1)), 2),
+  "policy-query:plan_finish": run_lib((a0) => run_loop($policy_query_plan_finish(a0)), 1),
+  "policy-query:plan": run_lib((a0,a1) => run_loop($policy_query_plan(a0,a1)), 2),
+  "policy-query:target_fields": run_lib((a0,a1,a2,a3) => run_loop($policy_query_target_fields(a0,str_in(a1),a2,str_in(a3))), 4),
+  "policy-query:target_step": run_lib((a0,a1,a2) => run_loop($policy_query_target_step(a0,str_in(a1),a2)), 3),
+  "policy-query:targets_fold": run_lib((a0,a1,a2) => run_loop($policy_query_targets_fold(a0,str_in(a1),a2)), 3),
+  "policy-query:edge_targets": run_lib((a0,a1,a2,a3) => run_loop($policy_query_edge_targets(a0,a1,str_in(a2),a3)), 4),
+  "policy-query:edge_ready": run_lib((a0,a1,a2,a3,a4,a5,a6,a7) => run_loop($policy_query_edge_ready(a0,a1,a2,str_in(a3),str_in(a4),a5,a6,a7)), 8),
+  "policy-query:count_budget": run_lib((a0,a1) => run_loop($policy_query_count_budget(a0,a1)), 2),
+  "policy-query:role_budget": run_lib((a0,a1,a2) => run_loop($policy_query_role_budget(a0,a1,a2)), 3),
+  "policy-query:edge_body": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($policy_query_edge_body(a0,str_in(a1),str_in(a2),a3,a4,a5,a6)), 7),
+  "policy-query:edge_step": run_lib((a0,a1,a2,a3) => run_loop($policy_query_edge_step(a0,str_in(a1),str_in(a2),a3)), 4),
+  "policy-query:edges_fold": run_lib((a0,a1,a2,a3) => run_loop($policy_query_edges_fold(a0,str_in(a1),str_in(a2),a3)), 4),
+  "policy-query:source_step": run_lib((a0,a1,a2,a3) => run_loop($policy_query_source_step(str_in(a0),a1,str_in(a2),a3)), 4),
+  "policy-query:sources_fold": run_lib((a0,a1,a2,a3) => run_loop($policy_query_sources_fold(a0,a1,str_in(a2),a3)), 4),
+  "policy-query:layer_result": run_lib((a0,a1) => run_loop($policy_query_layer_result(a0,a1)), 2),
+  "policy-query:layer": run_lib((a0,a1,a2,a3) => run_loop($policy_query_layer(a0,a1,str_in(a2),a3)), 4),
+  "policy-query:layers": run_lib((a0,a1,a2,a3,a4) => run_loop($policy_query_layers(nat_in(a0),a1,str_in(a2),a3,a4)), 5),
+  "policy-query:search_finish": run_lib((a0,a1) => run_loop($policy_query_search_finish(a0,a1)), 2),
+  "policy-query:related_budget": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($policy_query_related_budget(a0,a1,str_in(a2),str_in(a3),nat_in(a4),a5)), 6),
+  "policy-query:related": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($policy_query_related(a0,str_in(a1),str_in(a2),nat_in(a3),a4,a5)), 6),
   "execution_step": run_lib((a0,a1) => run_loop($execution_step_1(a0,a1)), 2),
   "execution_terminal": run_lib((a0) => run_loop($execution_terminal_1(a0)), 1),
   "topology_check": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($topology_check_1(a0,a1,a2,a3,a4,a5,a6)), 7),
@@ -3035,4 +3517,14 @@ const $$Char_is_eq = $Char_is_eq;export default {
   "execution_evidence": run_lib((a0,a1) => run_loop($execution_evidence(a0,a1)), 2),
   "capability_bound_grant": run_lib((a0,a1,a2) => run_loop($capability_bound_grant(a0,str_in(a1),str_in(a2))), 3),
   "capability_selected": run_lib((a0,a1,a2) => run_loop($capability_selected_1(str_in(a0),str_in(a1),a2)), 3),
+  "policy_query_initial": run_lib((a0,a1) => run_loop($policy_query_initial_1(a0,a1)), 2),
+  "policy_query_available": run_lib((a0) => run_loop($policy_query_available_1(a0)), 1),
+  "policy_query_charges": run_lib((a0,a1) => run_loop($policy_query_charges_1(a0,a1)), 2),
+  "policy_query_projection": run_lib((a0,a1,a2,a3,a4) => run_loop($policy_query_projection(a0,str_in(a1),str_in(a2),a3,a4)), 5),
+  "policy_query_supported": run_lib((a0,a1) => run_loop($policy_query_supported_1(str_in(a0),a1)), 2),
+  "policy_query_selected": run_lib((a0,a1,a2,a3,a4) => run_loop($policy_query_selected_1(str_in(a0),str_in(a1),a2,a3,a4)), 5),
+  "policy_query_observed": run_lib((a0,a1) => run_loop($policy_query_observed_1(a0,a1)), 2),
+  "policy_query_plan": run_lib((a0,a1) => run_loop($policy_query_plan_1(a0,a1)), 2),
+  "policy_query_related": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($policy_query_related_1(a0,str_in(a1),str_in(a2),nat_in(a3),a4,a5)), 6),
+  "policy_query_exists_budget": run_lib((a0,a1,a2,a3,a4) => run_loop($policy_query_exists_budget(a0,a1,a2,a3,a4)), 5),
 };

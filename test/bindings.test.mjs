@@ -68,7 +68,7 @@ test('the actual generator refuses stale sources, missing dispatch coverage and 
   assert.match(run(),/Checked deterministic/);
   const lock=join(directory,'pnpm-lock.yaml'),copy=join(directory,'runtime/generated/source-lock.yaml'),lockBytes=readFileSync(lock);
   const discover=()=>spawnSync(process.execPath,[join(directory,'runtime/cli.mjs'),'agents','workspace.read'],{env:{...process.env,MOMENT_HOME:join(directory,'absent-state')},encoding:'utf8',timeout:10000});
-  for(const source of ['core/semantics.bend','core/execution.bend','core/topology.bend','core/accounting.bend','core/scheduler.bend','core/collections.bend','core/capability.bend','proof/Moment.lean','runtime/semantic-core.mjs','runtime/generated/semantics.mjs']) {
+  for(const source of ['core/semantics.bend','core/execution.bend','core/topology.bend','core/accounting.bend','core/scheduler.bend','core/collections.bend','core/capability.bend','core/policy-query.bend','proof/Moment.lean','runtime/semantic-core.mjs','runtime/generated/semantics.mjs']) {
     const path=join(directory,source),bytes=readFileSync(path);writeFileSync(path,Buffer.concat([bytes,Buffer.from('\n')]));
     assert.throws(run,/Executable core is stale/);assert.notEqual(discover().status,0,'Cold runtime refuses mismatched semantic source/output');writeFileSync(path,bytes);
   }

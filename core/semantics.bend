@@ -5,6 +5,7 @@ import ./accounting.bend as Budget
 import ./collections.bend as Text
 import ./scheduler.bend as Sched
 import ./capability.bend as Cap
+import ./policy-query.bend as PQ
 
 def execution_step(state: Run.State, action: Run.Action) -> Run.Step:
   Run.step(state, action)
@@ -757,3 +758,33 @@ def capability_bound_grant(operator: Bool, submitted: String, bound: String) -> 
 
 def capability_selected(advertised: String, requested: String, readable: Bool) -> Bool:
   Cap.selected(advertised, requested, readable)
+
+def policy_query_initial(records: U32, assertions: U32) -> PQ.Budget:
+  PQ.initial(records, assertions)
+
+def policy_query_available(budget: PQ.Budget) -> Bool:
+  PQ.available(budget)
+
+def policy_query_charges(costs: +List<U32>, budget: PQ.Budget) -> PQ.Budget:
+  PQ.charges(costs, budget)
+
+def policy_query_projection(assertions: +List<PQ.Assertion>, system: String, context: String, issuers: +List<String>, budget: PQ.Budget) -> PQ.Projection:
+  PQ.project(assertions, system, context, issuers, budget)
+
+def policy_query_supported(status: String, sources: +List<Bool>) -> Bool:
+  PQ.supported(status, sources)
+
+def policy_query_selected(kind: String, schema: String, names: +List<String>, readable: Bool, asserted: Bool) -> Bool:
+  PQ.selected(kind, schema, names, readable, asserted)
+
+def policy_query_observed(found: Bool, operator: Bool) -> PQ.Verdict:
+  PQ.observed(found, operator)
+
+def policy_query_plan(headers: +List<PQ.Header>, budget: PQ.Budget) -> PQ.Plan:
+  PQ.plan(headers, budget)
+
+def policy_query_related(edges: +List<PQ.Edge>, start: String, destination: String, hops: Nat, operator: Bool, budget: PQ.Budget) -> PQ.Search:
+  PQ.related(edges, start, destination, hops, operator, budget)
+
+def policy_query_exists_budget(budget: PQ.Budget, records: U32, assertions: U32, provenance: U32, +roles: +List<U32>) -> PQ.Budget:
+  PQ.charges(roles, PQ.charges(roles, PQ.charge(PQ.charge(PQ.charge(PQ.charge(budget, records), assertions), provenance), 1)))

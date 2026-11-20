@@ -5,6 +5,7 @@ import ./topology.bend as Top
 import ./accounting.bend as Budget
 import ./scheduler.bend as Sched
 import ./capability.bend as Cap
+import ./policy-query.bend as PQ
 
 law deny_precedence:
   for permits: Core.Truth
@@ -220,3 +221,51 @@ law absent_deadline_is_usable:
   for expiry: Core.Rank
   for now: Core.Rank
   {Core.execution_deadline(False{}, expiry, now) == True{} : Bool}
+
+law exhausted_query_budget_is_final:
+  for cost: U32
+  {PQ.charge(PQ.PQExhausted{}, cost) == PQ.PQExhausted{} : PQ.Budget}
+
+law empty_query_budget_refuses_an_observation:
+  {PQ.charge(PQ.PQBudget{0}, 1) == PQ.PQExhausted{} : PQ.Budget}
+
+law exact_last_observation_is_usable:
+  {PQ.charge(PQ.PQBudget{1}, 1) == PQ.PQBudget{0} : PQ.Budget}
+
+law oversized_query_snapshot_is_unknown:
+  {Core.policy_query_initial(4097, 0) == PQ.PQExhausted{} : PQ.Budget}
+
+law bounded_query_snapshot_is_usable:
+  {Core.policy_query_initial(4096, 16384) == PQ.PQBudget{12288} : PQ.Budget}
+
+law withdrawn_authorization_support_is_inactive:
+  for visible: +List<Bool>
+  {Core.policy_query_supported("withdrawn", visible) == False{} : Bool}
+
+law restricted_missing_proof_is_unknown:
+  {Core.policy_query_observed(False{}, False{}) == PQ.PQUnknown{} : PQ.Verdict}
+
+law visible_positive_proof_is_usable:
+  for operator: Bool
+  {Core.policy_query_observed(True{}, operator) == PQ.PQYes{} : PQ.Verdict}
+
+law exhausted_relationship_query_is_unknown:
+  for edges: +List<PQ.Edge>
+  for source: String
+  for destination: String
+  for hops: Nat
+  for operator: Bool
+  {Core.policy_query_related(edges, source, destination, hops, operator, PQ.PQExhausted{}) == PQ.PQDone{PQ.PQUnknown{}, PQ.PQExhausted{}} : PQ.Search}
+
+law endpoint_identity_is_not_a_path:
+  for source: String
+  {Core.policy_query_related(Nil{}, source, source, 1n, True{}, PQ.PQBudget{1}) == PQ.PQDone{PQ.PQNo{}, PQ.PQBudget{1}} : PQ.Search}
+
+law observed_relationship_is_usable:
+  {Core.policy_query_related(Con{PQ.PQEdge{Budget.one(), Budget.one(), Con{"from", Nil{}}, Con{PQ.PQTarget{"to", True{}}, Nil{}}}, Nil{}}, "from", "to", 1n, False{}, PQ.PQBudget{3}) == PQ.PQDone{PQ.PQYes{}, PQ.PQBudget{0}} : PQ.Search}
+
+law oversized_role_count_is_above_bound:
+  {Budget.le(Budget.BudgetCount{1, 0}, Budget.BudgetCount{0, 32768}) == False{} : Bool}
+
+law oversized_role_count_cannot_wrap:
+  {PQ.role_budget(Budget.BudgetCount{1, 0}, Budget.zero(), PQ.PQBudget{32768}) == PQ.PQExhausted{} : PQ.Budget}

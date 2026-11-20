@@ -274,18 +274,18 @@ export function scheduleDepends(event,fetch,contextId,scheduleRef) {
  fail('INTERNAL','Core causal walk exceeded its declared observation bound');
 }
 
-const capText=value=>{if(typeof value!=='string')fail('INVALID_ARGUMENT','Capability codec requires text fields');return value;};
-const capTexts=values=>{if(!Array.isArray(values))fail('INVALID_ARGUMENT','Capability codec requires a text collection');size(values.length);return list(values.map(capText));};
-const capSchema=value=>{if(!value||typeof value!=='object')fail('INVALID_ARGUMENT','Capability codec requires a schema reference');return {$:'CapSchema',name:capText(value.name),version:capText(value.version),digest:capText(value.digest)};};
-const capAdvertisement=(value,ref)=>({$:'CapAdvertisement',identity:resourceKey(ref),provider:capText(value.providerId),name:capText(value.name),version:capText(value.version),input:capSchema(value.inputSchema),output:capSchema(value.outputSchema),features:capTexts(value.features),isolation:capText(value.isolation)});
-const capRequirement=value=>({$:'CapRequirement',versions:capTexts(value.versions),input:capSchema(value.inputSchema),output:capSchema(value.outputSchema),features:capTexts(value.features),isolation:capTexts(value.acceptableIsolation)});
+const codecText=value=>{if(typeof value!=='string')fail('INVALID_ARGUMENT','Semantic codec requires text fields');return value;};
+const codecTexts=values=>{if(!Array.isArray(values))fail('INVALID_ARGUMENT','Semantic codec requires a text collection');size(values.length);return list(values.map(codecText));};
+const capSchema=value=>{if(!value||typeof value!=='object')fail('INVALID_ARGUMENT','Semantic codec requires a schema reference');return {$:'CapSchema',name:codecText(value.name),version:codecText(value.version),digest:codecText(value.digest)};};
+const capAdvertisement=(value,ref)=>({$:'CapAdvertisement',identity:resourceKey(ref),provider:codecText(value.providerId),name:codecText(value.name),version:codecText(value.version),input:capSchema(value.inputSchema),output:capSchema(value.outputSchema),features:codecTexts(value.features),isolation:codecText(value.isolation)});
+const capRequirement=value=>({$:'CapRequirement',versions:codecTexts(value.versions),input:capSchema(value.inputSchema),output:capSchema(value.outputSchema),features:codecTexts(value.features),isolation:codecTexts(value.acceptableIsolation)});
 const capEligibilityTags={eligible:'CapEligible',ineligible:'CapIneligible',unknown:'CapUnknown'};
 const capEligibility=value=>{if(typeof value!=='string'||!Object.hasOwn(capEligibilityTags,value))fail('INVALID_ARGUMENT','Unsupported capability eligibility');return {$:capEligibilityTags[value]};};
 const capTag=(value,tags)=>{if(!tags.includes(value?.$))fail('INTERNAL','Invalid core capability decision');return value.$;};
 export const capabilityBoundGrant=(operator,submitted,bound)=>coreBoolean(Core.capability_bound_grant(!!operator,resourceKey(submitted),bound?resourceKey(bound):''));
 export function capabilityBasis(item,requirement,chain,incident,now) {
- const scopes=chain.map(grant=>({$:'CapScope',actions:capTexts(grant.actions),resources:list(grant.resourceRefs.map(resourceKey)),all_incidents:grant.incidentIds==='all'}));
- const result=Core.capability_basis(capAdvertisement(item.value,item.ref),capRequirement(requirement),list(scopes),instant(capText(item.value.expiresAt)),rank(now),incident!==undefined);capTag(result,['CapNeedsPolicy','CapAssessment']);return result;
+ const scopes=chain.map(grant=>({$:'CapScope',actions:codecTexts(grant.actions),resources:list(grant.resourceRefs.map(resourceKey)),all_incidents:grant.incidentIds==='all'}));
+ const result=Core.capability_basis(capAdvertisement(item.value,item.ref),capRequirement(requirement),list(scopes),instant(codecText(item.value.expiresAt)),rank(now),incident!==undefined);capTag(result,['CapNeedsPolicy','CapAssessment']);return result;
 }
 export function capabilityFinish(basis,policy) {
  const policies={allowed:'CapPolicyAllowed',denied:'CapPolicyDenied',unknown:'CapPolicyUnknown',missing:'CapPolicyMissing'};
@@ -298,14 +298,14 @@ export function capabilityCompare(left,right) {
  const result=Core.capability_compare(capEligibility(left.eligibility),size(left.unmet.length),left.capability.ref.id,capEligibility(right.eligibility),size(right.unmet.length),right.capability.ref.id);capTag(result,['LT','EQ','GT']);return {LT:-1,EQ:0,GT:1}[result.$];
 }
 export function capabilityPublish(capability,ref,principal,methods,retained,now) {
- return capTag(Core.capability_publish(capAdvertisement(capability,ref),principal,capTexts(methods),size(retained),instant(capText(capability.expiresAt)),rank(now)),['CapPublishAllowed','CapRetentionFull','CapWrongProvider','CapReservedName','CapExpired']);
+ return capTag(Core.capability_publish(capAdvertisement(capability,ref),principal,codecTexts(methods),size(retained),instant(codecText(capability.expiresAt)),rank(now)),['CapPublishAllowed','CapRetentionFull','CapWrongProvider','CapReservedName','CapExpired']);
 }
-export const capabilitySelected=(item,requested,readable)=>coreBoolean(Core.capability_selected(capText(item.value.name),capText(requested),!!readable));
+export const capabilitySelected=(item,requested,readable)=>coreBoolean(Core.capability_selected(codecText(item.value.name),codecText(requested),!!readable));
 export const executionRoom=value=>coreBoolean(Core.execution_room(size(value)));
 export function executionAdmission(capability,now,context,incident) {
- return capTag(Core.execution_admission(instant(capText(capability.expiresAt)),rank(now),context,!!incident,incidentState(incident?.status??'open')),['CapExecutionAllowed','CapExecutionExpired','CapExecutionClosed','CapExecutionIncident']);
+ return capTag(Core.execution_admission(instant(codecText(capability.expiresAt)),rank(now),context,!!incident,incidentState(incident?.status??'open')),['CapExecutionAllowed','CapExecutionExpired','CapExecutionClosed','CapExecutionIncident']);
 }
-export const executionDeadline=(deadline,now)=>coreBoolean(Core.execution_deadline(deadline!==undefined,instant(deadline===undefined?undefined:capText(deadline)),rank(now)));
+export const executionDeadline=(deadline,now)=>coreBoolean(Core.execution_deadline(deadline!==undefined,instant(deadline===undefined?undefined:codecText(deadline)),rank(now)));
 export function executionPrepare(intent,actor,requester,access,bound) {
  return capTag(Core.execution_prepare(access.canIncident(intent.incidentId),access.canRead(intent.capability),!!access.operator,actor,requester,resourceKey(intent.grant),bound?resourceKey(bound):'',access.canRead(intent.grant)),['CapPrepareAllowed','CapPrepareScope','CapPrepareGrant']);
 }
@@ -315,3 +315,53 @@ export function executionVisible(stored,origin,principal,access) {
 }
 export const executionReconcile=(principal,provider,operator,readable)=>coreBoolean(Core.execution_reconcile(principal,provider,!!operator,!!readable));
 export const executionEvidence=(required,sources)=>coreBoolean(Core.execution_evidence(!!required,list(sources.map(resourceKey))));
+
+const pqTag=(value,tags)=>{if(!tags.includes(value?.$))fail('INTERNAL','Invalid core policy-query decision');return value.$;};
+export function policyQueryAvailable(budget) {
+ pqTag(budget,['PQBudget','PQExhausted']);if(budget.$==='PQBudget'&&(!Number.isInteger(budget.remaining)||budget.remaining<0||budget.remaining>32768))fail('INTERNAL','Invalid core policy-query budget');return coreBoolean(Core.policy_query_available(budget));
+}
+export const policyQueryInitial=(records,assertions)=>{const result=Core.policy_query_initial(size(records),size(assertions));policyQueryAvailable(result);return result;};
+function indexValues(value,bound) {
+ const indices=[],seen=new Set();while(value?.$==='Con'){const index=value.head;if(!Number.isInteger(index)||index<0||index>=bound||seen.has(index))fail('INTERNAL','Invalid core index projection');indices.push(index);seen.add(index);value=value.tail;}
+ if(value?.$!=='Nil')fail('INTERNAL','Invalid core index projection');return indices;
+}
+export function policyQueryProjection(snapshot,issuers) {
+ const initial=policyQueryInitial(snapshot.records.length,snapshot.assertions.length);if(!policyQueryAvailable(initial))return undefined;
+ const assertions=snapshot.assertions.map((item,index)=>({$:'PQAssertion',index,system:codecText(item.assertion.ref.systemId),context:codecText(item.assertion.ref.contextId),issuer:codecText(item.assertion.recordedBy),record:codecText(item.assertion.value.record.id),sources:size(item.assertion.value.evidence.sources.length)}));
+ const projection=Core.policy_query_projection(list(assertions),codecText(snapshot.context.systemId),codecText(snapshot.context.id),codecTexts(issuers),initial);pqTag(projection,['PQProjection']);if(!policyQueryAvailable(projection.budget))return undefined;
+ if(!Number.isInteger(projection.provenance)||projection.provenance<0||projection.provenance>32768)fail('INTERNAL','Invalid core provenance count');
+ return {budget:projection.budget,indices:indexValues(projection.indices,snapshot.assertions.length),records:textValues(projection.records,snapshot.assertions.length),provenance:projection.provenance};
+}
+export const policyQuerySupported=(status,sources,access)=>coreBoolean(Core.policy_query_supported(codecText(status),list(sources.map(ref=>coreBoolean(access.canRead(ref))))));
+export const policyQueryObserved=(found,operator)=>({PQYes:true,PQNo:false,PQUnknown:'unknown'})[pqTag(Core.policy_query_observed(!!found,!!operator),['PQYes','PQNo','PQUnknown'])];
+export const policyQueryCharge=(budget,costs)=>{const result=Core.policy_query_charges(list(costs.map(size)),budget);policyQueryAvailable(result);return result;};
+export function policyQueryExistsBudget(budget,trusted,provenance,related) {
+ const roles=related?trusted.records.flatMap(({value})=>value.kind==='relation'?Object.values(value.roles).map(refs=>size(refs.length)):[]):[];
+ const result=Core.policy_query_exists_budget(budget,size(trusted.records.length),size(trusted.assertions.length),size(provenance),list(roles));policyQueryAvailable(result);return result;
+}
+export function policyQueryEndpoint(context,value,access) {
+ const ref=typeof value==='string'?{systemId:context.systemId,contextId:context.id,id:value}:value;
+ // Literal operands are data, not already validated Ref values. Check the sort
+ // before canonical key encoding or a current scope lookup can be attempted.
+ if(!scoped(ref)||typeof ref.id!=='string')return undefined;
+ if(!Core.same_scope(context.systemId,context.id,ref.systemId,ref.contextId)||!access.canRead(ref))return undefined;
+ return resourceKey(ref);
+}
+export function policyQueryRelated(budget,records,supported,names,start,end,hops,access) {
+ if(!Number.isInteger(hops)||hops<1||hops>8)fail('INVALID_ARGUMENT','Policy relationship hops require 1–8');
+ const schemas=codecTexts(names),selected=records.filter(item=>coreBoolean(Core.policy_query_selected(item.value.kind,item.value.schema.name,schemas,access.canRead(item.ref),supported.has(item.ref.id))));
+ const headers=selected.map((item,index)=>({$:'PQHeader',index,subjects:size(item.value.roles.subject?.length??0),objects:size(item.value.roles.object?.length??0)}));
+ const plan=Core.policy_query_plan(list(headers),budget);pqTag(plan,['PQPlan']);policyQueryAvailable(plan.budget);
+ const indices=indexValues(plan.indices,selected.length),edges=indices.map(index=>{
+  const record=selected[index].value,subjects=record.roles.subject??[],targets=record.roles.object??[];
+  return {$:'PQEdge',subject_count:count(subjects.length),target_count:count(targets.length),subjects:list(subjects.map(resourceKey)),targets:list(targets.map(ref=>({$:'PQTarget',key:resourceKey(ref),readable:coreBoolean(access.canRead(ref))})))};
+ });
+ // An omitted suffix could not fit even the first source's remaining budget.
+ // The explicit sentinel keeps that lack of observation unknown. Only the
+ // core's selected prefix is decoded; its role payload is bounded by 32768.
+ if(coreBoolean(plan.omitted))edges.push({$:'PQOmittedEdge'});
+ const result=Core.policy_query_related(list(edges),codecText(start),codecText(end),hops,!!access.operator,budget);pqTag(result,['PQDone']);policyQueryAvailable(result.budget);
+ return {budget:result.budget,value:({PQYes:true,PQNo:false,PQUnknown:'unknown'})[pqTag(result.verdict,['PQYes','PQNo','PQUnknown'])]};
+}
+
+export const policyQuerySelected=(record,names,readable,asserted)=>coreBoolean(Core.policy_query_selected(codecText(record.kind),codecText(record.schema.name),codecTexts(names),!!readable,!!asserted));

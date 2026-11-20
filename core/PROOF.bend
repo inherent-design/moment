@@ -193,3 +193,42 @@ def Laws.missing_origin_hides_execution(principal, chain):
 
 def Laws.absent_deadline_is_usable(expiry, now):
   {==}
+
+def Laws.exhausted_query_budget_is_final(cost):
+  {==}
+
+def Laws.empty_query_budget_refuses_an_observation():
+  {==}
+
+def Laws.exact_last_observation_is_usable():
+  {==}
+
+def Laws.oversized_query_snapshot_is_unknown():
+  {==}
+
+def Laws.bounded_query_snapshot_is_usable():
+  {==}
+
+def Laws.withdrawn_authorization_support_is_inactive(visible):
+  {==}
+
+def Laws.restricted_missing_proof_is_unknown():
+  {==}
+
+def Laws.visible_positive_proof_is_usable(operator):
+  {==}
+
+def Laws.exhausted_relationship_query_is_unknown(edges, source, destination, hops, operator):
+  {==}
+
+def Laws.endpoint_identity_is_not_a_path(source):
+  {==}
+
+def Laws.observed_relationship_is_usable():
+  {==}
+
+def Laws.oversized_role_count_is_above_bound():
+  {==}
+
+def Laws.oversized_role_count_cannot_wrap():
+  {==}

@@ -753,6 +753,117 @@ theorem cap_eligible_requires_observed_policy (advert : CapAdvert) (requirement 
 theorem cap_compare_reflexive (eligibility : CapEligibility) (count : Nat) (id : String) :
     capCompare eligibility eligibility count count id id = "EQ" := by simp [capCompare]
 
+def pqInitial (records assertions : Nat) : Option Nat :=
+  if records ≤ 4096 && assertions ≤ 16384 then some (32768-records-assertions) else none
+def pqCharge (budget : Option Nat) (cost : Nat) : Option Nat :=
+  match budget with | none => none | some remaining => if cost ≤ remaining then some (remaining-cost) else none
+def pqCharges (budget : Option Nat) (costs : List Nat) : Option Nat := costs.foldl pqCharge budget
+structure PqAssertion where
+  index : Nat
+  system : String
+  context : String
+  issuer : String
+  record : String
+  sources : Nat
+  deriving DecidableEq, Repr
+structure PqProjection where
+  budget : Option Nat
+  indices : List Nat := []
+  records : List String := []
+  provenance : Nat := 0
+  deriving DecidableEq, Repr
+def pqProject (assertions : List PqAssertion) (issuers : List String) (budget : Option Nat) : PqProjection :=
+  assertions.foldl (fun state item =>
+    if item.system == "system" && item.context == "context" && issuers.contains item.issuer then
+      { budget := pqCharge state.budget item.sources, indices := state.indices ++ [item.index], records := state.records ++ [item.record], provenance := state.provenance+item.sources }
+    else state) {budget}
+def pqSupported (status : String) (visible : List Bool) : Bool := status == "asserted" && visible.all id
+def pqSelected (kind schema : String) (names : List String) (readable supported : Bool) : Bool :=
+  kind == "relation" && names.contains schema && readable && supported
+def pqObserved (found operator : Bool) : Option Bool := if found then some true else if operator then some false else none
+structure PqEdge where
+  subjects : List String
+  targets : List (String × Bool)
+  deriving DecidableEq, Repr
+structure PqAccum where
+  budget : Option Nat
+  next : List String := []
+  seen : List String
+  deriving DecidableEq, Repr
+inductive PqTraversal | walking (state : PqAccum) | found (budget : Option Nat) | unknown (budget : Option Nat) deriving DecidableEq, Repr
+def pqTarget (destination : String) (result : PqTraversal) (target : String × Bool) : PqTraversal :=
+  match result with
+  | .walking state =>
+    if !target.2 then result else if target.1 == destination then .found state.budget
+    else if state.seen.contains target.1 then result else if state.seen.length < 512 then
+      .walking {state with next := state.next ++ [target.1],seen := state.seen ++ [target.1]}
+    else .unknown state.budget
+  | _ => result
+def pqEdge (source destination : String) (result : PqTraversal) (edge : PqEdge) : PqTraversal :=
+  match result with
+  | .walking state =>
+    let budget := pqCharges state.budget [1,edge.subjects.length,edge.targets.length]
+    if budget.isNone then .unknown budget else
+      let next := .walking {state with budget}
+      if edge.subjects.contains source then edge.targets.foldl (pqTarget destination) next else next
+  | _ => result
+inductive PqSearch
+  | pending (frontier seen : List String) (budget : Option Nat)
+  | done (value : Option Bool) (budget : Option Nat)
+  deriving DecidableEq, Repr
+def pqLayer (edges : List PqEdge) (destination : String) (operator : Bool) : PqSearch → PqSearch
+  | .done value budget => .done value budget
+  | .pending frontier seen budget =>
+    let result := frontier.foldl (fun result source => edges.foldl (pqEdge source destination) result) (.walking {budget,seen})
+    match result with
+    | .found budget => .done (some true) budget
+    | .unknown budget => .done none budget
+    | .walking state => if state.next.isEmpty then .done (pqObserved false operator) state.budget else .pending state.next state.seen state.budget
+def pqLayers (edges : List PqEdge) (destination : String) (operator : Bool) : Nat → PqSearch → PqSearch
+  | 0, state => state
+  | count+1, state => pqLayers edges destination operator count (pqLayer edges destination operator state)
+def pqRelated (edges : List PqEdge) (start destination : String) (hops : Nat) (operator : Bool) (budget : Option Nat) : PqSearch :=
+  if budget.isNone then .done none none else
+    match pqLayers edges destination operator hops (.pending [start] [start] budget) with
+    | .pending _ _ remaining => .done (pqObserved false operator) remaining
+    | settled => settled
+
+theorem pq_charge_exhaustion_is_final (cost : Nat) : pqCharge none cost = none := rfl
+theorem pq_charge_never_increases (remaining cost result : Nat) (h : pqCharge (some remaining) cost = some result) : result ≤ remaining := by
+  dsimp only [pqCharge] at h
+  split at h
+  · cases h; exact Nat.sub_le _ _
+  · simp at h
+theorem pq_zero_charge_preserves (remaining : Nat) : pqCharge (some remaining) 0 = some remaining := by simp [pqCharge]
+theorem pq_initial_limits_are_useful : pqInitial 4096 16384 = some 12288 := rfl
+theorem pq_foreign_context_is_ignored (item : PqAssertion) (issuers : List String) (budget : Option Nat) :
+    pqProject [{item with context := "foreign"}] issuers budget = {budget} := by simp [pqProject]
+theorem pq_withdrawn_support_is_inactive (visible : List Bool) : pqSupported "withdrawn" visible = false := rfl
+theorem pq_hidden_source_is_inactive (visible : List Bool) (h : false ∈ visible) : pqSupported "asserted" visible = false := by
+  induction visible with
+  | nil => simp at h
+  | cons head tail ih => cases head <;> simp_all [pqSupported]
+theorem pq_missing_proof_under_restriction_is_unknown : pqObserved false false = none := rfl
+theorem pq_visible_positive_is_useful (operator : Bool) : pqObserved true operator = some true := rfl
+theorem pq_budget_exhaustion_is_unknown (edges : List PqEdge) (start destination : String) (hops : Nat) (operator : Bool) :
+    pqRelated edges start destination hops operator none = .done none none := rfl
+theorem pq_settled_result_is_preserved (edges : List PqEdge) (destination : String) (operator : Bool) (hops : Nat) (value : Option Bool) (budget : Option Nat) :
+    pqLayers edges destination operator hops (.done value budget) = .done value budget := by
+  induction hops with
+  | zero => rfl
+  | succ count ih => simpa [pqLayers,pqLayer] using ih
+
+#print axioms pq_charge_exhaustion_is_final
+#print axioms pq_charge_never_increases
+#print axioms pq_zero_charge_preserves
+#print axioms pq_initial_limits_are_useful
+#print axioms pq_foreign_context_is_ignored
+#print axioms pq_withdrawn_support_is_inactive
+#print axioms pq_hidden_source_is_inactive
+#print axioms pq_missing_proof_under_restriction_is_unknown
+#print axioms pq_visible_positive_is_useful
+#print axioms pq_budget_exhaustion_is_unknown
+#print axioms pq_settled_result_is_preserved
 #print axioms cap_policy_missing_is_unknown
 #print axioms cap_policy_unknown_is_unknown
 #print axioms cap_policy_denied_is_ineligible
@@ -884,6 +995,19 @@ def capScopes (mask : Nat) (restricted : Bool) : List Moment.CapScope :=
 def capSchemaVariant (name : String) (code : Nat) : Moment.CapSchema :=
   ⟨if code == 1 then "other" else name,if code == 2 then "other" else "1",if code == 3 then "other" else "digest"⟩
 
+def pqBudgetLabel (budget : Option Nat) : String := budget.map toString |>.getD "unknown"
+def pqSearchLabel : Moment.PqSearch → String
+  | .done value budget => (value.map toString |>.getD "unknown") ++ ":" ++ pqBudgetLabel budget
+  | .pending _ _ _ => "unfinished"
+def pqCosts (size code : Nat) : List Nat := (List.range size).map fun index => ([0,1,32768,2147483647] : List Nat)[code / 4^index % 4]!
+def pqAssertions (size code : Nat) : List Moment.PqAssertion := (List.range size).map fun index =>
+  let kind := code / 4^index % 4
+  { index, system := if kind == 3 && index % 2 == 0 then "foreign" else "system", context := if kind == 3 && index % 2 == 1 then "foreign" else "context", issuer := if kind == 2 then "delegate" else "owner", record := if kind == 1 then "two" else "one", sources := if kind == 0 then 0 else if kind == 1 then 1000 else 32768 }
+def pqProjectionLabel (projection : Moment.PqProjection) : String :=
+  if projection.budget.isNone then "unknown" else "ready:" ++ pqBudgetLabel projection.budget ++ ":" ++ toString projection.provenance ++ ":" ++ String.intercalate "," (projection.indices.map toString) ++ ":" ++ String.intercalate "," projection.records
+def pqVisible (size code : Nat) : List Bool := (List.range size).map fun index => code / 2^index % 2 == 1
+def pqRoleCosts (size code : Nat) : List Nat := (List.range size).map fun index => ([0,1,1000] : List Nat)[code / 3^index % 3]!
+
 def truthLabel : Moment.Truth → String
   | .yes => "true"
   | .no => "false"
@@ -952,6 +1076,8 @@ def topLabel : Moment.TopVerdict → String
 def topVerdicts : List Moment.TopVerdict := [.good,.parents,.cycle,.invalid]
 def topEdges (size mask : Nat) : List Moment.TopEdge :=
   chooseMask ((List.range size).flatMap (fun a => (List.range size).map (fun b => (a,b)))) mask
+def pqGraph (size mask : Nat) : List Moment.PqEdge := (topEdges size mask).map fun (source,target) =>
+  { subjects := ["n" ++ toString source],targets := [("n" ++ toString target,true)] }
 def topExtra : List (Nat × List Moment.TopEdge) :=
   [(3,[(3,0)]),(3,[(0,3)]),(3,[(4,0)]),(3,[(0,4294967295)]),(0,[(0,0)]),
    (3,[(0,1),(0,2),(3,1)]),(2,[(0,1),(0,1)]),(2,[(0,1),(1,0),(0,1)]),(3,[(0,1),(0,1),(0,2)])]
@@ -1365,3 +1491,41 @@ def main : IO Unit := do
   for a in List.range 4 do
     for b in List.range 4 do
       IO.println s!"case|capabilitySchema|{a}|{b}|{capAssessmentLabel (Moment.capFinish (Moment.capBasis {} {input := capSchemaVariant "input" a,output := capSchemaVariant "output" b} [{}] false true) .allowed)}"
+  for records in [0,4096,4097,2147483647] do
+    for assertions in [0,16384,16385,2147483647] do
+      IO.println s!"case|policyQueryInitial|{records}|{assertions}|{pqBudgetLabel (Moment.pqInitial records assertions)}"
+  for (budget,index) in ([none,some 0,some 1,some 32768] : List (Option Nat)).zipIdx do
+    for size in List.range 4 do
+      for code in List.range (4^size) do
+        IO.println s!"case|policyQueryCharge|{index}|{size}|{code}|{pqBudgetLabel (Moment.pqCharges budget (pqCosts size code))}"
+  for records in [0,4096] do
+    for size in List.range 4 do
+      for code in List.range (4^size) do
+        for mask in List.range 4 do
+          IO.println s!"case|policyQueryProjection|{records}|{size}|{code}|{mask}|{pqProjectionLabel (Moment.pqProject (pqAssertions size code) (chooseMask ["owner","delegate"] mask) (Moment.pqInitial records size))}"
+  for status in ["asserted","withdrawn"] do
+    for size in List.range 4 do
+      for code in List.range (2^size) do
+        IO.println s!"case|policyQuerySupported|{status}|{size}|{code}|{Moment.pqSupported status (pqVisible size code)}"
+  for kind in ["atom","relation"] do
+    for schema in ["edge","other"] do
+      for readable in [false,true] do
+        for supported in [false,true] do
+          IO.println s!"case|policyQuerySelected|{kind}|{schema}|{readable}|{supported}|{Moment.pqSelected kind schema ["edge"] readable supported}"
+  for found in [false,true] do
+    for operator in [false,true] do
+      IO.println s!"case|policyQueryObserved|{found}|{operator}|{(Moment.pqObserved found operator).map toString |>.getD "unknown"}"
+  for records in [0,1,4] do
+    for assertions in [0,1,4] do
+      for provenance in [0,1000,32768] do
+        for budget in [10,32768] do
+          for size in List.range 4 do
+            for code in List.range (3^size) do
+              let roles := if records == 0 then [] else pqRoleCosts size code
+              IO.println s!"case|policyQueryExistsBudget|{records}|{assertions}|{provenance}|{budget}|{size}|{code}|{pqBudgetLabel (Moment.pqCharges (some budget) ([records,assertions,provenance,1] ++ roles ++ roles))}"
+  for size in List.range 4 do
+    for mask in List.range (2^(size*size)) do
+      for (budget,index) in ([none,some 0,some 2,some 3,some 6,some 9,some 15] : List (Option Nat)).zipIdx do
+        for hops in [1,2,8] do
+          for operator in [false,true] do
+            IO.println s!"case|policyQueryRelated|{size}|{mask}|{index}|{hops}|{operator}|{pqSearchLabel (Moment.pqRelated (pqGraph size mask) "n0" ("n" ++ toString (size-1)) hops operator budget)}"
