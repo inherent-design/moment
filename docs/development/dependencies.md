@@ -1,5 +1,9 @@
 # Dependencies and patches
 
+Formal consumers use the Bend and Lean pins in `toolchain.json`; `mise run setup:formal` delegates to `pnpm setup:formal`. Installation downloads the exact platform archive and checks its pinned SHA-256 before extraction. Existing installations are preserved and their selected versions are checked. Development may select an explicit local `MOMENT_BEND_HOME` or `MOMENT_LEAN_HOME`; qualified source and emitted identities remain separate from the operator's tool location. Fresh clones have their own default `.tools` setup and need no sibling checkout. These tools are development/proof dependencies; the distributed runtime executes the included JavaScript without installing them.
+
+When changing a formal pin, inspect the release and backend/ABI changes, refresh its actual platform archive digests, rebuild with `pnpm build:core`, run `pnpm test:proof`, regenerate bindings and run the applicable native and installed-package checks. A new version label alone does not establish source/model correspondence. Preserve a counterexample or an explicit limitation when the model and native behavior differ. The [semantics owner](../reference/semantics.md) defines representation and proof scope.
+
 The manifests and `pnpm-lock.yaml` own JavaScript versions. `packageManager` pins pnpm 12.18.0; `mise.toml` pins the matching pnpm executable and Node.js 26.13.0, which supplies the built-in SQLite binding. TypeScript remains the contract compiler. Ajv 8.20.0 supplies the internal input validator and local JSON Schema compiler. Their execution tests cover shape rejection and schema-reference boundaries; public API admission still requires the kernel and transport integration.
 
 ## Setup and updates

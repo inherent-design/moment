@@ -61,12 +61,16 @@ test('offline discovery pages are bounded and tied to catalog, profile and selec
 test('the actual generator refuses stale sources, missing dispatch coverage and tool collisions',t=>{
   const directory=mkdtempSync(join(tmpdir(),'moment-generation-'));t.after(()=>rmSync(directory,{recursive:true,force:true}));
   const root=fileURLToPath(new URL('../',import.meta.url));
-  for(const path of ['contracts','runtime','scripts','package.json','pnpm-lock.yaml','pnpm-workspace.yaml','mise.toml','tsconfig.json']) cpSync(join(root,path),join(directory,path),{recursive:true});
+  for(const path of ['contracts','runtime','scripts','core','proof','toolchain.json','package.json','pnpm-lock.yaml','pnpm-workspace.yaml','mise.toml','tsconfig.json']) cpSync(join(root,path),join(directory,path),{recursive:true});
   symlinkSync(join(root,'node_modules'),join(directory,'node_modules'),'dir');
   const run=()=>execFileSync(process.execPath,[join(directory,'scripts/generate-bindings.mjs'),'--check'],{encoding:'utf8',stdio:'pipe',timeout:10000});
   assert.match(run(),/Checked deterministic/);
   const lock=join(directory,'pnpm-lock.yaml'),copy=join(directory,'runtime/generated/source-lock.yaml'),lockBytes=readFileSync(lock);
   const discover=()=>spawnSync(process.execPath,[join(directory,'runtime/cli.mjs'),'agents','workspace.read'],{env:{...process.env,MOMENT_HOME:join(directory,'absent-state')},encoding:'utf8',timeout:10000});
+  for(const source of ['core/semantics.bend','proof/Moment.lean','runtime/generated/semantics.mjs']) {
+    const path=join(directory,source),bytes=readFileSync(path);writeFileSync(path,Buffer.concat([bytes,Buffer.from('\n')]));
+    assert.throws(run,/Executable core is stale/);assert.notEqual(discover().status,0,'Cold runtime refuses mismatched semantic source/output');writeFileSync(path,bytes);
+  }
   assert.deepEqual(readFileSync(copy),lockBytes);
   writeFileSync(lock,Buffer.concat([lockBytes,Buffer.from('\n')]));
   assert.notEqual(discover().status,0,'A checkout cannot bypass its changed root lockfile');

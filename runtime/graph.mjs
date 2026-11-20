@@ -1,4 +1,5 @@
 import { digest, fail } from './json.mjs';
+import * as core from './semantic-core.mjs';
 
 /** Register record declarations together, then apply support commands in order. */
 export function applyGraph(snapshot,changes,wrap,{systemId,contextId,revision}) {
@@ -6,15 +7,17 @@ export function applyGraph(snapshot,changes,wrap,{systemId,contextId,revision}) 
   for (const change of ordered) {
     if (change.kind === 'record.put') {
       const existing = snapshot.records.find(record => record.value.id === change.record.id);
-      if (existing && existing.digest !== digest(change.record)) fail('IDENTITY_CONFLICT', 'Record identity has different content');
-      if (!existing) snapshot.records.push(wrap(change.record));
+      const decision=core.recordEdit(!!existing,existing?core.sameText(existing.digest,digest(change.record)):false);
+      if (decision==='Conflict') fail('IDENTITY_CONFLICT', 'Record identity has different content');
+      if (decision==='Insert') snapshot.records.push(wrap(change.record));
     } else if (change.kind === 'assertion.put') {
       const value = change.assertion;
-      if (value.record.systemId !== systemId || value.record.contextId !== contextId || !snapshot.records.some(record => record.value.id === value.record.id)) fail('NOT_FOUND', 'Assertion requires an existing local record');
+      const local=core.sameScope(value.record,{systemId,contextId})&&snapshot.records.some(record => record.value.id === value.record.id);
       const existing = snapshot.assertions.find(item => item.assertion.value.id === value.id);
-      if (existing && existing.assertion.digest !== digest(value)) fail('IDENTITY_CONFLICT', 'Assertion identity has different content');
-      if (existing?.status === 'withdrawn') fail('IDENTITY_CONFLICT', 'Withdrawn assertion cannot be restored under the same ID');
-      if (!existing) snapshot.assertions.push({ assertion: wrap(value), status: 'asserted' });
+      const decision=core.assertionEdit(local,existing?core.sameText(existing.assertion.digest,digest(value)):false,existing?.status??'absent');
+      if(decision==='Missing')fail('NOT_FOUND','Assertion requires an existing local record');
+      if(decision==='Conflict')fail('IDENTITY_CONFLICT',existing?.status==='withdrawn'?'Withdrawn assertion cannot be restored under the same ID':'Assertion identity has different content');
+      if(decision==='Insert')snapshot.assertions.push({assertion:wrap(value),status:'asserted'});
     } else if (change.kind === 'assertion.withdraw') {
       const item = snapshot.assertions.find(item => item.assertion.value.id === change.assertionId);
       if (!item) fail('NOT_FOUND', 'Assertion not found');

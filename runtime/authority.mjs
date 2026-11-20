@@ -1,17 +1,19 @@
 import { canonical, fail } from './json.mjs';
-export const sameRef=(a,b)=>a && b && a.systemId===b.systemId && a.contextId===b.contextId && a.id===b.id;
+import * as core from './semantic-core.mjs';
+export const sameRef=(a,b)=>a && b && core.sameReference(a,b);
 export const includesRef=(refs,ref)=>refs.some(item=>sameRef(item,ref));
 export function boundLimits(child,parent) {
-  if (child.currency!==parent.currency) fail('FORBIDDEN','Budget currencies differ');
-  for (const key of ['concurrentExecutions','cpuMillis','memoryBytes','outputBytes','modelTokens','apiSpendMicrounits']) if (child[key]>parent[key]) fail('FORBIDDEN','Requested budget exceeds its envelope');
-  if (parent.deadline && (!child.deadline || Date.parse(child.deadline)>Date.parse(parent.deadline))) fail('FORBIDDEN','Requested deadline exceeds its envelope');
+  if (!core.sameText(child.currency,parent.currency)) fail('FORBIDDEN','Budget currencies differ');
+  const keys=['concurrentExecutions','cpuMillis','memoryBytes','outputBytes','modelTokens','apiSpendMicrounits'];
+  if (!core.limitsFit(keys.map(k=>child[k]),keys.map(k=>parent[k]))) fail('FORBIDDEN','Requested budget exceeds its envelope');
+  if (!core.deadlineFits(child.deadline,parent.deadline)) fail('FORBIDDEN','Requested deadline exceeds its envelope');
 }
 export function attenuates(child,parent) {
   boundLimits(child.limits,parent.limits);
-  if (child.actions.some(action=>!parent.actions.includes(action))) fail('FORBIDDEN','Delegation widens actions');
-  if (parent.incidentIds!=='all' && (child.incidentIds==='all' || child.incidentIds.some(id=>!parent.incidentIds.includes(id)))) fail('FORBIDDEN','Delegation widens incidents');
+  if (!core.textSubset(child.actions,parent.actions)) fail('FORBIDDEN','Delegation widens actions');
+  if (!core.incidentScope(child.incidentIds,parent.incidentIds)) fail('FORBIDDEN','Delegation widens incidents');
   if (child.resourceRefs.some(ref=>!includesRef(parent.resourceRefs,ref))) fail('FORBIDDEN','Delegation widens resources');
-  if (parent.expiresAt && (!child.expiresAt || Date.parse(child.expiresAt)>Date.parse(parent.expiresAt))) fail('FORBIDDEN','Delegation widens lifetime');
+  if (!core.deadlineFits(child.expiresAt,parent.expiresAt)) fail('FORBIDDEN','Delegation widens lifetime');
   if (!parent.delegable) fail('FORBIDDEN','Parent grant cannot delegate');
 }
 export function grantChain(snapshot,ref,principalId,now=Date.now()) {

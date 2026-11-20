@@ -1,11 +1,11 @@
 {
   "name": "@inherent.design/moment",
-  "version": "0.1.0-preview.3",
+  "version": "0.2.0-dev.0",
   "description": "Local contextual memory, evidence and governed coordination for agents",
   "type": "module",
   "license": "Apache-2.0",
   "scripts": {
-    "check": "tsc --noEmit && pnpm check:bindings && node scripts/check-docs.mjs && pnpm test",
+    "check": "tsc --noEmit && pnpm check:core && pnpm check:bindings && node scripts/check-docs.mjs && pnpm test",
     "check:types": "tsc --noEmit",
     "check:docs": "node scripts/check-docs.mjs",
     "test": "node scripts/test.mjs",
@@ -16,7 +16,11 @@
     "check:bindings": "node scripts/generate-bindings.mjs --check",
     "test:integration": "node --test verification/integration.test.mjs",
     "check:package": "node scripts/check-package.mjs",
-    "pack:release": "pnpm pack --skip-manifest-obfuscation --pack-destination dist"
+    "pack:release": "pnpm pack --skip-manifest-obfuscation --pack-destination dist",
+    "build:core": "node scripts/build-core.mjs build",
+    "check:core": "node scripts/build-core.mjs check",
+    "test:proof": "node scripts/build-core.mjs prove",
+    "setup:formal": "node scripts/setup-formal.mjs"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "2.4.0",
@@ -69,6 +73,13 @@
     "AGENTS.md",
     "LICENSE",
     "NOTICE",
-    "README.md"
+    "README.md",
+    "core/",
+    "proof/",
+    "toolchain.json",
+    "scripts/core-tools.mjs",
+    "scripts/build-core.mjs",
+    "scripts/core-correspondence.mjs",
+    "scripts/setup-formal.mjs"
   ]
 }

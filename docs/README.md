@@ -10,6 +10,7 @@ Moment's implementation target is a local kernel whose reactions can be explaine
 | Bounded agent work, providers, reconciliation, and native goal handoffs | [Work](reference/work.md) |
 | Atoms, incidents, relationships, contexts, perspectives, and time | [Model](reference/model.md) |
 | Authority, delegation, generated policy, and verification | [Authority](reference/authority.md) |
+| Executable definitions, representations and scoped proofs | [Semantics](reference/semantics.md) |
 | Reactions, scheduling, resources, and execution recovery | [Reactions](reference/reactions.md) |
 | Callable API, errors, transport, and concurrency | [Protocol](reference/protocol.md) |
 | Hosts, agents, prompts, messaging, and other systems | [Integration](reference/integration.md) |

@@ -1,0 +1,51 @@
+{
+  "formatVersion": 1,
+  "abiVersion": 1,
+  "compiler": {
+    "name": "Bend",
+    "version": "2.0.40"
+  },
+  "sources": [
+    {
+      "path": "core/LAWS.bend",
+      "digest": "sha256:4eb217db4a37d1fc72e092fdd1d42a738ec1eaccab53d3abb6ef768c8538d97f"
+    },
+    {
+      "path": "core/PROOF.bend",
+      "digest": "sha256:ef20f63a25280c90b6a1eaafe77bc5268723ea9f665ef84d2d201b407073968f"
+    },
+    {
+      "path": "core/semantics.bend",
+      "digest": "sha256:39da048f586edf9b70eca7434849fc085d430381ab8f71438b20dfc8022d650b"
+    },
+    {
+      "path": "proof/Moment.lean",
+      "digest": "sha256:008d1a7158c53b3f9272215005e501a465986a5fa08c83036a50a2cb94e33465"
+    },
+    {
+      "path": "runtime/semantic-manifest.mjs",
+      "digest": "sha256:b08952b7dfd38fb122a48ceca38f5e159761295813b2055ddd88189011337328"
+    },
+    {
+      "path": "scripts/build-core.mjs",
+      "digest": "sha256:f14c08262704456625b4d332009fdc3ca3f1009f0473112c1683f24179ab1081"
+    },
+    {
+      "path": "scripts/core-correspondence.mjs",
+      "digest": "sha256:11337a7eed42ffcaa084685afe7a9fca4909f504b97017f0c073ab80dccd9721"
+    },
+    {
+      "path": "scripts/core-tools.mjs",
+      "digest": "sha256:d0ebfc976294f325fe05f4afb9327d74ac08d7228a83fd11cdd4ae2c579a777d"
+    },
+    {
+      "path": "toolchain.json",
+      "digest": "sha256:1cd64d311ed4925a4a1985b3408fb8c4fa191dfbc1ac079ba125d9b538aea421"
+    }
+  ],
+  "output": {
+    "path": "runtime/generated/semantics.mjs",
+    "digest": "sha256:5588e861332ae9e4666affc24c1fb2d931edb4db537ab609a74e42085d4fa5d4"
+  },
+  "claim": "Compiled executable core; proof verdict and native correspondence are separately qualified evidence"
+}

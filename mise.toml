@@ -16,3 +16,15 @@ run = "pnpm check"
 [tasks.test]
 description = "Run runtime execution tests"
 run = "pnpm test"
+
+[tasks."setup:formal"]
+description = "Install pinned Bend and Lean proof tools"
+run = "pnpm setup:formal"
+
+[tasks."build:core"]
+description = "Compile the authoritative Bend core"
+run = "pnpm build:core"
+
+[tasks."test:proof"]
+description = "Check Bend verdict and scoped Lean proofs"
+run = "pnpm test:proof"
