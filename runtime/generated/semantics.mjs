@@ -320,12 +320,367 @@ function $execution_step(_state_0, _action_0) {
   }
 }
 
+function $topology_unpack(_pair_0, _continuation_0) {
+  const _a_0 = _pair_0["fst"];
+  const _b_0 = _pair_0["snd"];
+  return run_tail(_continuation_0(_a_0), _b_0);
+}
+
+function $topology_parent_allows(_exclusive_0, _old_0, _target_0) {
+  const _x_0 = ((_target_0 + 1) >>> 0);
+  const _x_1 = (_old_0 === 0);
+  const _x_2 = (_old_0 === _x_0);
+  const _x_3 = $$Bool_not(_exclusive_0);
+  const _x_4 = (_x_1 || _x_2);
+  return (_x_3 || _x_4);
+}
+
+function $topology_enqueue(_hit_0, _item_0, _rest_0) {
+  if (_hit_0) {
+    return {$: "Con", "head": _item_0, "tail": _rest_0};
+  } else {
+    return _rest_0;
+  }
+}
+
+function $topology_add_checked(_allowed_0, _source_0, _target_0, _count_0, _degree_0, _next_0, _parent_0) {
+  if (!_allowed_0) {
+    return {$: "TopBadParents"};
+  } else {
+    const _x_0 = ((_count_0 + 1) >>> 0);
+    const _degree_1 = (_degree_0[_target_0 % _degree_0.length] = _x_0, _degree_0);
+    const _x_1 = ((_target_0 + 1) >>> 0);
+    const _parent_1 = (_parent_0[_source_0 % _parent_0.length] = _x_1, _parent_0);
+    return $topology_unpack(tup_new(_next_0, _next_0[_source_0 % _next_0.length]), run_clo($topology_add_checked_c0(_target_0,_parent_1,_degree_1,_source_0)));
+  }
+}
+
+function $topology_add_checked_c0(_target_0,_parent_1,_degree_1,_source_0) {
+  return (_x_2) => {
+    return run_clo($topology_add_checked_c1(_target_0,_parent_1,_degree_1,_source_0,_x_2));
+  }
+}
+function $topology_add_checked_c1(_target_0,_parent_1,_degree_1,_source_0,_x_2) {
+  return (_x_3) => {
+    const _x_4 = {$: "Con", "head": _target_0, "tail": _x_3};
+    return {$: "TopBuilt", "degree": _degree_1, "next": (_x_2[_source_0 % _x_2.length] = _x_4, _x_2), "parent": _parent_1};
+  }
+}
+function $topology_add_indexed(_valid_0, _exclusive_0, _source_0, _target_0, _degree_0, _next_0, _parent_0) {
+  if (!_valid_0) {
+    return {$: "TopBadIndex"};
+  } else {
+    return $topology_unpack(tup_new(_degree_0, _degree_0[_target_0 % _degree_0.length]), run_clo($topology_add_indexed_c0(_parent_0,_source_0,_target_0,_exclusive_0,_next_0)));
+  }
+}
+
+function $topology_add_indexed_c0(_parent_0,_source_0,_target_0,_exclusive_0,_next_0) {
+  return (_x_0) => {
+    return run_clo($topology_add_indexed_c1(_parent_0,_source_0,_x_0,_target_0,_exclusive_0,_next_0));
+  }
+}
+function $topology_add_indexed_c1(_parent_0,_source_0,_x_0,_target_0,_exclusive_0,_next_0) {
+  return (_x_1) => {
+    return $topology_unpack(tup_new(_parent_0, _parent_0[_source_0 % _parent_0.length]), run_clo($topology_add_indexed_c2(_source_0,_x_1,_x_0,_target_0,_exclusive_0,_next_0)));
+  }
+}
+function $topology_add_indexed_c2(_source_0,_x_1,_x_0,_target_0,_exclusive_0,_next_0) {
+  return (_x_2) => {
+    return run_clo($topology_add_indexed_c3(_source_0,_x_1,_x_0,_target_0,_exclusive_0,_x_2,_next_0));
+  }
+}
+function $topology_add_indexed_c3(_source_0,_x_1,_x_0,_target_0,_exclusive_0,_x_2,_next_0) {
+  return (_x_3) => {
+    return $topology_add_checked($$topology_parent_allows(_exclusive_0, _x_3, _target_0), _source_0, _target_0, _x_1, _x_0, _next_0, _x_2);
+  }
+}
+function $topology_add(_state_0, _edge_0, _exclusive_0, _size_0) {
+  if (_state_0.$ === "TopBadParents") {
+    const _source_0 = _edge_0["source"];
+    const _target_0 = _edge_0["target"];
+    return $Bool_pick($$Bool_and((_source_0 < _size_0), (_target_0 < _size_0)), {$: "TopBadParents"}, {$: "TopBadIndex"});
+  } else if (_state_0.$ === "TopBadIndex") {
+    return {$: "TopBadIndex"};
+  } else {
+    const _degree_0 = _state_0["degree"];
+    const _next_0 = _state_0["next"];
+    const _parent_0 = _state_0["parent"];
+    const _a_0 = _edge_0["source"];
+    const _b_0 = _edge_0["target"];
+    const _source_1 = _a_0;
+    const _target_1 = _b_0;
+    return $topology_add_indexed($$Bool_and((_source_1 < _size_0), (_target_1 < _size_0)), _exclusive_0, _source_1, _target_1, _degree_0, _next_0, _parent_0);
+  }
+}
+
+function $topology_prepare($0, $1, $2, $3) {
+  for (;;) {
+    {
+      const _edges_0 = $0;
+      const _state_0 = $1;
+      const _exclusive_0 = $2;
+      const _size_0 = $3;
+      if (_edges_0.$ === "Nil") {
+        return _state_0;
+      } else {
+        const _head_0 = _edges_0["head"];
+        const _tail_0 = _edges_0["tail"];
+        $0 = _tail_0;
+        $1 = $$topology_add(_state_0, _head_0, _exclusive_0, _size_0);
+        $2 = _exclusive_0;
+        $3 = _size_0;
+        continue;
+      }
+    }
+  }
+}
+
+function $topology_zeros(_fuel_0, _index_0, _degree_0, _queue_0) {
+  if (_fuel_0 == 0) {
+    return {$: "Tuple", "fst": _degree_0, "snd": _queue_0};
+  } else {
+    const _rest_0 = (_fuel_0 - 1);
+    return $topology_unpack(tup_new(_degree_0, _degree_0[_index_0 % _degree_0.length]), run_clo($topology_zeros_c0(_index_0,_queue_0,_rest_0)));
+  }
+}
+
+function $topology_zeros_c0(_index_0,_queue_0,_rest_0) {
+  return (_x_0) => {
+    return run_clo($topology_zeros_c1(_index_0,_queue_0,_x_0,_rest_0));
+  }
+}
+function $topology_zeros_c1(_index_0,_queue_0,_x_0,_rest_0) {
+  return (_x_1) => {
+    return $topology_zeros(_rest_0, ((_index_0 + 1) >>> 0), _x_0, $$topology_enqueue((_x_1 === 0), _index_0, _queue_0));
+  }
+}
+function $topology_release_one(_target_0, _queue_0, _pair_0) {
+  const _degree_0 = _pair_0["fst"];
+  const _count_0 = _pair_0["snd"];
+  const _x_0 = ((_count_0 - 1) >>> 0);
+  const _degree_1 = (_degree_0[_target_0 % _degree_0.length] = _x_0, _degree_0);
+  return {$: "Tuple", "fst": _degree_1, "snd": $$topology_enqueue((_count_0 === 1), _target_0, _queue_0)};
+}
+
+function $topology_release(_targets_0, _degree_0, _queue_0) {
+  if (_targets_0.$ === "Nil") {
+    return {$: "Tuple", "fst": _degree_0, "snd": _queue_0};
+  } else {
+    const _head_0 = _targets_0["head"];
+    const _tail_0 = _targets_0["tail"];
+    const _target_0 = _head_0;
+    return $topology_unpack($$topology_release_one(_target_0, _queue_0, tup_new(_degree_0, _degree_0[_target_0 % _degree_0.length])), run_clo($topology_release_c0(_tail_0)));
+  }
+}
+
+function $topology_release_c0(_tail_0) {
+  return (_x_0) => {
+    return run_clo($topology_release_c1(_x_0,_tail_0));
+  }
+}
+function $topology_release_c1(_x_0,_tail_0) {
+  return (_x_1) => {
+    return $topology_release(_tail_0, _x_0, _x_1);
+  }
+}
+function $topology_walk(_fuel_0, _queue_0, _count_0, _degree_0, _next_0, _rank_0) {
+  if (_fuel_0 == 0) {
+    return {$: "TopExhausted"};
+  } else {
+    const _rest_0 = (_fuel_0 - 1);
+    if (_queue_0.$ === "Nil") {
+      return {$: "TopSorted", "rank": _rank_0, "visited": _count_0};
+    } else {
+      const _head_0 = _queue_0["head"];
+      const _tail_0 = _queue_0["tail"];
+      const _node_0 = _head_0;
+      const _rank_1 = (_rank_0[_node_0 % _rank_0.length] = _count_0, _rank_0);
+      return $topology_unpack(tup_new(_next_0, _next_0[_node_0 % _next_0.length]), run_clo($topology_walk_c0(_degree_0,_rest_0,_rank_1,_tail_0,_count_0)));
+    }
+  }
+}
+
+function $topology_walk_c0(_degree_0,_rest_0,_rank_1,_tail_0,_count_0) {
+  return (_x_0) => {
+    return run_clo($topology_walk_c1(_degree_0,_rest_0,_rank_1,_tail_0,_x_0,_count_0));
+  }
+}
+function $topology_walk_c1(_degree_0,_rest_0,_rank_1,_tail_0,_x_0,_count_0) {
+  return (_x_1) => {
+    return $topology_unpack($$topology_release(_x_1, _degree_0, _tail_0), run_clo($topology_walk_c2(_rest_0,_rank_1,_x_0,_count_0)));
+  }
+}
+function $topology_walk_c2(_rest_0,_rank_1,_x_0,_count_0) {
+  return (_x_2) => {
+    return run_clo($topology_walk_c3(_rest_0,_rank_1,_x_0,_x_2,_count_0));
+  }
+}
+function $topology_walk_c3(_rest_0,_rank_1,_x_0,_x_2,_count_0) {
+  return (_x_3) => {
+    return $topology_walk(_rest_0, _x_3, ((_count_0 + 1) >>> 0), _x_2, _x_0, _rank_1);
+  }
+}
+function $topology_certify(_edges_0, _rank_0, _valid_0) {
+  if (_edges_0.$ === "Nil") {
+    return $Bool_pick(_valid_0, {$: "TopGood"}, {$: "TopInvalid"});
+  } else {
+    const _t_0 = _edges_0["head"];
+    const _source_0 = _t_0["source"];
+    const _target_0 = _t_0["target"];
+    const _tail_0 = _edges_0["tail"];
+    return $topology_unpack(tup_new(_rank_0, _rank_0[_source_0 % _rank_0.length]), run_clo($topology_certify_c0(_target_0,_tail_0,_valid_0)));
+  }
+}
+
+function $topology_certify_c0(_target_0,_tail_0,_valid_0) {
+  return (_x_0) => {
+    return run_clo($topology_certify_c1(_x_0,_target_0,_tail_0,_valid_0));
+  }
+}
+function $topology_certify_c1(_x_0,_target_0,_tail_0,_valid_0) {
+  return (_x_1) => {
+    return $topology_unpack(tup_new(_x_0, _x_0[_target_0 % _x_0.length]), run_clo($topology_certify_c2(_x_1,_tail_0,_valid_0)));
+  }
+}
+function $topology_certify_c2(_x_1,_tail_0,_valid_0) {
+  return (_x_2) => {
+    return run_clo($topology_certify_c3(_x_2,_x_1,_tail_0,_valid_0));
+  }
+}
+function $topology_certify_c3(_x_2,_x_1,_tail_0,_valid_0) {
+  return (_x_3) => {
+    return $topology_certify(_tail_0, _x_2, $$Bool_and(_valid_0, (_x_1 < _x_3)));
+  }
+}
+function $topology_finish_count(_complete_0, _edges_0, _rank_0) {
+  if (!_complete_0) {
+    return {$: "TopCycle"};
+  } else {
+    return $topology_certify(_edges_0, _rank_0, true);
+  }
+}
+
+function $topology_finish(_sorted_0, _size_0, _edges_0) {
+  if (_sorted_0.$ === "TopExhausted") {
+    return {$: "TopInvalid"};
+  } else {
+    const _rank_0 = _sorted_0["rank"];
+    const _visited_0 = _sorted_0["visited"];
+    return $topology_finish_count((_visited_0 === _size_0), _edges_0, _rank_0);
+  }
+}
+
+function $topology_start(_state_0, _size_0, _edges_0, _rank_0) {
+  if (_state_0.$ === "TopBadParents") {
+    return {$: "TopParents"};
+  } else if (_state_0.$ === "TopBadIndex") {
+    return {$: "TopInvalid"};
+  } else {
+    const _degree_0 = _state_0["degree"];
+    const _next_0 = _state_0["next"];
+    return $topology_unpack($$topology_zeros((_size_0 ), 0, _degree_0, {$: "Nil"}), run_clo($topology_start_c0(_edges_0,_rank_0,_next_0,_size_0)));
+  }
+}
+
+function $topology_start_c0(_edges_0,_rank_0,_next_0,_size_0) {
+  return (_x_0) => {
+    return run_clo($topology_start_c1(_edges_0,_x_0,_rank_0,_next_0,_size_0));
+  }
+}
+function $topology_start_c1(_edges_0,_x_0,_rank_0,_next_0,_size_0) {
+  return (_x_1) => {
+    const _x_2 = (_size_0 );
+    return $topology_finish($$topology_walk(nat_chk(_x_2 + 1), _x_1, 0, _x_0, _next_0, _rank_0), _size_0, _edges_0);
+  }
+}
+function $topology_check(_exclusive_0, _size_0, _edges_0, _degree_0, _next_0, _parent_0, _rank_0) {
+  return $topology_start($$topology_prepare(_edges_0, {$: "TopBuilt", "degree": _degree_0, "next": _next_0, "parent": _parent_0}, _exclusive_0, _size_0), _size_0, _edges_0, _rank_0);
+}
+
+function $topology_project(_active_0, _structural_0, _temporal_0, _context_0, _perspective_0, _framed_0, _frame_0, _child_0, _parent_0, _earlier_0, _later_0) {
+  return $Bool_pick(_active_0, $$Bool_pick(_structural_0, {$: "TopWithin", "scope": _perspective_0, "source": _child_0, "target": _parent_0}, $$Bool_pick(_temporal_0, {$: "TopBefore", "scope": $$Bool_pick(_framed_0, _frame_0, _context_0), "source": _earlier_0, "target": _later_0}, {$: "TopSkip"})), {$: "TopSkip"});
+}
+
+function $topology_combine_child(_result_0, _rest_0) {
+  if (_result_0.$ === "TopInvalid") {
+    if (_rest_0.$ === "TopInvalid") {
+      return {$: "TopInvalid"};
+    } else if (_rest_0.$ === "TopParents") {
+      return {$: "TopInvalid"};
+    } else if (_rest_0.$ === "TopCycle") {
+      return {$: "TopInvalid"};
+    } else {
+      return {$: "TopInvalid"};
+    }
+  } else if (_result_0.$ === "TopParents") {
+    if (_rest_0.$ === "TopInvalid") {
+      return {$: "TopInvalid"};
+    } else if (_rest_0.$ === "TopParents") {
+      return {$: "TopParents"};
+    } else if (_rest_0.$ === "TopCycle") {
+      return {$: "TopParents"};
+    } else {
+      return {$: "TopParents"};
+    }
+  } else if (_result_0.$ === "TopCycle") {
+    if (_rest_0.$ === "TopInvalid") {
+      return {$: "TopInvalid"};
+    } else if (_rest_0.$ === "TopParents") {
+      return {$: "TopParents"};
+    } else if (_rest_0.$ === "TopCycle") {
+      return {$: "TopCycle"};
+    } else {
+      return {$: "TopCycle"};
+    }
+  } else {
+    if (_rest_0.$ === "TopInvalid") {
+      return {$: "TopInvalid"};
+    } else if (_rest_0.$ === "TopParents") {
+      return {$: "TopParents"};
+    } else if (_rest_0.$ === "TopCycle") {
+      return {$: "TopCycle"};
+    } else {
+      return {$: "TopGood"};
+    }
+  }
+}
+
+function $topology_combine_fold($0, $1) {
+  for (;;) {
+    {
+      const _results_0 = $0;
+      const _accumulated_0 = $1;
+      if (_results_0.$ === "Nil") {
+        return _accumulated_0;
+      } else {
+        const _head_0 = _results_0["head"];
+        const _tail_0 = _results_0["tail"];
+        $0 = _tail_0;
+        $1 = $$topology_combine_child(_accumulated_0, _head_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $topology_combine(_results_0) {
+  return $topology_combine_fold(_results_0, {$: "TopGood"});
+}
+
 function $execution_step_1(_state_0, _action_0) {
   return $execution_step(_state_0, _action_0);
 }
 
 function $execution_terminal_1(_state_0) {
   return $execution_terminal(_state_0);
+}
+
+function $topology_check_1(_exclusive_0, _size_0, _edges_0, _degree_0, _next_0, _parent_0, _rank_0) {
+  return $topology_check(_exclusive_0, _size_0, _edges_0, _degree_0, _next_0, _parent_0, _rank_0);
+}
+
+function $topology_certify_1(_edges_0, _rank_0) {
+  return $topology_certify(_edges_0, _rank_0, true);
 }
 
 function $truth_not(_value_0) {
@@ -422,16 +777,29 @@ function $same_ref(_asys_0, _actx_0, _aid_0, _bsys_0, _bctx_0, _bid_0) {
   return $Bool_and($$same_scope(_asys_0, _actx_0, _bsys_0, _bctx_0), $$String_eq(_aid_0, _bid_0));
 }
 
-function $text_contains(_values_0, _needle_0) {
-  if (_values_0.$ === "Nil") {
-    return false;
-  } else {
-    const _head_0 = _values_0["head"];
-    const _tail_0 = _values_0["tail"];
-    const _x_0 = $$String_eq(_head_0, _needle_0);
-    const _x_1 = $$text_contains(_tail_0, _needle_0);
-    return (_x_0 || _x_1);
+function $text_contains_fold($0, $1, $2) {
+  for (;;) {
+    {
+      const _values_0 = $0;
+      const _needle_0 = $1;
+      const _hit_0 = $2;
+      if (_values_0.$ === "Nil") {
+        return _hit_0;
+      } else {
+        const _head_0 = _values_0["head"];
+        const _tail_0 = _values_0["tail"];
+        const _x_0 = $$String_eq(_head_0, _needle_0);
+        $0 = _tail_0;
+        $1 = _needle_0;
+        $2 = (_hit_0 || _x_0);
+        continue;
+      }
+    }
   }
+}
+
+function $text_contains(_values_0, _needle_0) {
+  return $text_contains_fold(_values_0, _needle_0, false);
 }
 
 function $text_subset(_child_0, _parent_0) {
@@ -649,8 +1017,28 @@ function $policy_rules(_candidate_0, _current_0, _grant_0) {
   return $Bool_pick($$denies_preserved(_current_0, _candidate_0), $$permits_bounded(_candidate_0, _current_0, _grant_0), {$: "DenyRemoved"});
 }
 
-function $String_eq(_a_0, _b_0) {
-  return $Cmp_is_eq($$String_order(_a_0, _b_0));
+function $topology_record(_kind_0, _schema_0, _supports_0, _context_0, _perspective_0, _framed_0, _frame_0, _child_0, _parent_0, _earlier_0, _later_0) {
+  return $topology_project($$Bool_and($$String_eq(_kind_0, "relation"), $$text_contains(_supports_0, "asserted")), $$String_eq(_schema_0, "moment.within"), $$String_eq(_schema_0, "moment.precedes"), _context_0, _perspective_0, _framed_0, _frame_0, _child_0, _parent_0, _earlier_0, _later_0);
+}
+
+function $topology_combine_1(_results_0) {
+  return $topology_combine(_results_0);
+}
+
+function $Bool_not(_b_0) {
+  if (!_b_0) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+function $Bool_pick(_c_0, _a_0, _b_0) {
+  if (!_c_0) {
+    return _b_0;
+  } else {
+    return _a_0;
+  }
 }
 
 function $Bool_and(_a_0, _b_0) {
@@ -659,6 +1047,10 @@ function $Bool_and(_a_0, _b_0) {
   } else {
     return _b_0;
   }
+}
+
+function $String_eq(_a_0, _b_0) {
+  return $Cmp_is_eq($$String_order(_a_0, _b_0));
 }
 
 function $Nat_is_le(_a_0, _b_0) {
@@ -670,14 +1062,6 @@ function $List_filter_put(_h_0, _r_0, _keep_0) {
     return _r_0;
   } else {
     return {$: "Con", "head": _h_0, "tail": _r_0};
-  }
-}
-
-function $Bool_not(_b_0) {
-  if (!_b_0) {
-    return true;
-  } else {
-    return false;
   }
 }
 
@@ -697,14 +1081,6 @@ function $List_length(_xs_0) {
   } else {
     const _t_0 = _xs_0["tail"];
     return nat_chk($$List_length(_t_0) + 1);
-  }
-}
-
-function $Bool_pick(_c_0, _a_0, _b_0) {
-  if (!_c_0) {
-    return _b_0;
-  } else {
-    return _a_0;
   }
 }
 
@@ -781,22 +1157,31 @@ function $String_order_go($0, $1, $2) {
 }
 
 const $$execution_result = $execution_result;
+const $$Bool_not = $Bool_not;
+const $$topology_parent_allows = $topology_parent_allows;
+const $$Bool_and = $Bool_and;
+const $$topology_add = (a0,a1,a2,a3) => run_loop($topology_add(a0,a1,a2,a3));
+const $$topology_enqueue = $topology_enqueue;
+const $$topology_release_one = $topology_release_one;
+const $$topology_release = (a0,a1,a2) => run_loop($topology_release(a0,a1,a2));
+const $$topology_zeros = (a0,a1,a2,a3) => run_loop($topology_zeros(a0,a1,a2,a3));
+const $$topology_walk = (a0,a1,a2,a3,a4,a5) => run_loop($topology_walk(a0,a1,a2,a3,a4,a5));
+const $$topology_prepare = $topology_prepare;
+const $$Bool_pick = $Bool_pick;
+const $$topology_combine_child = $topology_combine_child;
 const $$truth_all = $truth_all;
 const $$truth_any = $truth_any;
 const $$String_eq = $String_eq;
 const $$same_scope = $same_scope;
 const $$text_contains = $text_contains;
 const $$text_subset = $text_subset;
-const $$Bool_and = $Bool_and;
 const $$rank_le = $rank_le;
 const $$Nat_is_le = $Nat_is_le;
 const $$fits = $fits;
 const $$graph_phase = $graph_phase;
-const $$Bool_not = $Bool_not;
 const $$List_length = $List_length;
 const $$grant_available = $grant_available;
 const $$List_is_empty = $List_is_empty;
-const $$Bool_pick = $Bool_pick;
 const $$deadline = $deadline;
 const $$incident_scope = $incident_scope;
 const $$rule_contains = $rule_contains;
@@ -809,8 +1194,30 @@ const $$List_append = $List_append;export default {
   "execution:result": run_lib((a0) => run_loop($execution_result(a0)), 1),
   "execution:finish_leased": run_lib((a0) => run_loop($execution_finish_leased(a0)), 1),
   "execution:step": run_lib((a0,a1) => run_loop($execution_step(a0,a1)), 2),
+  "topology:unpack": run_lib((a0,a1) => run_loop($topology_unpack(a0,a1)), 2),
+  "topology:parent_allows": run_lib((a0,a1,a2) => run_loop($topology_parent_allows(a0,a1,a2)), 3),
+  "topology:enqueue": run_lib((a0,a1,a2) => run_loop($topology_enqueue(a0,a1,a2)), 3),
+  "topology:add_checked": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($topology_add_checked(a0,a1,a2,a3,a4,a5,a6)), 7),
+  "topology:add_indexed": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($topology_add_indexed(a0,a1,a2,a3,a4,a5,a6)), 7),
+  "topology:add": run_lib((a0,a1,a2,a3) => run_loop($topology_add(a0,a1,a2,a3)), 4),
+  "topology:prepare": run_lib((a0,a1,a2,a3) => run_loop($topology_prepare(a0,a1,a2,a3)), 4),
+  "topology:zeros": run_lib((a0,a1,a2,a3) => run_loop($topology_zeros(nat_in(a0),a1,a2,a3)), 4),
+  "topology:release_one": run_lib((a0,a1,a2) => run_loop($topology_release_one(a0,a1,a2)), 3),
+  "topology:release": run_lib((a0,a1,a2) => run_loop($topology_release(a0,a1,a2)), 3),
+  "topology:walk": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($topology_walk(nat_in(a0),a1,a2,a3,a4,a5)), 6),
+  "topology:certify": run_lib((a0,a1,a2) => run_loop($topology_certify(a0,a1,a2)), 3),
+  "topology:finish_count": run_lib((a0,a1,a2) => run_loop($topology_finish_count(a0,a1,a2)), 3),
+  "topology:finish": run_lib((a0,a1,a2) => run_loop($topology_finish(a0,a1,a2)), 3),
+  "topology:start": run_lib((a0,a1,a2,a3) => run_loop($topology_start(a0,a1,a2,a3)), 4),
+  "topology:check": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($topology_check(a0,a1,a2,a3,a4,a5,a6)), 7),
+  "topology:project": run_lib((a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,a10) => run_loop($topology_project(a0,a1,a2,str_in(a3),str_in(a4),a5,str_in(a6),str_in(a7),str_in(a8),str_in(a9),str_in(a10))), 11),
+  "topology:combine_child": run_lib((a0,a1) => run_loop($topology_combine_child(a0,a1)), 2),
+  "topology:combine_fold": run_lib((a0,a1) => run_loop($topology_combine_fold(a0,a1)), 2),
+  "topology:combine": run_lib((a0) => run_loop($topology_combine(a0)), 1),
   "execution_step": run_lib((a0,a1) => run_loop($execution_step_1(a0,a1)), 2),
   "execution_terminal": run_lib((a0) => run_loop($execution_terminal_1(a0)), 1),
+  "topology_check": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($topology_check_1(a0,a1,a2,a3,a4,a5,a6)), 7),
+  "topology_certify": run_lib((a0,a1) => run_loop($topology_certify_1(a0,a1)), 2),
   "truth.not": run_lib((a0) => run_loop($truth_not(a0)), 1),
   "truth.and": run_lib((a0,a1) => run_loop($truth_and(a0,a1)), 2),
   "truth.or": run_lib((a0,a1) => run_loop($truth_or(a0,a1)), 2),
@@ -821,6 +1228,7 @@ const $$List_append = $List_append;export default {
   "same_text": run_lib((a0,a1) => run_loop($same_text(str_in(a0),str_in(a1))), 2),
   "same_scope": run_lib((a0,a1,a2,a3) => run_loop($same_scope(str_in(a0),str_in(a1),str_in(a2),str_in(a3))), 4),
   "same_ref": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($same_ref(str_in(a0),str_in(a1),str_in(a2),str_in(a3),str_in(a4),str_in(a5))), 6),
+  "text_contains.fold": run_lib((a0,a1,a2) => run_loop($text_contains_fold(a0,str_in(a1),a2)), 3),
   "text_contains": run_lib((a0,a1) => run_loop($text_contains(a0,str_in(a1))), 2),
   "text_subset": run_lib((a0,a1) => run_loop($text_subset(a0,a1)), 2),
   "incident_scope": run_lib((a0,a1,a2,a3) => run_loop($incident_scope(a0,a1,a2,a3)), 4),
@@ -845,4 +1253,6 @@ const $$List_append = $List_append;export default {
   "policy_issuers": run_lib((a0,a1) => run_loop($policy_issuers(a0,a1)), 2),
   "permits_bounded": run_lib((a0,a1,a2) => run_loop($permits_bounded(a0,a1,a2)), 3),
   "policy_rules": run_lib((a0,a1,a2) => run_loop($policy_rules(a0,a1,a2)), 3),
+  "topology_record": run_lib((a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,a10) => run_loop($topology_record(str_in(a0),str_in(a1),a2,str_in(a3),str_in(a4),a5,str_in(a6),str_in(a7),str_in(a8),str_in(a9),str_in(a10))), 11),
+  "topology_combine": run_lib((a0) => run_loop($topology_combine_1(a0)), 1),
 };

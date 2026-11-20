@@ -72,3 +72,29 @@ export function executionStep(state,action,outcome) {
  if(!['RunNotClaimable','RunInactive','RunDispatchRequired','RunNotUncertain'].includes(result?.$))fail('INTERNAL','Invalid core execution refusal');
  return {kind:result.$.slice(3)};
 }
+const topologyVerdict=result=>{if(!['TopGood','TopParents','TopCycle','TopInvalid'].includes(result?.$))fail('INTERNAL','Invalid core topology verdict');return result.$;};
+export function topologyCheck(size,edges,exclusive) {
+ if(!Number.isSafeInteger(size)||size<0||size>0x7fffffff||!Array.isArray(edges)||edges.length>0x7fffffff||typeof exclusive!=='boolean')fail('INVALID_ARGUMENT','Topology index domain is not representable');
+ const encoded=edges.map(edge=>{for(const index of [edge.source,edge.target])if(!Number.isSafeInteger(index)||index<0||index>0xffffffff)fail('INVALID_ARGUMENT','Topology endpoints must be unsigned word indices');return {$:'TopEdge',source:edge.source,target:edge.target};});
+ // Arrays are affine within Bend and wrap indices. Supply fresh independent
+ // power-of-two storage; the core checks each endpoint against the logical size.
+ const capacity=2**Math.ceil(Math.log2(Math.max(1,size))),zeros=()=>new Array(capacity).fill(0),next=new Array(capacity).fill({$:'Nil'});
+ return topologyVerdict(Core.topology_check(exclusive,size,list(encoded),zeros(),next,zeros(),zeros()));
+}
+export function topologyRecord(value,statuses,contextId) {
+ const role=name=>value.roles?.[name]?.[0]?.id??'';
+ const result=Core.topology_record(value.kind,value.schema.name,list(statuses),contextId,role('perspective'),value.roles?.frame?.[0]!==undefined,role('frame'),role('child'),role('parent'),role('earlier'),role('later'));
+ if(result?.$==='TopSkip')return {kind:'skip'};
+ if(!['TopWithin','TopBefore'].includes(result?.$)||['scope','source','target'].some(k=>typeof result[k]!=='string'||!result[k]))fail('INVALID_ARGUMENT','Malformed structural or temporal relation');
+ return {kind:result.$==='TopWithin'?'within':'precedes',scope:result.scope,source:result.source,target:result.target};
+}
+// This private boundary qualifies the certificate checker independently of the
+// sorting implementation. Production admission calls topologyCheck above.
+export function topologyCertify(size,edges,ranks) {
+ if(!Number.isSafeInteger(size)||size<0||size>0x7fffffff||!Array.isArray(ranks)||ranks.length!==size||!Array.isArray(edges))fail('INVALID_ARGUMENT','Invalid topology certificate shape');
+ const encoded=edges.map(edge=>{for(const n of [edge.source,edge.target])if(!Number.isSafeInteger(n)||n<0||n>=size)fail('INVALID_ARGUMENT','Certificate endpoint is outside its graph');return {$:'TopEdge',source:edge.source,target:edge.target};});
+ for(const rank of ranks)if(!Number.isSafeInteger(rank)||rank<0||rank>0xffffffff)fail('INVALID_ARGUMENT','Certificate ranks must be unsigned words');
+ const storage=new Array(2**Math.ceil(Math.log2(Math.max(1,size)))).fill(0);for(let i=0;i<size;i++)storage[i]=ranks[i];
+ return topologyVerdict(Core.topology_certify(list(encoded),storage));
+}
+export const topologyCombine=results=>topologyVerdict(Core.topology_combine(list(results.map(value=>({$:topologyVerdict({$:value})})))));

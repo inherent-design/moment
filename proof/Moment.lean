@@ -203,6 +203,87 @@ theorem uncertain_claim_trace (n : Nat) : claimTrace n .uncertain = .uncertain :
   | zero => rfl
   | succ n ih => simpa [claimTrace, runApply, runStep] using ih
 
+inductive TopVerdict | good | parents | cycle | invalid deriving DecidableEq, Repr
+abbrev TopEdge := Nat × Nat
+
+-- Independent reachability specification: production uses Kahn sorting.
+def topReach : Nat → List TopEdge → Nat → Nat → Bool
+  | 0, _, _, _ => false
+  | fuel+1, edges, source, target =>
+    edges.any (fun edge => edge.1 == source &&
+      (edge.2 == target || topReach fuel edges edge.2 target))
+def topBounds (size : Nat) (edges : List TopEdge) : Bool :=
+  edges.all (fun edge => edge.1 < size && edge.2 < size)
+def topParents (edges : List TopEdge) : Bool :=
+  edges.all (fun a => edges.all (fun b => a.1 != b.1 || a.2 == b.2))
+def topCheck (size : Nat) (edges : List TopEdge) (exclusive : Bool) : TopVerdict :=
+  if !topBounds size edges then .invalid
+  else if exclusive && !topParents edges then .parents
+  else if (List.range size).any (fun node => topReach size edges node node) then .cycle
+  else .good
+
+def topCertificate (edges : List TopEdge) (rank : Nat → Nat) : Bool :=
+  edges.all (fun edge => rank edge.1 < rank edge.2)
+inductive TopPath (edges : List TopEdge) : Nat → Nat → Prop
+  | edge {a b} : (a,b) ∈ edges → TopPath edges a b
+  | more {a b c} : (a,b) ∈ edges → TopPath edges b c → TopPath edges a c
+
+theorem certified_edge (edges : List TopEdge) (rank : Nat → Nat)
+    (valid : topCertificate edges rank = true) {a b : Nat} (member : (a,b) ∈ edges) :
+    rank a < rank b := by
+  exact of_decide_eq_true ((List.all_eq_true.mp valid) (a,b) member)
+theorem rank_along_path (edges : List TopEdge) (rank : Nat → Nat)
+    (valid : topCertificate edges rank = true) {a b : Nat} (path : TopPath edges a b) :
+    rank a < rank b := by
+  induction path with
+  | edge member => exact certified_edge edges rank valid member
+  | more member _ ih => exact Nat.lt_trans (certified_edge edges rank valid member) ih
+theorem certificate_excludes_cycle (edges : List TopEdge) (rank : Nat → Nat)
+    (valid : topCertificate edges rank = true) (a : Nat) : ¬ TopPath edges a a := by
+  intro path
+  exact Nat.lt_irrefl _ (rank_along_path edges rank valid path)
+theorem subset_certificate (whole selected : List TopEdge) (rank : Nat → Nat)
+    (valid : topCertificate whole rank = true) (selection : ∀ edge ∈ selected, edge ∈ whole) :
+    topCertificate selected rank = true := by
+  apply List.all_eq_true.mpr
+  intro edge member
+  exact (List.all_eq_true.mp valid) edge (selection edge member)
+theorem single_edge_is_usable : topCheck 2 [(0,1)] true = .good := rfl
+theorem outside_index_refused : topCheck 3 [(0,3)] false = .invalid := rfl
+
+inductive TopProjection | skip | within (scope source target : String) | before (scope source target : String)
+  deriving DecidableEq, Repr
+def topProject (kind schema : String) (supports : List String) (context perspective : String)
+    (framed : Bool) (frame child parent earlier later : String) : TopProjection :=
+  if kind != "relation" || !supports.contains "asserted" then .skip
+  else if schema == "moment.within" then .within perspective child parent
+  else if schema == "moment.precedes" then .before (if framed then frame else context) earlier later
+  else .skip
+theorem unsupported_relation_is_absent (context : String) :
+    topProject "relation" "moment.within" [] context "perspective" false "frame" "child" "parent" "earlier" "later" = .skip := rfl
+theorem missing_temporal_frame_is_context (context : String) :
+    topProject "relation" "moment.precedes" ["asserted"] context "perspective" false "frame" "child" "parent" "earlier" "later" = .before context "earlier" "later" := rfl
+def topCombine : TopVerdict → TopVerdict → TopVerdict
+  | .invalid, _ | _, .invalid => .invalid
+  | .parents, _ | _, .parents => .parents
+  | .cycle, _ | _, .cycle => .cycle
+  | _, _ => .good
+theorem top_combine_commutes (a b : TopVerdict) : topCombine a b = topCombine b a := by
+  cases a <;> cases b <;> rfl
+theorem top_combine_associates (a b c : TopVerdict) :
+    topCombine (topCombine a b) c = topCombine a (topCombine b c) := by
+  cases a <;> cases b <;> cases c <;> rfl
+
+#print axioms certified_edge
+#print axioms rank_along_path
+#print axioms certificate_excludes_cycle
+#print axioms subset_certificate
+#print axioms single_edge_is_usable
+#print axioms outside_index_refused
+#print axioms unsupported_relation_is_absent
+#print axioms missing_temporal_frame_is_context
+#print axioms top_combine_commutes
+#print axioms top_combine_associates
 #print axioms deny_precedence
 #print axioms unknown_deny_blocks_permit
 #print axioms positive_permit
@@ -291,6 +372,23 @@ def runActions : List (String × Moment.RunAction) :=
    ("cancel",.cancel),("lost",.lost),("retry",.retry),("observed.succeeded",.observed .success),
    ("observed.failed",.observed .failure),("observed.cancelled",.observed .cancellation),("observed.unknown",.observed .unobserved)]
 
+def topLabel : Moment.TopVerdict → String
+  | .good => "TopGood"
+  | .parents => "TopParents"
+  | .cycle => "TopCycle"
+  | .invalid => "TopInvalid"
+def topVerdicts : List Moment.TopVerdict := [.good,.parents,.cycle,.invalid]
+def topEdges (size mask : Nat) : List Moment.TopEdge :=
+  chooseMask ((List.range size).flatMap (fun a => (List.range size).map (fun b => (a,b)))) mask
+def topExtra : List (Nat × List Moment.TopEdge) :=
+  [(3,[(3,0)]),(3,[(0,3)]),(3,[(4,0)]),(3,[(0,4294967295)]),(0,[(0,0)]),
+   (3,[(0,1),(0,2),(3,1)]),(2,[(0,1),(0,1)]),(2,[(0,1),(1,0),(0,1)]),(3,[(0,1),(0,1),(0,2)])]
+def topProjectionLabel : Moment.TopProjection → String
+  | .skip => "skip"
+  | .within scope a b => s!"within:{scope}:{a}:{b}"
+  | .before scope a b => s!"precedes:{scope}:{a}:{b}"
+def topSupports : List (List String) := [[],["withdrawn"],["asserted"],["withdrawn","asserted"]]
+
 /-- Bounded executable correspondence cases; these do not replace theorems. -/
 def main : IO Unit := do
   let values : List Moment.Truth := [.yes,.no,.unknown]
@@ -342,3 +440,24 @@ def main : IO Unit := do
       IO.println s!"case|runStep|{runLabel state}|{label}|{runStepLabel (Moment.runStep state action)}"
       for (second, next) in runActions do
         IO.println s!"case|runTrace|{runLabel state}|{label}|{second}|{runLabel (Moment.runApply (Moment.runApply state action) next)}"
+  for size in List.range 4 do
+    for mask in List.range (2^(size*size)) do
+      for exclusive in [false,true] do
+        IO.println s!"case|topology|{size}|{mask}|{exclusive}|{topLabel (Moment.topCheck size (topEdges size mask) exclusive)}"
+  for ((size, edges), index) in topExtra.zipIdx do
+    for exclusive in [false,true] do
+      IO.println s!"case|topologyExtra|{index}|{exclusive}|{topLabel (Moment.topCheck size edges exclusive)}"
+  for kind in ["relation","atom"] do
+    for schema in ["moment.within","moment.precedes","moment.partOf"] do
+      for (supports, index) in topSupports.zipIdx do
+        for framed in [false,true] do
+          IO.println s!"case|topologyProjection|{kind}|{schema}|{index}|{framed}|{topProjectionLabel (Moment.topProject kind schema supports "context" "perspective" framed "frame" "child" "parent" "earlier" "later")}"
+  IO.println "case|topologyCombine|-|TopGood"
+  for a in topVerdicts do
+    for b in topVerdicts do
+      IO.println s!"case|topologyCombine|{topLabel a}|{topLabel b}|{topLabel (Moment.topCombine a b)}"
+  for mask in List.range 512 do
+    for rankMask in List.range 27 do
+      let rank := fun i => rankMask / 3^i % 3
+      let valid := Moment.topCertificate (topEdges 3 mask) rank
+      IO.println s!"case|topologyCertificate|{mask}|{rankMask}|{if valid then "TopGood" else "TopInvalid"}"

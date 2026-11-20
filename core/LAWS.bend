@@ -1,6 +1,7 @@
 import Base
 import ./semantics.bend as Core
 import ./execution.bend as Run
+import ./topology.bend as Top
 
 law deny_precedence:
   for permits: Core.Truth
@@ -55,3 +56,14 @@ law cancelling_accepts_real_success:
 
 law queued_cancel_needs_no_effect:
   {Run.step(Run.RunQueued{}, Run.RunCancel{}) == Run.RunNext{Run.RunCancelled{}, True{}, False{}, True{}} : Run.Step}
+
+law unsupported_relation_is_absent:
+  for context: String
+  {Core.topology_record("relation", "moment.within", Nil{}, context, "perspective", False{}, "frame", "child", "parent", "earlier", "later") == Top.TopSkip{} : Top.Projection}
+
+law missing_temporal_frame_is_context:
+  for context: String
+  {Core.topology_record("relation", "moment.precedes", Con{"asserted", Nil{}}, context, "perspective", False{}, "frame", "child", "parent", "earlier", "later") == Top.TopBefore{context, "earlier", "later"} : Top.Projection}
+
+law single_edge_is_usable:
+  {Core.topology_check(True{}, 2, Con{Top.TopEdge{0, 1}, Nil{}}, [0:U32 * 2n], [Nil{}:List<&2, U32> * 2n], [0:U32 * 2n], [0:U32 * 2n]) == Top.TopGood{} : Top.Verdict}

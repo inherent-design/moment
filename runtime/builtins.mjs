@@ -1,4 +1,5 @@
-import { digest, fail } from './json.mjs';
+import { canonical, digest, fail } from './json.mjs';
+import * as core from './semantic-core.mjs';
 const ref={ type:'object',properties:Object.fromEntries(['systemId','contextId','id'].map(name=>[name,{ type:'string',pattern:'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' }])),required:['systemId','contextId','id'],additionalProperties:false };
 const cardinality=(minimum=1,maximum=1)=>({ type:'array',items:ref,minItems:minimum,...(maximum===undefined?{}:{ maxItems:maximum }) });
 const definitions={
@@ -22,32 +23,18 @@ export const builtinSchemas=Object.entries(definitions).map(([name,properties])=
 export function installedSchema(schema) { return builtinSchemas.some(item=>item.schema.name===schema.name && item.schema.version===schema.version && item.schema.digest===schema.digest); }
 
 export function validateTopology(snapshot) {
-  const supported=new Set(snapshot.assertions.filter(item=>item.status==='asserted').map(item=>item.assertion.value.record.id));
+  const supports=new Map();
+  for(const item of snapshot.assertions){const id=item.assertion.value.record.id;if(!supports.has(id))supports.set(id,[]);supports.get(id).push(item.status);}
   const groups=new Map();
   for (const item of snapshot.records) {
-    const relation=item.value;
-    if (relation.kind!=='relation' || !supported.has(relation.id) || !['moment.within','moment.precedes'].includes(relation.schema.name)) continue;
-    const within=relation.schema.name==='moment.within';
-    const scope=within?relation.roles.perspective[0].id:relation.roles.frame?.[0].id ?? snapshot.context.id;
-    const key=`${relation.schema.name}:${scope}`;
-    if (!groups.has(key)) groups.set(key,new Map());
-    const graph=groups.get(key),from=relation.roles[within?'child':'earlier'][0].id,to=relation.roles[within?'parent':'later'][0].id;
-    if (!graph.has(from)) graph.set(from,new Set());
-    graph.get(from).add(to);
-    if (within && graph.get(from).size>1) fail('INVALID_ARGUMENT','A structural perspective gives one child multiple immediate parents');
+    const edge=core.topologyRecord(item.value,supports.get(item.value.id)??[],snapshot.context.id);if(edge.kind==='skip')continue;
+    const key=canonical([edge.kind,edge.scope]);
+    if(!groups.has(key))groups.set(key,{exclusive:edge.kind==='within',indices:new Map(),edges:[]});
+    const group=groups.get(key),index=id=>{if(!group.indices.has(id))group.indices.set(id,group.indices.size);return group.indices.get(id);};
+    group.edges.push({source:index(edge.source),target:index(edge.target)});
   }
-  for (const graph of groups.values()) {
-    const done=new Set(),active=new Set();
-    for (const start of graph.keys()) {
-      const stack=[[start,false]];
-      while (stack.length) {
-        const [node,exit]=stack.pop();
-        if (exit) { active.delete(node);done.add(node);continue; }
-        if (done.has(node)) continue;
-        if (active.has(node)) fail('INVALID_ARGUMENT','Asserted structural containment or temporal precedence contains a cycle');
-        active.add(node);stack.push([node,true]);
-        for (const next of graph.get(node) ?? []) stack.push([next,false]);
-      }
-    }
-  }
+  const verdict=core.topologyCombine([...groups.values()].map(group=>core.topologyCheck(group.indices.size,group.edges,group.exclusive)));
+  if(verdict==='TopParents')fail('INVALID_ARGUMENT','A structural perspective gives one child multiple immediate parents');
+  if(verdict==='TopCycle')fail('INVALID_ARGUMENT','Asserted structural containment or temporal precedence contains a cycle');
+  if(verdict==='TopInvalid')fail('INTERNAL','Topology representation or complete certificate is invalid');
 }

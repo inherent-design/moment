@@ -46,3 +46,12 @@ def Laws.cancelling_accepts_real_success():
 
 def Laws.queued_cancel_needs_no_effect():
   {==}
+
+def Laws.unsupported_relation_is_absent(context):
+  {==}
+
+def Laws.missing_temporal_frame_is_context(context):
+  {==}
+
+def Laws.single_edge_is_usable():
+  {==}

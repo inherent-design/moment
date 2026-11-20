@@ -1,11 +1,18 @@
 import Base
 import ./execution.bend as Run
+import ./topology.bend as Top
 
 def execution_step(state: Run.State, action: Run.Action) -> Run.Step:
   Run.step(state, action)
 
 def execution_terminal(state: Run.State) -> Bool:
   Run.terminal(state)
+
+def topology_check(exclusive: Bool, size: U32, edges: +List<Top.Edge>, degree: Array<U32>, next: Array<List<&2, U32>>, parent: Array<U32>, rank: Array<U32>) -> Top.Verdict:
+  Top.check(exclusive, size, edges, degree, next, parent, rank)
+
+def topology_certify(edges: +List<Top.Edge>, rank: Array<U32>) -> Top.Verdict:
+  Top.certify(edges, rank, True{})
 
 # These values describe observations. Authority is a separate decision.
 type Truth is Data:
@@ -99,12 +106,15 @@ def same_scope(asys: String, actx: String, bsys: String, bctx: String) -> Bool:
 def same_ref(asys: String, actx: String, aid: String, bsys: String, bctx: String, bid: String) -> Bool:
   Bool.and(same_scope(asys, actx, bsys, bctx), String.eq(aid, bid))
 
-def text_contains(values: +List<String>, +needle: String) -> Bool:
+def text_contains.fold(values: +List<String>, +needle: String, hit: Bool) -> Bool:
   match values:
     case Nil{}:
-      False{}
+      hit
     case Con{head, tail}:
-      Bool.or(String.eq(head, needle), text_contains(tail, needle))
+      text_contains.fold(tail, needle, Bool.or(hit, String.eq(head, needle)))
+
+def text_contains(values: +List<String>, needle: String) -> Bool:
+  text_contains.fold(values, needle, False{})
 
 def text_subset(child: +List<String>, +parent: +List<String>) -> Bool:
   match child:
@@ -333,3 +343,9 @@ def permits_bounded(candidate: +List<PolicyRule>, +current: +List<PolicyRule>, +
 
 def policy_rules(+candidate: +List<PolicyRule>, +current: +List<PolicyRule>, grant: +List<String>) -> PolicyBound:
   Bool.pick(PolicyBound, denies_preserved(current, candidate), permits_bounded(candidate, current, grant), DenyRemoved{})
+
+def topology_record(kind: String, +schema: String, supports: +List<String>, context: String, perspective: String, framed: Bool, frame: String, child: String, parent: String, earlier: String, later: String) -> Top.Projection:
+  Top.project(Bool.and(String.eq(kind, "relation"), text_contains(supports, "asserted")), String.eq(schema, "moment.within"), String.eq(schema, "moment.precedes"), context, perspective, framed, frame, child, parent, earlier, later)
+
+def topology_combine(results: +List<Top.Verdict>) -> Top.Verdict:
+  Top.combine(results)

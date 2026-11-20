@@ -28,9 +28,11 @@ Keep Node's test runner: these tests exercise Node/SQLite, subprocesses, Unix so
 
 ## Executable semantics
 
-The selected core qualification at `29e2b4d` passed 349 ordinary tests, nine Bend laws, 18 audited Lean declarations and 1,730 named finite native/model comparisons. These cover tri-valued logic, policy precedence, immutable support edits, withdrawal, stable declaration ordering, grant scope/principal/revocation/expiry/depth and conservative policy narrowing. Lean proves the stated deny-preservation and permit-envelope properties. The policy matrix exhausts the declared four-rule/two-action universe, not arbitrary policies. These results certify neither the compiler nor external effects or LLM meaning.
+The proof command reports its exact frozen snapshot, declared laws, audited Lean dependencies and finite native/model comparisons. Cases cover tri-valued logic, policy precedence, immutable support edits, withdrawal, stable declaration ordering, grant boundaries, conservative policy narrowing, execution state/action tables and two-step traces. Topology adds every directed graph through three nodes, both parent modes, selected invalid/duplicate inputs, scope projection, verdict precedence and three-valued rank certificates. Lean proves the stated policy-envelope, execution-trace and strict-rank path properties. These results certify neither the compiler nor external effects or LLM meaning.
 
 Numeric execution compares the two-U32 binary64 codec with native ordering over selected boundaries and generated values, including fractions, subnormals, extreme values and signed zero. It does not assume unbounded JavaScript-host Nat arithmetic. Covered source/model/toolchain/output changes refuse cold runtime startup and binding generation until rebuilt. A manifest proves coherence, not that the proof command ran. See [semantics](../reference/semantics.md).
+
+Build-custody tests use an explicitly synthetic compiler to reproduce concurrent persistent and change-then-restore edits, verify frozen input bytes and preserve the previous executable/manifest on refusal. They do not qualify a compiler or a proof. Actual pinned-tool proof execution separately exercises the frozen source/model/native closure. Native graph checks include a 10,000-node chain and closing cycle, hidden-edge rejection under delegation, independent support after withdrawal and recovery after reopening the store.
 
 ## Durable effects and authority
 

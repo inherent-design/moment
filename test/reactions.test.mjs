@@ -100,6 +100,38 @@ test('a structural replacement withdraws old support and installs the new placem
   assert.equal(f.write('graph.transact',{ changes:[{ kind:'record.put',record:after },{ kind:'assertion.put',assertion:{ id:randomUUID(),record:ref(after.id),evidence } },{ kind:'assertion.withdraw',assertionId:id,reason:'new accepted placement' }] }).ok,true);
 });
 
+test('withdrawing one independent support cannot remove a still-supported structural constraint',t=>{
+  const f=setup(t),s=schema(f),nodes=[atom(s),atom(s),atom(s)];
+  const ref=id=>({systemId:f.systemId,contextId:f.contextId,id});
+  const relation=(a,b)=>({kind:'relation',id:randomUUID(),schema:builtinSchemas.find(x=>x.schema.name==='moment.within').schema,roles:{child:[ref(a)],parent:[ref(b)],perspective:[ref(nodes[2].id)]}});
+  const first=relation(nodes[0].id,nodes[1].id),reverse=relation(nodes[1].id,nodes[0].id);
+  const supports=[0,1].map(()=>({id:randomUUID(),record:ref(first.id),evidence}));
+  assert.equal(f.write('graph.transact',{changes:[...nodes,first,reverse].map(record=>({kind:'record.put',record})).concat(supports.map(assertion=>({kind:'assertion.put',assertion})))}).ok,true);
+  assert.equal(f.write('graph.transact',{changes:[{kind:'assertion.withdraw',assertionId:supports[0].id,reason:'first observation withdrawn'}]}).ok,true);
+  const reverseSupport={id:randomUUID(),record:ref(reverse.id),evidence},revision=f.store.read(f.contextId).context.revision;
+  assert.equal(f.write('graph.transact',{changes:[{kind:'assertion.put',assertion:reverseSupport}]}).error.code,'INVALID_ARGUMENT');
+  assert.equal(f.store.read(f.contextId).context.revision,revision);
+  assert.equal(f.write('graph.transact',{changes:[{kind:'assertion.withdraw',assertionId:supports[1].id,reason:'last observation withdrawn'},{kind:'assertion.put',assertion:reverseSupport}]}).ok,true);
+  f.reopen();const snapshot=f.store.read(f.contextId);
+  assert.equal(snapshot.assertions.filter(x=>x.status==='withdrawn').length,2);assert.equal(snapshot.assertions.filter(x=>x.status==='asserted').length,1);
+});
+
+test('a delegate cannot admit a cycle through an edge outside its visible graph',t=>{
+  const f=setup(t);allowDelegated(f);const s=schema(f),nodes=[atom(s),atom(s),atom(s)];
+  const ref=id=>({systemId:f.systemId,contextId:f.contextId,id});
+  const relation=(a,b)=>({kind:'relation',id:randomUUID(),schema:builtinSchemas.find(x=>x.schema.name==='moment.within').schema,roles:{child:[ref(a)],parent:[ref(b)],perspective:[ref(nodes[2].id)]}});
+  const hidden=relation(nodes[0].id,nodes[1].id),visible=relation(nodes[1].id,nodes[0].id);
+  assert.equal(f.write('graph.transact',{changes:[...nodes,hidden,visible].map(record=>({kind:'record.put',record})).concat([{kind:'assertion.put',assertion:{id:randomUUID(),record:ref(hidden.id),evidence}}])}).ok,true);
+  const actor=randomUUID(),bound=grant(f,actor,{resourceRefs:[...nodes,visible].map(record=>ref(record.id))});
+  const view=delegated(f,actor,bound,'graph.query',{selector:{assertionStatus:'any'},limit:10});
+  assert.equal(view.ok,true);assert.equal(view.value.items.some(x=>x.record.value.id===hidden.id),false);
+  const revision=f.store.read(f.contextId).context.revision;
+  const result=delegated(f,actor,bound,'graph.transact',{changes:[{kind:'assertion.put',assertion:{id:randomUUID(),record:ref(visible.id),evidence}}]},true);
+  assert.equal(result.error.code,'INVALID_ARGUMENT');assert.match(result.error.message,/cycle/);
+  assert.equal(f.store.read(f.contextId).context.revision,revision);
+  f.reopen();assert.equal(f.store.read(f.contextId).assertions.length,1);
+});
+
 test('a view exposes selected fields and hides internal changes until its declared observable changes',t=>{
   const f=setup(t),s=schema(f,{ type:'object',properties:{ summary:{ type:'string' },private:{ type:'string' } },required:['summary','private'],additionalProperties:false });
   const record={ ...atom(s),value:{ summary:'Visible',private:'Hidden detail' } };f.write('graph.transact',{ changes:[{ kind:'record.put',record }] });

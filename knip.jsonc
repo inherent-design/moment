@@ -5,6 +5,8 @@
     "runtime/managed-service.mjs",
     "runtime/providers/bytes-worker.mjs",
     "test/**/*.test.mjs",
+    // Loaded by absolute URL from the digest-checked proof snapshot.
+    "scripts/core-correspondence.mjs",
     "contracts/examples.ts",
     "contracts/memory.examples.ts",
     "contracts/evolution.examples.ts",
