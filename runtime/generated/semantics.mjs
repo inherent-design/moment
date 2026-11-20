@@ -380,6 +380,127 @@ function $assertion_edit(_local_record_0, _same_digest_0, _support_0) {
   }
 }
 
+function $assertion_withdraw(_support_0) {
+  if (_support_0.$ === "Absent") {
+    return {$: "Missing"};
+  } else if (_support_0.$ === "Asserted") {
+    return {$: "Withdraw"};
+  } else {
+    return {$: "Keep"};
+  }
+}
+
+function $graph_phase(_changes_0, _records_0) {
+  if (_changes_0.$ === "Nil") {
+    return {$: "Nil"};
+  } else {
+    const _t_0 = _changes_0["head"];
+    const _index_0 = _t_0["index"];
+    const _record_0 = _t_0["record"];
+    const _tail_0 = _changes_0["tail"];
+    const _rest_0 = $$graph_phase(_tail_0, _records_0);
+    return $List_filter_put(_index_0, _rest_0, $$Bool_not((_record_0 !== _records_0)));
+  }
+}
+
+function $graph_order(_changes_0) {
+  return $List_append($$graph_phase(_changes_0, true), $$graph_phase(_changes_0, false));
+}
+
+function $grant_available(_present_0, _revoked_0, _expiry_present_0, _expiry_0, _now_0) {
+  return $Bool_and(_present_0, $$Bool_and($$Bool_not(_revoked_0), $$Bool_not($$Bool_and(_expiry_present_0, $$rank_le(_expiry_0, _now_0)))));
+}
+
+function $grant_link(_system_0, _context_0, _ref_system_0, _ref_context_0, _ref_id_0, _seen_0, _present_0, _revoked_0, _expiry_present_0, _expiry_0, _now_0, _bound_principal_0, _grant_principal_0) {
+  const _valid_scope_0 = $$same_scope(_system_0, _context_0, _ref_system_0, _ref_context_0);
+  const _repeated_0 = $$text_contains(_seen_0, _ref_id_0);
+  const _x_0 = $$List_length(_seen_0);
+  const _depth_ok_0 = (_x_0 < 32);
+  const _x_1 = $$Bool_not($$List_is_empty(_seen_0));
+  const _x_2 = $$String_eq(_bound_principal_0, _grant_principal_0);
+  return $Bool_pick($$Bool_and(_valid_scope_0, $$Bool_and($$Bool_not(_repeated_0), _depth_ok_0)), $$Bool_pick($$grant_available(_present_0, _revoked_0, _expiry_present_0, _expiry_0, _now_0), $$Bool_pick((_x_1 || _x_2), {$: "GrantLink"}, {$: "WrongPrincipal"}), {$: "UnavailableGrant"}), {$: "InvalidChain"});
+}
+
+function $grant_end(_seen_0) {
+  if (_seen_0.$ === "Nil") {
+    return {$: "EmptyChain"};
+  } else {
+    return {$: "GrantLink"};
+  }
+}
+
+function $limits_bound(_child_currency_0, _parent_currency_0, _child_0, _parent_0, _parent_deadline_0, _child_deadline_0, _child_at_0, _parent_at_0) {
+  return $Bool_pick($$String_eq(_child_currency_0, _parent_currency_0), $$Bool_pick($$fits(_child_0, _parent_0), $$Bool_pick($$deadline(_parent_deadline_0, _child_deadline_0, _child_at_0, _parent_at_0), {$: "Bounded"}, {$: "DeadlineExceeded"}), {$: "BudgetExceeded"}), {$: "CurrencyMismatch"});
+}
+
+function $delegation_bound(_child_actions_0, _parent_actions_0, _parent_all_0, _child_all_0, _child_incidents_0, _parent_incidents_0, _child_resources_0, _parent_resources_0, _parent_expiry_0, _child_expiry_0, _child_at_0, _parent_at_0, _delegable_0) {
+  return $Bool_pick($$text_subset(_child_actions_0, _parent_actions_0), $$Bool_pick($$incident_scope(_parent_all_0, _child_all_0, _child_incidents_0, _parent_incidents_0), $$Bool_pick($$text_subset(_child_resources_0, _parent_resources_0), $$Bool_pick($$deadline(_parent_expiry_0, _child_expiry_0, _child_at_0, _parent_at_0), $$Bool_pick(_delegable_0, {$: "Bounded"}, {$: "NotDelegable"}), {$: "LifetimeWidened"}), {$: "ResourcesWidened"}), {$: "IncidentsWidened"}), {$: "ActionsWidened"});
+}
+
+function $rule_contains(_rules_0, _identity_0) {
+  if (_rules_0.$ === "Nil") {
+    return false;
+  } else {
+    const _t_0 = _rules_0["head"];
+    const _key_0 = _t_0["identity"];
+    const _tail_0 = _rules_0["tail"];
+    const _x_0 = $$String_eq(_key_0, _identity_0);
+    const _x_1 = $$rule_contains(_tail_0, _identity_0);
+    return (_x_0 || _x_1);
+  }
+}
+
+function $denies_preserved(_current_0, _candidate_0) {
+  if (_current_0.$ === "Nil") {
+    return true;
+  } else {
+    const _t_0 = _current_0["head"];
+    const _permit_0 = _t_0["permit"];
+    const _identity_0 = _t_0["identity"];
+    const _tail_0 = _current_0["tail"];
+    const _x_0 = $$rule_contains(_candidate_0, _identity_0);
+    return $Bool_and((_permit_0 || _x_0), $$denies_preserved(_tail_0, _candidate_0));
+  }
+}
+
+function $permit_narrowed(_current_0, _condition_0, _actions_0) {
+  if (_current_0.$ === "Nil") {
+    return false;
+  } else {
+    const _t_0 = _current_0["head"];
+    const _permit_0 = _t_0["permit"];
+    const _when_0 = _t_0["condition"];
+    const _old_actions_0 = _t_0["actions"];
+    const _tail_0 = _current_0["tail"];
+    const _x_0 = $$Bool_and(_permit_0, $$Bool_and($$String_eq(_when_0, _condition_0), $$text_subset(_actions_0, _old_actions_0)));
+    const _x_1 = $$permit_narrowed(_tail_0, _condition_0, _actions_0);
+    return (_x_0 || _x_1);
+  }
+}
+
+function $policy_issuers(_child_0, _parent_0) {
+  return $Bool_pick($$Bool_and($$text_subset(_child_0, _parent_0), $$text_subset(_parent_0, _child_0)), {$: "PolicyBounded"}, {$: "IssuersChanged"});
+}
+
+function $permits_bounded(_candidate_0, _current_0, _grant_0) {
+  if (_candidate_0.$ === "Nil") {
+    return {$: "PolicyBounded"};
+  } else {
+    const _t_0 = _candidate_0["head"];
+    const _permit_0 = _t_0["permit"];
+    const _condition_0 = _t_0["condition"];
+    const _actions_0 = _t_0["actions"];
+    const _tail_0 = _candidate_0["tail"];
+    const _bounded_actions_0 = _actions_0;
+    const _next_0 = $$permits_bounded(_tail_0, _current_0, _grant_0);
+    return $Bool_pick(_permit_0, $$Bool_pick($$text_subset(_bounded_actions_0, _grant_0), $$Bool_pick($$permit_narrowed(_current_0, _condition_0, _bounded_actions_0), _next_0, {$: "PermitWidened"}), {$: "GrantExceeded"}), _next_0);
+  }
+}
+
+function $policy_rules(_candidate_0, _current_0, _grant_0) {
+  return $Bool_pick($$denies_preserved(_current_0, _candidate_0), $$permits_bounded(_candidate_0, _current_0, _grant_0), {$: "DenyRemoved"});
+}
+
 function $String_eq(_a_0, _b_0) {
   return $Cmp_is_eq($$String_order(_a_0, _b_0));
 }
@@ -394,6 +515,57 @@ function $Bool_and(_a_0, _b_0) {
 
 function $Nat_is_le(_a_0, _b_0) {
   return $Cmp_is_le(cmp_new(_a_0, _b_0));
+}
+
+function $List_filter_put(_h_0, _r_0, _keep_0) {
+  if (!_keep_0) {
+    return _r_0;
+  } else {
+    return {$: "Con", "head": _h_0, "tail": _r_0};
+  }
+}
+
+function $Bool_not(_b_0) {
+  if (!_b_0) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+function $List_append(_xs_0, _ys_0) {
+  if (_xs_0.$ === "Nil") {
+    return _ys_0;
+  } else {
+    const _h_0 = _xs_0["head"];
+    const _t_0 = _xs_0["tail"];
+    return {$: "Con", "head": _h_0, "tail": $$List_append(_t_0, _ys_0)};
+  }
+}
+
+function $List_length(_xs_0) {
+  if (_xs_0.$ === "Nil") {
+    return 0;
+  } else {
+    const _t_0 = _xs_0["tail"];
+    return nat_chk($$List_length(_t_0) + 1);
+  }
+}
+
+function $Bool_pick(_c_0, _a_0, _b_0) {
+  if (!_c_0) {
+    return _b_0;
+  } else {
+    return _a_0;
+  }
+}
+
+function $List_is_empty(_xs_0) {
+  if (_xs_0.$ === "Nil") {
+    return true;
+  } else {
+    return false;
+  }
 }
 
 function $Cmp_is_eq(_c_0) {
@@ -470,7 +642,20 @@ const $$Bool_and = $Bool_and;
 const $$rank_le = $rank_le;
 const $$Nat_is_le = $Nat_is_le;
 const $$fits = $fits;
-const $$String_order = $String_order;export default {
+const $$graph_phase = $graph_phase;
+const $$Bool_not = $Bool_not;
+const $$List_length = $List_length;
+const $$grant_available = $grant_available;
+const $$List_is_empty = $List_is_empty;
+const $$Bool_pick = $Bool_pick;
+const $$deadline = $deadline;
+const $$incident_scope = $incident_scope;
+const $$rule_contains = $rule_contains;
+const $$denies_preserved = $denies_preserved;
+const $$permit_narrowed = $permit_narrowed;
+const $$permits_bounded = $permits_bounded;
+const $$String_order = $String_order;
+const $$List_append = $List_append;export default {
   "truth.not": run_lib((a0) => run_loop($truth_not(a0)), 1),
   "truth.and": run_lib((a0,a1) => run_loop($truth_and(a0,a1)), 2),
   "truth.or": run_lib((a0,a1) => run_loop($truth_or(a0,a1)), 2),
@@ -491,4 +676,18 @@ const $$String_order = $String_order;export default {
   "fits": run_lib((a0,a1) => run_loop($fits(a0,a1)), 2),
   "record_edit": run_lib((a0,a1) => run_loop($record_edit(a0,a1)), 2),
   "assertion_edit": run_lib((a0,a1,a2) => run_loop($assertion_edit(a0,a1,a2)), 3),
+  "assertion_withdraw": run_lib((a0) => run_loop($assertion_withdraw(a0)), 1),
+  "graph_phase": run_lib((a0,a1) => run_loop($graph_phase(a0,a1)), 2),
+  "graph_order": run_lib((a0) => run_loop($graph_order(a0)), 1),
+  "grant_available": run_lib((a0,a1,a2,a3,a4) => run_loop($grant_available(a0,a1,a2,a3,a4)), 5),
+  "grant_link": run_lib((a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12) => run_loop($grant_link(str_in(a0),str_in(a1),str_in(a2),str_in(a3),str_in(a4),a5,a6,a7,a8,a9,a10,str_in(a11),str_in(a12))), 13),
+  "grant_end": run_lib((a0) => run_loop($grant_end(a0)), 1),
+  "limits_bound": run_lib((a0,a1,a2,a3,a4,a5,a6,a7) => run_loop($limits_bound(str_in(a0),str_in(a1),a2,a3,a4,a5,a6,a7)), 8),
+  "delegation_bound": run_lib((a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12) => run_loop($delegation_bound(a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12)), 13),
+  "rule_contains": run_lib((a0,a1) => run_loop($rule_contains(a0,str_in(a1))), 2),
+  "denies_preserved": run_lib((a0,a1) => run_loop($denies_preserved(a0,a1)), 2),
+  "permit_narrowed": run_lib((a0,a1,a2) => run_loop($permit_narrowed(a0,str_in(a1),a2)), 3),
+  "policy_issuers": run_lib((a0,a1) => run_loop($policy_issuers(a0,a1)), 2),
+  "permits_bounded": run_lib((a0,a1,a2) => run_loop($permits_bounded(a0,a1,a2)), 3),
+  "policy_rules": run_lib((a0,a1,a2) => run_loop($policy_rules(a0,a1,a2)), 3),
 };

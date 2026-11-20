@@ -35,3 +35,27 @@ export function limitsFit(child,parent) {return Core.fits(list(child.map(value=>
 export function deadlineFits(child,parent) {return Core.deadline(parent!==undefined,child!==undefined,{$:'Rank',...numberRank(child===undefined?0:Date.parse(child))},{$:'Rank',...numberRank(parent===undefined?0:Date.parse(parent))});}
 export function recordEdit(exists,sameDigest) {return Core.record_edit(exists,sameDigest).$;}
 export function assertionEdit(localRecord,sameDigest,status) {return Core.assertion_edit(localRecord,sameDigest,{$:{absent:'Absent',asserted:'Asserted',withdrawn:'Withdrawn'}[status]}).$;}
+const support=status=>({$:{absent:'Absent',asserted:'Asserted',withdrawn:'Withdrawn'}[status]});
+const rank=value=>({$:'Rank',...numberRank(value)});
+const instant=value=>rank(value===undefined?0:Date.parse(value));
+const resourceKey=ref=>canonical([ref.systemId,ref.contextId,ref.id]);
+const limitKeys=['concurrentExecutions','cpuMillis','memoryBytes','outputBytes','modelTokens','apiSpendMicrounits'];
+export function withdrawEdit(status) {return Core.assertion_withdraw(support(status)).$;}
+export function graphOrder(changes) {
+ const input=list(changes.map((change,index)=>({$:'GraphIndex',index,record:change.kind==='record.put'}))),ordered=[],seen=new Set();let result=Core.graph_order(input);
+ while(result?.$==='Con') {const index=result.head;if(!Number.isSafeInteger(index)||index<0||index>=changes.length||seen.has(index))fail('INTERNAL','Invalid core graph ordering');seen.add(index);ordered.push(changes[index]);result=result.tail;}
+ if(result?.$!=='Nil'||ordered.length!==changes.length)fail('INTERNAL','Incomplete core graph ordering');return ordered;
+}
+export function grantLink(context,ref,seen,stored,revoked,principalId,now) {
+ return Core.grant_link(context.systemId,context.id,ref.systemId,ref.contextId,ref.id,list(seen),!!stored,!!revoked,stored?.value.expiresAt!==undefined,instant(stored?.value.expiresAt),rank(now),principalId,stored?.value.principalId??'').$;
+}
+export const grantEnd=seen=>Core.grant_end(list(seen)).$;
+export function limitsBound(child,parent) {
+ return Core.limits_bound(child.currency,parent.currency,list(limitKeys.map(k=>rank(child[k]))),list(limitKeys.map(k=>rank(parent[k]))),parent.deadline!==undefined,child.deadline!==undefined,instant(child.deadline),instant(parent.deadline)).$;
+}
+export function delegationBound(child,parent) {
+ return Core.delegation_bound(list(child.actions),list(parent.actions),parent.incidentIds==='all',child.incidentIds==='all',list(child.incidentIds==='all'?[]:child.incidentIds),list(parent.incidentIds==='all'?[]:parent.incidentIds),list(child.resourceRefs.map(resourceKey)),list(parent.resourceRefs.map(resourceKey)),parent.expiresAt!==undefined,child.expiresAt!==undefined,instant(child.expiresAt),instant(parent.expiresAt),parent.delegable).$;
+}
+const policyRule=rule=>({$:'PolicyRule',permit:rule.effect==='permit',identity:canonical(rule),condition:canonical(rule.when),actions:list(rule.actions)});
+export const policyIssuers=(candidate,current)=>Core.policy_issuers(list(candidate),list(current)).$;
+export const policyRules=(candidate,current,grant)=>Core.policy_rules(list(candidate.map(policyRule)),list(current.map(policyRule)),list(grant)).$;

@@ -69,6 +69,18 @@ test('independent assertion support survives withdrawal and historical snapshots
   assert.equal(store.commit(batch([{ kind: 'assertion.put', assertion: a }], 3)).error.code, 'IDENTITY_CONFLICT');
 });
 
+test('compiled graph ordering resolves declarations first and preserves causal support order atomically',t=>{
+  const {store}=setup(t),record=atom(),assertion={id:randomUUID(),record:{systemId:system,contextId,id:record.id},evidence:{sources:[],method:'observation',artifactDigests:[]}};
+  const first=batch([{kind:'assertion.put',assertion},{kind:'record.put',record},{kind:'assertion.withdraw',assertionId:assertion.id,reason:'retracted'}]);
+  assert.equal(store.commit(first).ok,true);
+  const withdrawn=store.read(contextId).assertions[0];assert.equal(withdrawn.status,'withdrawn');assert.equal(withdrawn.withdrawnAtRevision,2);
+  assert.equal(store.commit(batch([{kind:'assertion.withdraw',assertionId:assertion.id,reason:'repeat'}],2)).ok,true);
+  assert.deepEqual(store.read(contextId).assertions[0],withdrawn);
+  const next=atom(),second={...assertion,id:randomUUID(),record:{...assertion.record,id:next.id}};
+  const refused=store.commit(batch([{kind:'assertion.withdraw',assertionId:second.id,reason:'too early'},{kind:'record.put',record:next},{kind:'assertion.put',assertion:second}],3));
+  assert.equal(refused.error.code,'NOT_FOUND');assert.equal(store.read(contextId).records.length,1);assert.equal(store.read(contextId).context.revision,3);
+});
+
 test('competing processes using one observed revision admit exactly one writer', async t => {
   const { filename } = setup(t);
   const script = `import {Store} from ${JSON.stringify(new URL('../runtime/store.mjs', import.meta.url).href)};const s=new Store(process.argv[1],process.argv[2]); console.log(JSON.stringify(s.commit(JSON.parse(process.argv[3]))));s.close();`;

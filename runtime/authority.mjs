@@ -1,42 +1,37 @@
-import { canonical, fail } from './json.mjs';
+import { fail } from './json.mjs';
 import * as core from './semantic-core.mjs';
 export const sameRef=(a,b)=>a && b && core.sameReference(a,b);
 export const includesRef=(refs,ref)=>refs.some(item=>sameRef(item,ref));
 export function boundLimits(child,parent) {
-  if (!core.sameText(child.currency,parent.currency)) fail('FORBIDDEN','Budget currencies differ');
-  const keys=['concurrentExecutions','cpuMillis','memoryBytes','outputBytes','modelTokens','apiSpendMicrounits'];
-  if (!core.limitsFit(keys.map(k=>child[k]),keys.map(k=>parent[k]))) fail('FORBIDDEN','Requested budget exceeds its envelope');
-  if (!core.deadlineFits(child.deadline,parent.deadline)) fail('FORBIDDEN','Requested deadline exceeds its envelope');
+  const decision=core.limitsBound(child,parent),reason={CurrencyMismatch:'Budget currencies differ',BudgetExceeded:'Requested budget exceeds its envelope',DeadlineExceeded:'Requested deadline exceeds its envelope'}[decision];
+  if(reason)fail('FORBIDDEN',reason);
+  if(decision!=='Bounded')fail('INTERNAL','Invalid core budget decision');
 }
 export function attenuates(child,parent) {
   boundLimits(child.limits,parent.limits);
-  if (!core.textSubset(child.actions,parent.actions)) fail('FORBIDDEN','Delegation widens actions');
-  if (!core.incidentScope(child.incidentIds,parent.incidentIds)) fail('FORBIDDEN','Delegation widens incidents');
-  if (child.resourceRefs.some(ref=>!includesRef(parent.resourceRefs,ref))) fail('FORBIDDEN','Delegation widens resources');
-  if (!core.deadlineFits(child.expiresAt,parent.expiresAt)) fail('FORBIDDEN','Delegation widens lifetime');
-  if (!parent.delegable) fail('FORBIDDEN','Parent grant cannot delegate');
+  const decision=core.delegationBound(child,parent),reason={ActionsWidened:'Delegation widens actions',IncidentsWidened:'Delegation widens incidents',ResourcesWidened:'Delegation widens resources',LifetimeWidened:'Delegation widens lifetime',NotDelegable:'Parent grant cannot delegate'}[decision];
+  if(reason)fail('FORBIDDEN',reason);
+  if(decision!=='Bounded')fail('INTERNAL','Invalid core delegation decision');
 }
 export function grantChain(snapshot,ref,principalId,now=Date.now()) {
-  const chain=[],seen=new Set();let cursor=ref;
+  const chain=[],seen=[];let cursor=ref;
   while (cursor) {
-    if (cursor.systemId!==snapshot.context.systemId || cursor.contextId!==snapshot.context.id || seen.has(cursor.id) || seen.size>=32) fail('FORBIDDEN','Invalid or excessive grant chain');
-    seen.add(cursor.id);
     const stored=snapshot.controlState.grants?.[cursor.id];
-    if (!stored || snapshot.controlState.revokedGrants?.[cursor.id] || (stored.value.expiresAt && Date.parse(stored.value.expiresAt)<=now)) fail('FORBIDDEN','Grant is unavailable');
-    if (!chain.length && stored.value.principalId!==principalId) fail('FORBIDDEN','Grant belongs to another principal');
+    const decision=core.grantLink(snapshot.context,cursor,seen,stored,snapshot.controlState.revokedGrants?.[cursor.id],principalId,now);
+    const reason={InvalidChain:'Invalid or excessive grant chain',UnavailableGrant:'Grant is unavailable',WrongPrincipal:'Grant belongs to another principal'}[decision];
+    if(reason)fail('FORBIDDEN',reason);
+    if(decision!=='GrantLink')fail('INTERNAL','Invalid core grant-chain decision');
+    seen.push(cursor.id);
     chain.push(stored.value);cursor=stored.value.parentGrant;
   }
-  if (!chain.length) fail('FORBIDDEN','A bound grant is required');
+  if (core.grantEnd(seen)==='EmptyChain') fail('FORBIDDEN','A bound grant is required');
   return chain;
 }
 export function limitedPolicy(candidate,current,grant,defaultIssuers=[]) {
-  if (canonical([...new Set(candidate.authorityIssuers ?? defaultIssuers)].sort())!==canonical([...new Set(current.authorityIssuers ?? defaultIssuers)].sort())) fail('FORBIDDEN','Delegated activation cannot change authorization issuers');
+  if (core.policyIssuers(candidate.authorityIssuers ?? defaultIssuers,current.authorityIssuers ?? defaultIssuers)==='IssuersChanged') fail('FORBIDDEN','Delegated activation cannot change authorization issuers');
   boundLimits(candidate.limits,grant.limits);
   boundLimits(candidate.limits,current.limits);
-  // Bounded syntactic implication: preserve denies and only narrow existing permits.
-  for (const rule of current.rules.filter(rule=>rule.effect==='deny')) if (!candidate.rules.some(other=>canonical(other)===canonical(rule))) fail('FORBIDDEN','Delegated policy cannot remove a deny');
-  for (const rule of candidate.rules.filter(rule=>rule.effect==='permit')) {
-    if (rule.actions.some(action=>!grant.actions.includes(action))) fail('FORBIDDEN','Policy exceeds activation grant');
-    if (!current.rules.some(old=>old.effect==='permit' && canonical(old.when)===canonical(rule.when) && rule.actions.every(action=>old.actions.includes(action)))) fail('FORBIDDEN','Delegated policy cannot introduce a broader permit');
-  }
+  const decision=core.policyRules(candidate.rules,current.rules,grant.actions),reason={DenyRemoved:'Delegated policy cannot remove a deny',GrantExceeded:'Policy exceeds activation grant',PermitWidened:'Delegated policy cannot introduce a broader permit'}[decision];
+  if(reason)fail('FORBIDDEN',reason);
+  if(decision!=='PolicyBounded')fail('INTERNAL','Invalid core policy-narrowing decision');
 }

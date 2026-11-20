@@ -3,8 +3,7 @@ import * as core from './semantic-core.mjs';
 
 /** Register record declarations together, then apply support commands in order. */
 export function applyGraph(snapshot,changes,wrap,{systemId,contextId,revision}) {
-  const ordered=[...changes.filter(change=>change.kind==='record.put'),...changes.filter(change=>change.kind!=='record.put')];
-  for (const change of ordered) {
+  for (const change of core.graphOrder(changes)) {
     if (change.kind === 'record.put') {
       const existing = snapshot.records.find(record => record.value.id === change.record.id);
       const decision=core.recordEdit(!!existing,existing?core.sameText(existing.digest,digest(change.record)):false);
@@ -20,8 +19,9 @@ export function applyGraph(snapshot,changes,wrap,{systemId,contextId,revision}) 
       if(decision==='Insert')snapshot.assertions.push({assertion:wrap(value),status:'asserted'});
     } else if (change.kind === 'assertion.withdraw') {
       const item = snapshot.assertions.find(item => item.assertion.value.id === change.assertionId);
-      if (!item) fail('NOT_FOUND', 'Assertion not found');
-      if (item.status !== 'withdrawn') { item.status = 'withdrawn'; item.withdrawnAtRevision = revision; }
+      const decision=core.withdrawEdit(item?.status??'absent');
+      if (decision==='Missing') fail('NOT_FOUND', 'Assertion not found');
+      if (decision==='Withdraw') { item.status = 'withdrawn'; item.withdrawnAtRevision = revision; }
     } else fail('INVALID_ARGUMENT', 'Unknown graph change');
   }
 }

@@ -8,19 +8,19 @@
   "sources": [
     {
       "path": "core/LAWS.bend",
-      "digest": "sha256:4eb217db4a37d1fc72e092fdd1d42a738ec1eaccab53d3abb6ef768c8538d97f"
+      "digest": "sha256:7127709c02329036f8201bfd4a23306c785f1c346386b0fc42ab5f85859e394a"
     },
     {
       "path": "core/PROOF.bend",
-      "digest": "sha256:ef20f63a25280c90b6a1eaafe77bc5268723ea9f665ef84d2d201b407073968f"
+      "digest": "sha256:534c93f73ee2bb5eaf47cb2f6a50ea58f884ef06678eee2b816d3a2313850df7"
     },
     {
       "path": "core/semantics.bend",
-      "digest": "sha256:39da048f586edf9b70eca7434849fc085d430381ab8f71438b20dfc8022d650b"
+      "digest": "sha256:5a3b0257e1b53fb8cd2c340846dc305266da99ffc6bd37acafb27a12283990b5"
     },
     {
       "path": "proof/Moment.lean",
-      "digest": "sha256:008d1a7158c53b3f9272215005e501a465986a5fa08c83036a50a2cb94e33465"
+      "digest": "sha256:ac85a5e346872be832b1ec8a86c9a1b4d6a042aeea08a368bd75a5fdb52e65ab"
     },
     {
       "path": "runtime/semantic-manifest.mjs",
@@ -32,7 +32,7 @@
     },
     {
       "path": "scripts/core-correspondence.mjs",
-      "digest": "sha256:11337a7eed42ffcaa084685afe7a9fca4909f504b97017f0c073ab80dccd9721"
+      "digest": "sha256:c398c0a6a43e32f6951484d68958d9ff5e99566e9275e407c4af9877c868ca50"
     },
     {
       "path": "scripts/core-tools.mjs",
@@ -45,7 +45,7 @@
   ],
   "output": {
     "path": "runtime/generated/semantics.mjs",
-    "digest": "sha256:5588e861332ae9e4666affc24c1fb2d931edb4db537ab609a74e42085d4fa5d4"
+    "digest": "sha256:fa434fe8c3971c349c9c04a46550d37c5b5b367a4be267835b1faa191f9aa89d"
   },
   "claim": "Compiled executable core; proof verdict and native correspondence are separately qualified evidence"
 }

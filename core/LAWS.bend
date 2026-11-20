@@ -19,3 +19,20 @@ law missing_support_refused:
   for same_digest: Bool
   for support: Core.Support
   {Core.assertion_edit(False{}, same_digest, support) == Core.Missing{} : Core.Edit}
+
+law supported_withdrawal:
+  {Core.assertion_withdraw(Core.Asserted{}) == Core.Withdraw{} : Core.Edit}
+
+law withdrawal_idempotent:
+  {Core.assertion_withdraw(Core.Withdrawn{}) == Core.Keep{} : Core.Edit}
+
+law revoked_grant_unavailable:
+  for expiry_present: Bool
+  for expiry: Core.Rank
+  for now: Core.Rank
+  {Core.grant_available(True{}, True{}, expiry_present, expiry, now) == False{} : Bool}
+
+law unexpired_grant_available:
+  for expiry: Core.Rank
+  for now: Core.Rank
+  {Core.grant_available(True{}, False{}, False{}, expiry, now) == True{} : Bool}

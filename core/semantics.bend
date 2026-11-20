@@ -163,6 +163,7 @@ type Edit is Data:
   Keep{}
   Missing{}
   Conflict{}
+  Withdraw{}
 
 def record_edit(exists: Bool, same_digest: Bool) -> Edit:
   match exists:
@@ -187,3 +188,141 @@ def assertion_edit(local_record: Bool, same_digest: Bool, support: Support) -> E
           Conflict{}
         case Asserted{}:
           record_edit(True{}, same_digest)
+
+def assertion_withdraw(support: Support) -> Edit:
+  match support:
+    case Absent{}:
+      Missing{}
+    case Asserted{}:
+      Withdraw{}
+    case Withdrawn{}:
+      Keep{}
+
+# Native storage supplies observations; the core owns the admission order.
+type GraphIndex is Data:
+  GraphIndex{index: Nat, record: Bool}
+
+def graph_phase(changes: +List<GraphIndex>, +records: Bool) -> List<&2, Nat>:
+  match changes:
+    case Nil{}:
+      Nil{}
+    case Con{head, tail}:
+      GraphIndex{index, record} = head
+      rest = graph_phase(tail, records)
+      List.filter.put(Nat, index, rest, Bool.not(Bool.xor(record, records)))
+
+def graph_order(+changes: +List<GraphIndex>) -> List<&2, Nat>:
+  List.append(&2, Nat, graph_phase(changes, True{}), graph_phase(changes, False{}))
+
+type GrantDecision is Data:
+  GrantLink{}
+  InvalidChain{}
+  UnavailableGrant{}
+  WrongPrincipal{}
+  EmptyChain{}
+
+def grant_available(present: Bool, revoked: Bool, expiry_present: Bool, expiry: Rank, now: Rank) -> Bool:
+  Bool.and(present, Bool.and(Bool.not(revoked), Bool.not(Bool.and(expiry_present, rank_le(expiry, now)))))
+
+def grant_link(+system: String, +context: String, ref_system: String, ref_context: String, +ref_id: String, +seen: +List<String>, present: Bool, revoked: Bool, expiry_present: Bool, expiry: Rank, now: Rank, bound_principal: String, grant_principal: String) -> GrantDecision:
+  valid_scope = same_scope(system, context, ref_system, ref_context)
+  repeated = text_contains(seen, ref_id)
+  depth_ok = Nat.is_lt(List.length(&2, String, seen), 32n)
+  Bool.pick(GrantDecision,
+    Bool.and(valid_scope, Bool.and(Bool.not(repeated), depth_ok)),
+    Bool.pick(GrantDecision,
+      grant_available(present, revoked, expiry_present, expiry, now),
+      Bool.pick(GrantDecision,
+        Bool.or(Bool.not(List.is_empty(&2, String, seen)), String.eq(bound_principal, grant_principal)),
+        GrantLink{}, WrongPrincipal{}),
+      UnavailableGrant{}),
+    InvalidChain{})
+
+def grant_end(seen: +List<String>) -> GrantDecision:
+  match seen:
+    case Nil{}:
+      EmptyChain{}
+    case Con{head, tail}:
+      GrantLink{}
+
+type BoundDecision is Data:
+  Bounded{}
+  CurrencyMismatch{}
+  BudgetExceeded{}
+  DeadlineExceeded{}
+  ActionsWidened{}
+  IncidentsWidened{}
+  ResourcesWidened{}
+  LifetimeWidened{}
+  NotDelegable{}
+
+def limits_bound(child_currency: String, parent_currency: String, child: +List<Rank>, parent: +List<Rank>, parent_deadline: Bool, child_deadline: Bool, child_at: Rank, parent_at: Rank) -> BoundDecision:
+  Bool.pick(BoundDecision, String.eq(child_currency, parent_currency),
+    Bool.pick(BoundDecision, fits(child, parent),
+      Bool.pick(BoundDecision, deadline(parent_deadline, child_deadline, child_at, parent_at),
+        Bounded{}, DeadlineExceeded{}),
+      BudgetExceeded{}),
+    CurrencyMismatch{})
+
+def delegation_bound(child_actions: +List<String>, parent_actions: +List<String>, parent_all: Bool, child_all: Bool, child_incidents: +List<String>, parent_incidents: +List<String>, child_resources: +List<String>, parent_resources: +List<String>, parent_expiry: Bool, child_expiry: Bool, child_at: Rank, parent_at: Rank, delegable: Bool) -> BoundDecision:
+  Bool.pick(BoundDecision, text_subset(child_actions, parent_actions),
+    Bool.pick(BoundDecision, incident_scope(parent_all, child_all, child_incidents, parent_incidents),
+      Bool.pick(BoundDecision, text_subset(child_resources, parent_resources),
+        Bool.pick(BoundDecision, deadline(parent_expiry, child_expiry, child_at, parent_at),
+          Bool.pick(BoundDecision, delegable, Bounded{}, NotDelegable{}), LifetimeWidened{}),
+        ResourcesWidened{}),
+      IncidentsWidened{}),
+    ActionsWidened{})
+
+type PolicyRule is Data:
+  PolicyRule{permit: Bool, identity: String, condition: String, actions: List<&2, String>}
+
+def rule_contains(rules: +List<PolicyRule>, +identity: String) -> Bool:
+  match rules:
+    case Nil{}:
+      False{}
+    case Con{head, tail}:
+      PolicyRule{permit, key, condition, actions} = head
+      Bool.or(String.eq(key, identity), rule_contains(tail, identity))
+
+def denies_preserved(current: +List<PolicyRule>, +candidate: +List<PolicyRule>) -> Bool:
+  match current:
+    case Nil{}:
+      True{}
+    case Con{head, tail}:
+      PolicyRule{permit, identity, condition, actions} = head
+      Bool.and(Bool.or(permit, rule_contains(candidate, identity)), denies_preserved(tail, candidate))
+
+def permit_narrowed(current: +List<PolicyRule>, +condition: String, +actions: +List<String>) -> Bool:
+  match current:
+    case Nil{}:
+      False{}
+    case Con{head, tail}:
+      PolicyRule{permit, identity, when, old_actions} = head
+      Bool.or(Bool.and(permit, Bool.and(String.eq(when, condition), text_subset(actions, old_actions))), permit_narrowed(tail, condition, actions))
+
+type PolicyBound is Data:
+  PolicyBounded{}
+  IssuersChanged{}
+  DenyRemoved{}
+  GrantExceeded{}
+  PermitWidened{}
+
+def policy_issuers(+child: +List<String>, +parent: +List<String>) -> PolicyBound:
+  Bool.pick(PolicyBound, Bool.and(text_subset(child, parent), text_subset(parent, child)), PolicyBounded{}, IssuersChanged{})
+
+def permits_bounded(candidate: +List<PolicyRule>, +current: +List<PolicyRule>, +grant: +List<String>) -> PolicyBound:
+  match candidate:
+    case Nil{}:
+      PolicyBounded{}
+    case Con{head, tail}:
+      PolicyRule{permit, identity, condition, actions} = head
+      +bounded_actions = actions
+      +next = permits_bounded(tail, current, grant)
+      Bool.pick(PolicyBound, permit,
+        Bool.pick(PolicyBound, text_subset(bounded_actions, grant),
+          Bool.pick(PolicyBound, permit_narrowed(current, condition, bounded_actions), next, PermitWidened{}),
+          GrantExceeded{}), next)
+
+def policy_rules(+candidate: +List<PolicyRule>, +current: +List<PolicyRule>, grant: +List<String>) -> PolicyBound:
+  Bool.pick(PolicyBound, denies_preserved(current, candidate), permits_bounded(candidate, current, grant), DenyRemoved{})
