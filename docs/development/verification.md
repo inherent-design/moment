@@ -29,6 +29,8 @@ Store readback can be expensive because it interprets the complete retained hist
 
 Keep Node's test runner: these tests exercise Node/SQLite, subprocesses, Unix sockets and installed packages. Vite/Vitest would add a runner without improving an identified boundary. Knip follows actual package/script/test entries and documented dynamic workers. TypeScript owns strict contract examples and companion declarations. Static checks complement execution.
 
+The documentation check covers authored Markdown, including newly added files. Downloaded formal tools and generated build, artifact and coverage directories at the repository root are outside that source scope; broken links in authored documentation still refuse qualification.
+
 ## Executable semantics
 
 The proof command reports its exact frozen snapshot, declared laws, audited Lean dependencies and finite native/model comparisons. Cases cover tri-valued logic, policy precedence, immutable support edits, withdrawal, stable declaration ordering, grant boundaries, conservative policy narrowing, execution state/action tables and two-step traces. Topology adds every directed graph through three nodes, both parent modes, selected invalid/duplicate inputs, scope projection, verdict precedence and three-valued rank certificates. Admission cases cover chains through length three over four declared scope samples, six method gates, incident lifecycle/evidence, selected revision boundaries and query filters/roles. Lean proves the stated policy-envelope, execution-trace, strict-rank path, scope intersection and lifecycle properties. These results certify neither the compiler nor external effects or LLM meaning.

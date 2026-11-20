@@ -5,10 +5,12 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const failures = [];
 const files = [];
+const generatedDirectories = new Set([".tools", ".lake", "artifacts", "dist", "coverage"]);
 
 async function walk(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     if ([".git", "node_modules"].includes(entry.name)) continue;
+    if (directory === root && generatedDirectories.has(entry.name)) continue;
     const target = path.join(directory, entry.name);
     if (entry.isDirectory()) await walk(target);
     else if (entry.isFile() && entry.name.endsWith(".md")) files.push(target);
