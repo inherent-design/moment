@@ -856,6 +856,77 @@ function $accounting_total(_entries_0) {
   return $accounting_total_fold(_entries_0, $$accounting_empty());
 }
 
+function $accounting_requests_fold($0, $1) {
+  for (;;) {
+    {
+      const _requests_0 = $0;
+      const _accumulated_0 = $1;
+      if (_requests_0.$ === "Nil") {
+        return _accumulated_0;
+      } else {
+        const _head_0 = _requests_0["head"];
+        const _tail_0 = _requests_0["tail"];
+        $0 = _tail_0;
+        $1 = $$accounting_include(_accumulated_0, _head_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $accounting_envelope(_requests_0, _ceiling_0) {
+  return $accounting_within($$accounting_requests_fold(_requests_0, $$accounting_empty()), _ceiling_0);
+}
+
+function $accounting_remaining_result(_amount_0) {
+  if (_amount_0.$ === "BudgetOverflow") {
+    return $accounting_zero();
+  } else {
+    const _count_0 = _amount_0["count"];
+    return _count_0;
+  }
+}
+
+function $accounting_remaining(_envelope_0) {
+  const _t_0 = _envelope_0["used"];
+  if (_t_0.$ === "BudgetOverflow") {
+    return $accounting_zero();
+  } else {
+    const _count_0 = _t_0["count"];
+    const _ceiling_1 = _envelope_0["ceiling"];
+    return $accounting_remaining_result($$accounting_subtract(_ceiling_1, _count_0));
+  }
+}
+
+function $accounting_available_fold($0, $1) {
+  for (;;) {
+    {
+      const _envelopes_0 = $0;
+      const _minimum_0 = $1;
+      if (_envelopes_0.$ === "Nil") {
+        return _minimum_0;
+      } else {
+        const _head_0 = _envelopes_0["head"];
+        const _tail_0 = _envelopes_0["tail"];
+        const _left_0 = $$accounting_remaining(_head_0);
+        $0 = _tail_0;
+        $1 = $$Bool_pick($$accounting_le(_left_0, _minimum_0), _left_0, _minimum_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $accounting_available(_envelopes_0) {
+  if (_envelopes_0.$ === "Nil") {
+    return $accounting_zero();
+  } else {
+    const _head_0 = _envelopes_0["head"];
+    const _tail_0 = _envelopes_0["tail"];
+    return $accounting_available_fold(_tail_0, $$accounting_remaining(_head_0));
+  }
+}
+
 function $execution_step_1(_state_0, _action_0) {
   return $execution_step(_state_0, _action_0);
 }
@@ -894,6 +965,14 @@ function $resource_capacity(_balance_0, _requested_0, _ceiling_0) {
 
 function $resource_usage(_previous_0, _usage_0, _ceiling_0, _observed_0) {
   return $accounting_usage_allowed(_previous_0, _usage_0, _ceiling_0, _observed_0);
+}
+
+function $resource_envelope(_requests_0, _ceiling_0) {
+  return $accounting_envelope(_requests_0, _ceiling_0);
+}
+
+function $resource_available(_envelopes_0) {
+  return $accounting_available(_envelopes_0);
 }
 
 function $truth_not(_value_0) {
@@ -1457,6 +1536,14 @@ function $lease_window(_now_0, _millis_0, _bounds_0) {
   return $lease_requested($$accounting_add(_now_0, _millis_0), _now_0, _bounds_0);
 }
 
+function $calendar_bound(_sum_0, _maximum_0) {
+  return $Bool_pick($$accounting_fits(_sum_0, _maximum_0), _sum_0, {$: "BudgetOverflow"});
+}
+
+function $calendar_after(_anchor_0, _duration_0, _maximum_0) {
+  return $calendar_bound($$accounting_add(_anchor_0, _duration_0), _maximum_0);
+}
+
 function $lease_frame(_meta_present_0, _source_boot_0, _current_boot_0) {
   return $Bool_and(_meta_present_0, $$String_eq(_source_boot_0, _current_boot_0));
 }
@@ -1753,6 +1840,9 @@ const $$accounting_one = $accounting_one;
 const $$execution_terminal = $execution_terminal;
 const $$accounting_charge = $accounting_charge;
 const $$accounting_empty = $accounting_empty;
+const $$accounting_requests_fold = $accounting_requests_fold;
+const $$accounting_subtract = $accounting_subtract;
+const $$accounting_remaining = $accounting_remaining;
 const $$truth_all = $truth_all;
 const $$truth_any = $truth_any;
 const $$String_eq = $String_eq;
@@ -1779,7 +1869,6 @@ const $$method_delegate = $method_delegate;
 const $$incident_terminal = $incident_terminal;
 const $$incident_sources = $incident_sources;
 const $$role_connects = $role_connects;
-const $$accounting_subtract = $accounting_subtract;
 const $$lease_duration = $lease_duration;
 const $$count_minimum = $count_minimum;
 const $$accounting_add = $accounting_add;
@@ -1836,6 +1925,12 @@ const $$List_append = $List_append;export default {
   "accounting:charge": run_lib((a0) => run_loop($accounting_charge(a0)), 1),
   "accounting:total_fold": run_lib((a0,a1) => run_loop($accounting_total_fold(a0,a1)), 2),
   "accounting:total": run_lib((a0) => run_loop($accounting_total(a0)), 1),
+  "accounting:requests_fold": run_lib((a0,a1) => run_loop($accounting_requests_fold(a0,a1)), 2),
+  "accounting:envelope": run_lib((a0,a1) => run_loop($accounting_envelope(a0,a1)), 2),
+  "accounting:remaining_result": run_lib((a0) => run_loop($accounting_remaining_result(a0)), 1),
+  "accounting:remaining": run_lib((a0) => run_loop($accounting_remaining(a0)), 1),
+  "accounting:available_fold": run_lib((a0,a1) => run_loop($accounting_available_fold(a0,a1)), 2),
+  "accounting:available": run_lib((a0) => run_loop($accounting_available(a0)), 1),
   "execution_step": run_lib((a0,a1) => run_loop($execution_step_1(a0,a1)), 2),
   "execution_terminal": run_lib((a0) => run_loop($execution_terminal_1(a0)), 1),
   "topology_check": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($topology_check_1(a0,a1,a2,a3,a4,a5,a6)), 7),
@@ -1846,6 +1941,8 @@ const $$List_append = $List_append;export default {
   "resource_totals": run_lib((a0) => run_loop($resource_totals(a0)), 1),
   "resource_capacity": run_lib((a0,a1,a2) => run_loop($resource_capacity(a0,a1,a2)), 3),
   "resource_usage": run_lib((a0,a1,a2,a3) => run_loop($resource_usage(a0,a1,a2,a3)), 4),
+  "resource_envelope": run_lib((a0,a1) => run_loop($resource_envelope(a0,a1)), 2),
+  "resource_available": run_lib((a0) => run_loop($resource_available(a0)), 1),
   "truth.not": run_lib((a0) => run_loop($truth_not(a0)), 1),
   "truth.and": run_lib((a0,a1) => run_loop($truth_and(a0,a1)), 2),
   "truth.or": run_lib((a0,a1) => run_loop($truth_or(a0,a1)), 2),
@@ -1907,6 +2004,8 @@ const $$List_append = $List_append;export default {
   "lease_positive": run_lib((a0,a1,a2) => run_loop($lease_positive(a0,a1,a2)), 3),
   "lease_requested": run_lib((a0,a1,a2) => run_loop($lease_requested(a0,a1,a2)), 3),
   "lease_window": run_lib((a0,a1,a2) => run_loop($lease_window(a0,a1,a2)), 3),
+  "calendar_bound": run_lib((a0,a1) => run_loop($calendar_bound(a0,a1)), 2),
+  "calendar_after": run_lib((a0,a1,a2) => run_loop($calendar_after(a0,a1,a2)), 3),
   "lease_frame": run_lib((a0,a1,a2) => run_loop($lease_frame(a0,str_in(a1),str_in(a2))), 3),
   "lease_expired": run_lib((a0,a1,a2,a3,a4,a5,a6,a7) => run_loop($lease_expired(a0,a1,str_in(a2),str_in(a3),a4,a5,a6,a7)), 8),
   "lease_valid": run_lib((a0,a1,a2,a3,a4,a5,a6,a7) => run_loop($lease_valid(a0,str_in(a1),str_in(a2),str_in(a3),str_in(a4),a5,a6,a7)), 8),

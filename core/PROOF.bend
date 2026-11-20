@@ -103,3 +103,12 @@ def Laws.exhausted_fence_refused():
 
 def Laws.cancellation_blocks_retry():
   {==}
+
+def Laws.zero_calendar_gap_is_usable():
+  {==}
+
+def Laws.calendar_overflow_refused():
+  {==}
+
+def Laws.unknown_usage_advertises_no_capacity():
+  {==}

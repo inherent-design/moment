@@ -116,3 +116,46 @@ def total_fold(entries: +List<Reservation>, accumulated: Balance) -> Balance:
 
 def total(entries: +List<Reservation>) -> Balance:
   total_fold(entries, empty())
+
+def requests_fold(requests: +List<Quantities>, accumulated: Balance) -> Balance:
+  match requests:
+    case Nil{}:
+      accumulated
+    case Con{head, tail}:
+      requests_fold(tail, include(accumulated, head))
+
+def envelope(requests: +List<Quantities>, ceiling: Quantities) -> Bool:
+  within(requests_fold(requests, empty()), ceiling)
+
+type Envelope is Data:
+  CapacityEnvelope{used: Amount, ceiling: Count}
+
+def remaining_result(amount: Amount) -> Count:
+  match amount:
+    case BudgetOverflow{}:
+      zero()
+    case BudgetFinite{count}:
+      count
+
+def remaining(envelope: Envelope) -> Count:
+  CapacityEnvelope{used, ceiling} = envelope
+  match used:
+    case BudgetOverflow{}:
+      zero()
+    case BudgetFinite{count}:
+      remaining_result(subtract(ceiling, count))
+
+def available_fold(envelopes: +List<Envelope>, +minimum: Count) -> Count:
+  match envelopes:
+    case Nil{}:
+      minimum
+    case Con{head, tail}:
+      +left = remaining(head)
+      available_fold(tail, Bool.pick(Count, le(left, minimum), left, minimum))
+
+def available(envelopes: +List<Envelope>) -> Count:
+  match envelopes:
+    case Nil{}:
+      zero()
+    case Con{head, tail}:
+      available_fold(tail, remaining(head))

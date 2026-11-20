@@ -481,6 +481,45 @@ def clockDelay (values : List Int) : Option Int :=
   values.foldl (fun minimum value => some (min (minimum.getD value) value)) none |>.map (max 0)
 def resourceBlocked (markers : List (List String)) : Bool := markers.any (fun row => !row.isEmpty)
 
+def calendarMaximum : Nat := 315569519999999
+def calendarAfter (anchor duration : Nat) : Option Nat :=
+  if anchor+duration ≤ calendarMaximum then some (anchor+duration) else none
+theorem calendar_result_is_bounded (anchor duration result : Nat)
+    (admitted : calendarAfter anchor duration = some result) : anchor ≤ result ∧ result ≤ calendarMaximum := by
+  unfold calendarAfter at admitted
+  split at admitted
+  · simp only [Option.some.injEq] at admitted
+    omega
+  · contradiction
+def requestsFit (requests : List Nat) (ceiling : Nat) : Bool := requests.sum ≤ ceiling
+theorem envelope_sum_is_bounded (requests : List Nat) (ceiling : Nat) (bound : ceiling ≤ budgetMaximum)
+    (admitted : requestsFit requests ceiling = true) : requests.sum ≤ ceiling ∧ requests.sum ≤ budgetMaximum := by
+  have fits : requests.sum ≤ ceiling := of_decide_eq_true admitted
+  exact ⟨fits,Nat.le_trans fits bound⟩
+def capacityRemaining (entry : Option Nat × Nat) : Nat := entry.1.elim 0 (fun used => entry.2-used)
+theorem remaining_within_ceiling (entry : Option Nat × Nat) : capacityRemaining entry ≤ entry.2 := by
+  rcases entry with ⟨used,ceiling⟩
+  cases used with
+  | none => exact Nat.zero_le _
+  | some n => exact Nat.sub_le _ _
+def capacityAvailable (envelopes : List (Option Nat × Nat)) : Nat :=
+  match envelopes with
+  | [] => 0
+  | head :: tail => (tail.map capacityRemaining).foldl min (capacityRemaining head)
+theorem availability_within_every_ceiling (envelopes : List (Option Nat × Nat)) (entry : Option Nat × Nat)
+    (member : entry ∈ envelopes) : capacityAvailable envelopes ≤ entry.2 := by
+  cases envelopes with
+  | nil => contradiction
+  | cons head tail =>
+    simp only [List.mem_cons] at member
+    rcases member with rfl | rest
+    · exact Nat.le_trans (minimum_is_bounded (tail.map capacityRemaining) (capacityRemaining entry)) (remaining_within_ceiling entry)
+    · exact Nat.le_trans (minimum_below_member (tail.map capacityRemaining) (capacityRemaining head) (capacityRemaining entry) (List.mem_map.mpr ⟨entry,rest,rfl⟩)) (remaining_within_ceiling entry)
+
+#print axioms calendar_result_is_bounded
+#print axioms envelope_sum_is_bounded
+#print axioms remaining_within_ceiling
+#print axioms availability_within_every_ceiling
 #print axioms safe_difference_is_exact
 #print axioms borrowed_difference_is_exact
 #print axioms minimum_is_bounded
@@ -687,6 +726,12 @@ def clockDelayValues (size code : Nat) : List Int :=
   (List.range size).map (fun i => ([-4,-1,0,1,4][code / 5^i % 5]?).getD 0)
 def overrunMarkers (size code : Nat) : List (List String) :=
   (List.range size).map (fun i => ([[],["cpuMillis"],["memoryBytes"],["cpuMillis","memoryBytes"]][code / 4^i % 4]?).getD [])
+def capacitySamples : List (Option Nat × Nat) :=
+  [(some 0,0),(some 0,1),(some 1,1),(some 1,Moment.budgetMaximum),(some Moment.budgetMaximum,Moment.budgetMaximum),(none,Moment.budgetMaximum)]
+def capacityEnvelopes (size code : Nat) : List (Option Nat × Nat) :=
+  (List.range size).map (fun i => (capacitySamples[code / 6^i % 6]?).getD (none,0))
+def resourceRequests (size code : Nat) : List Nat :=
+  (List.range size).map (fun i => ([0,1,Moment.budgetMaximum][code / 3^i % 3]?).getD 0)
 
 /-- Bounded executable correspondence cases; these do not replace theorems. -/
 def main : IO Unit := do
@@ -866,3 +911,13 @@ def main : IO Unit := do
       IO.println s!"case|clockDelay|{size}|{code}|{result}"
     for code in List.range (4^size) do
       IO.println s!"case|resourceBlocked|{size}|{code}|{Moment.resourceBlocked (overrunMarkers size code)}"
+    for code in List.range (6^size) do
+      IO.println s!"case|capacityAvailable|{size}|{code}|{Moment.capacityAvailable (capacityEnvelopes size code)}"
+  for key in budgetFields ++ ["concurrentExecutions"] do
+    for size in List.range 3 do
+      for code in List.range (3^size) do
+        for ceiling in [0,1,Moment.budgetMaximum] do
+          IO.println s!"case|resourceEnvelope|{key}|{size}|{code}|{ceiling}|{Moment.requestsFit (resourceRequests size code) ceiling}"
+  for anchor in [0,1,Moment.calendarMaximum-1,Moment.calendarMaximum] do
+    for duration in [0,1,2,Moment.budgetMaximum] do
+      IO.println s!"case|calendarAfter|{anchor}|{duration}|{budgetLabel (Moment.calendarAfter anchor duration)}"

@@ -103,6 +103,34 @@ test('relative anchors use retained receipt time and capacity wakes hold a stabl
   const revision=f.store.read(f.contextId).context.revision;assert.equal(f.advance(),false);assert.equal(f.store.read(f.contextId).context.revision,revision);
 });
 
+test('relative calendar overflow refuses schedule admission without a partial state or a raw date exception',t=>{
+  const f=fixture(t),anchor=f.trigger().commit.eventIds[0],rule=f.rule(),invalid=f.schedule(rule,{wake:{kind:'after',eventId:anchor,durationMillis:Number.MAX_SAFE_INTEGER}});
+  const revision=f.store.read(f.contextId).context.revision;
+  const refused=f.write('schedule.put',{schedule:invalid});assert.equal(refused.error.code,'INVALID_ARGUMENT');assert.match(refused.error.message,/supported calendar/);
+  assert.equal(f.store.read(f.contextId).context.revision,revision);assert.equal(f.store.read(f.contextId).controlState.schedules?.[invalid.id],undefined);
+  const immediate=f.put(rule,{wake:{kind:'after',eventId:anchor,durationMillis:0}});f.advance();assert.equal(f.status(immediate.id).value.state,'completed');
+});
+
+test('compound scheduled execution checks its total rule envelope before atomically committing outbox effects',t=>{
+  for(const cpuMillis of [300,400]){
+    const f=executionFixture(t,{limits:{...limits,concurrentExecutions:2}}),proposalId=randomUUID(),scheduleId=randomUUID(),intent=f.intent();
+    const rule={id:randomUUID(),triggerEventTypes:[],condition:truth,operation:'transition.commit',literalInput:{contextId:f.contextId,expectedRevision:0,idempotencyKey:'placeholder',proposalId},inputBindings:{},limits:{...limits,concurrentExecutions:2,cpuMillis}};
+    const published=f.write('rule.publish',{rule});assert.equal(published.ok,true);
+    const schedule={id:scheduleId,incidentId:intent.incidentId,rule:published.value.ref,wake:{kind:'event',eventTypes:['graph.transact.committed'],selector:{schemaNames:[f.capability.inputSchema.name],assertionStatus:'any'},mode:'each'},recurrence:'once',coalesce:false};
+    assert.equal(f.write('schedule.put',{schedule}).ok,true);
+    assert.equal(f.write('graph.transact',{changes:[{kind:'record.put',record:atom(f.capability.inputSchema)}]}).ok,true);
+    f.kernel.scheduler.scan(f.contextId);
+    assert.equal(f.call('schedule.get',{contextId:f.contextId,scheduleId}).value.pendingOccurrenceIds.length,1);
+    const context=f.call('context.get',{contextId:f.contextId}).value;
+    const proposal={id:proposalId,incidentId:intent.incidentId,basisRevision:context.revision,policy:context.policy,changes:[],executions:[intent,f.intent()],evidence};
+    assert.equal(f.write('transition.propose',{proposal}).ok,true);assert.equal(f.store.outbox(f.contextId).length,0);
+    assert.equal(f.kernel.scheduler.runOne(f.contextId),true);
+    const status=f.call('schedule.get',{contextId:f.contextId,scheduleId}).value,retained=f.call('transition.get',{contextId:f.contextId,proposalId}).value;
+    if(cpuMillis===300){assert.equal(status.lastFault.code,'FORBIDDEN');assert.equal(status.pendingOccurrenceIds.length,1);assert.equal(retained.state,'proposed');assert.equal(f.store.outbox(f.contextId).length,0);assert.equal(Object.keys(f.store.read(f.contextId).controlState.executions??{}).length,0);}
+    else {assert.equal(status.state,'completed');assert.equal(status.pendingOccurrenceIds.length,0);assert.equal(retained.state,'committed');assert.equal(f.store.outbox(f.contextId).length,2);assert.equal(Object.keys(f.store.read(f.contextId).controlState.executions).length,2);}
+  }
+});
+
 test('a definitive false condition completes once without calling its destination',t=>{
   const f=fixture(t),r=f.rule({ condition:{ kind:'equal',left:{ kind:'literal',value:true },right:{ kind:'literal',value:false } } });
   const scheduled=f.put(r);f.trigger();f.advance();assert.equal(f.status(scheduled.id).value.state,'completed');

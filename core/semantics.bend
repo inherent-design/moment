@@ -33,6 +33,12 @@ def resource_capacity(balance: Budget.Balance, requested: Budget.Quantities, cei
 def resource_usage(previous: Budget.Quantities, usage: Budget.Quantities, ceiling: Budget.Quantities, observed: Bool) -> Bool:
   Budget.usage_allowed(previous, usage, ceiling, observed)
 
+def resource_envelope(requests: +List<Budget.Quantities>, ceiling: Budget.Quantities) -> Bool:
+  Budget.envelope(requests, ceiling)
+
+def resource_available(envelopes: +List<Budget.Envelope>) -> Budget.Count:
+  Budget.available(envelopes)
+
 # These values describe observations. Authority is a separate decision.
 type Truth is Data:
   Yes{}
@@ -542,6 +548,12 @@ def lease_requested(value: Budget.Amount, +now: Budget.Count, bounds: +List<Budg
 
 def lease_window(+now: Budget.Count, millis: Budget.Count, bounds: +List<Budget.Count>) -> LeaseWindow:
   lease_requested(Budget.add(now, millis), now, bounds)
+
+def calendar_bound(+sum: Budget.Amount, maximum: Budget.Count) -> Budget.Amount:
+  Bool.pick(Budget.Amount, Budget.fits(sum, maximum), sum, Budget.BudgetOverflow{})
+
+def calendar_after(anchor: Budget.Count, duration: Budget.Count, maximum: Budget.Count) -> Budget.Amount:
+  calendar_bound(Budget.add(anchor, duration), maximum)
 
 def lease_frame(meta_present: Bool, source_boot: String, current_boot: String) -> Bool:
   Bool.and(meta_present, String.eq(source_boot, current_boot))

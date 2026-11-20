@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { canonical,digest,fail,DomainError } from './json.mjs';
 import { boundLimits } from './authority.mjs';
 import { inputSchemas } from './validation.mjs';
-import { terminal,zeroUsage } from './executions.mjs';
+import { terminal } from './executions.mjs';
+import * as core from './semantic-core.mjs';
 const resources=['concurrentExecutions','cpuMillis','memoryBytes','outputBytes','modelTokens','apiSpendMicrounits'];
 const fault=error=>({ code:error.code,message:error.message,retry:error.retry,details:null });
 
@@ -36,9 +37,7 @@ export class Scheduler {
     if (schedule.wake.kind!=='after') return undefined;
     const event=this.k.store.event(snapshot.context.id,schedule.wake.eventId);
     if (!event || !this.k.events.visible(snapshot,event,principal,access)) fail('NOT_FOUND','Temporal anchor event is inaccessible');
-    const value=Date.parse(event.recordedAt)+schedule.wake.durationMillis;
-    if (!Number.isSafeInteger(value) || value>Date.parse('9999-12-31T23:59:59.999Z')) fail('INVALID_ARGUMENT','Temporal anchor exceeds the supported calendar');
-    return value;
+    return core.calendarAfter(Date.parse(event.recordedAt),schedule.wake.durationMillis);
   }
   selected(snapshot,selector,principal,access,event) {
     const ids=event?.subjectRefs.map(ref=>ref.id);
@@ -77,9 +76,9 @@ export class Scheduler {
     return false;
   }
   available(snapshot,resource,access) {
-    if (Object.values(snapshot.controlState.executions ?? {}).some(item=>item.value.limitViolations?.length)) return 0;
+    if (core.resourceBlocked(Object.values(snapshot.controlState.executions??{}).map(item=>item.value))) return 0;
     const envelopes=[[undefined,snapshot.context.limits],[undefined,this.k.lookup(snapshot,snapshot.context.policy).value.limits],...access.chain.map(grant=>[grant.id,grant.limits])];
-    return Math.max(0,Math.min(...envelopes.map(([id,limits])=>limits[resource]-this.k.executions.totals(snapshot,id)[resource])));
+    return core.resourceAvailable(envelopes.map(([id,limits])=>({ceiling:limits[resource],used:this.k.executions.totals(snapshot,id)[resource]})));
   }
   enqueue(snapshot,id,state,eventIds,events) {
     if (state.pending.length && snapshot.controlState.schedules[id].value.coalesce) {
@@ -125,7 +124,7 @@ export class Scheduler {
           if (schedule.wake.kind==='after') this.due(snapshot,schedule,origin.principalId,access);
           this.enqueue(snapshot,id,state,schedule.wake.kind==='after'?[schedule.wake.eventId]:[],events);state.timerFired=true;
         } else if (schedule.wake.kind==='capacity') {
-          const available=this.available(snapshot,schedule.wake.resource,access)>=schedule.wake.atLeast;
+          const available=core.resourceLessOrEqual(schedule.wake.atLeast,this.available(snapshot,schedule.wake.resource,access));
           if (available && !state.edge) this.enqueue(snapshot,id,state,[],events);
           state.edge=available;
         }
@@ -141,9 +140,8 @@ export class Scheduler {
     return (batch,snapshot)=>{
       const previous=snapshot.controlState.scheduleStates[id];
       if (previous.state!=='active' || previous.pending[0]?.id!==occurrence.id) fail('REVISION_CONFLICT','Schedule occurrence changed','refresh');
-      const sum={ ...zeroUsage(),concurrentExecutions:0,currency:rule.limits.currency,...(rule.limits.deadline?{ deadline:rule.limits.deadline }:{}) };
-      for (const intent of batch.outbox) { boundLimits(intent.limits,rule.limits);for (const resource of resources) sum[resource]+=intent.limits[resource]; }
-      boundLimits(sum,rule.limits);
+      for(const intent of batch.outbox)boundLimits(intent.limits,rule.limits);
+      if(!core.resourceEnvelope(batch.outbox.map(intent=>intent.limits),rule.limits))fail('FORBIDDEN','Requested budget exceeds its envelope');
       const schedule=snapshot.controlState.schedules[id].value;
       const state={ ...previous,state:schedule.recurrence==='once'?'completed':'active',pending:previous.pending.slice(1),activeExecutionIds:batch.outbox.map(intent=>intent.id),blockedActivity:-1 };delete state.lastFault;
       batch.controlChanges.push({ namespace:'scheduleStates',key:id,value:state },{ namespace:'schedulerMetadata',key:'lastIncident',value:schedule.incidentId });
@@ -188,11 +186,11 @@ export class Scheduler {
     return Object.values(snapshot.controlState.scheduleStates ?? {}).some(state=>state.state==='active' && state.blockedActivity!==activity && (state.lastSeq<activity || (state.pending.length && !state.activeExecutionIds.length)));
   }
   nextDelay() {
-    let delay=Infinity;
+    const now=core.observeClock(this.k.clock).wall,delays=[];
     for (const id of this.k.store.contextIds()) {
       const snapshot=this.k.store.read(id),activity=this.k.store.sequence(id,true);
-      for (const state of Object.values(snapshot.controlState.scheduleStates ?? {})) if (state.state==='active' && !state.timerFired && state.due!==undefined && state.blockedActivity!==activity) delay=Math.min(delay,state.due-this.k.clock.wall());
+      for (const state of Object.values(snapshot.controlState.scheduleStates ?? {})) if (state.state==='active' && !state.timerFired && state.due!==undefined && state.blockedActivity!==activity) delays.push(state.due-now);
     }
-    return delay===Infinity?null:Math.max(0,delay);
+    return core.timeDelay(delays);
   }
 }

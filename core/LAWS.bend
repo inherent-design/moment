@@ -120,3 +120,12 @@ law exhausted_fence_refused:
 
 law cancellation_blocks_retry:
   {Core.retry_admission(True{}, "idempotent", "idempotent") == Core.RetryCancelled{} : Core.RetryAdmission}
+
+law zero_calendar_gap_is_usable:
+  {Core.calendar_after(Budget.zero(), Budget.zero(), Budget.one()) == Budget.BudgetFinite{Budget.zero()} : Budget.Amount}
+
+law calendar_overflow_refused:
+  {Core.calendar_after(Budget.one(), Budget.one(), Budget.one()) == Budget.BudgetOverflow{} : Budget.Amount}
+
+law unknown_usage_advertises_no_capacity:
+  {Budget.available(Con{Budget.CapacityEnvelope{Budget.BudgetOverflow{}, Budget.one()}, Nil{}}) == Budget.zero() : Budget.Count}

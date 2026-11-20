@@ -32,3 +32,12 @@ test('timer and fence codecs keep their numeric domains and conservative idle/im
  assert.equal(core.fenceEqual(2**32,0),false);assert.throws(()=>core.fenceNext(Number.MAX_SAFE_INTEGER),{code:'LIMIT_EXCEEDED'});
  for(const value of [-1,NaN,Infinity,2**53])assert.throws(()=>core.fenceEqual(1,value),{code:'INVALID_ARGUMENT'});
 });
+
+test('relative calendar anchors preserve zero gaps and refuse overflow at the exact supported endpoint',()=>{
+ const start=-62167219200000,end=253402300799999;
+ assert.equal(core.calendarAfter(start,0),start);assert.equal(core.calendarAfter(end-1,1),end);assert.equal(core.calendarAfter(start,2**48),start+2**48);
+ assert.throws(()=>core.calendarAfter(0,2**48),{code:'INVALID_ARGUMENT'});
+ assert.throws(()=>core.calendarAfter(end,1),{code:'INVALID_ARGUMENT'});
+ assert.throws(()=>core.calendarAfter(0,Number.MAX_SAFE_INTEGER),{code:'INVALID_ARGUMENT'});
+ for(const delay of [-1,0.5,Infinity,2**53,'1'])assert.throws(()=>core.calendarAfter(0,delay),{code:'INVALID_ARGUMENT'});
+});

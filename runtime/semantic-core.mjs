@@ -135,7 +135,8 @@ const count=value=>{if(!Number.isSafeInteger(value)||value<0)fail('INVALID_ARGUM
 const countValue=value=>{if(value?.$!=='BudgetCount'||!Number.isInteger(value.high)||value.high<0||value.high>0x1fffff||!Number.isInteger(value.low)||value.low<0||value.low>0xffffffff)fail('INTERNAL','Invalid core resource count');return value.high*2**32+value.low;};
 const amountValue=value=>{if(value?.$==='BudgetOverflow')return Infinity;if(value?.$!=='BudgetFinite')fail('INTERNAL','Invalid core resource amount');return countValue(value.count);};
 const quantities=value=>({$:'BudgetQuantities',...Object.fromEntries(Object.entries(accountingFields).map(([key,field])=>[field,count(key==='concurrentExecutions'?(value[key]??0):value[key])]))});
-const balance=value=>({$:'BudgetBalance',...Object.fromEntries(Object.entries(accountingFields).map(([key,field])=>[field,value[key]===Infinity?{$:'BudgetOverflow'}:{$:'BudgetFinite',count:count(value[key])}]))});
+const amount=value=>value===Infinity?{$:'BudgetOverflow'}:{$:'BudgetFinite',count:count(value)};
+const balance=value=>({$:'BudgetBalance',...Object.fromEntries(Object.entries(accountingFields).map(([key,field])=>[field,amount(value[key])]))});
 export const resourceAdd=(a,b)=>amountValue(Core.resource_add(count(a),count(b)));
 export const resourceLessOrEqual=(a,b)=>coreBoolean(Core.resource_le(count(a),count(b)));
 export function resourceTotals(entries,grantId) {
@@ -146,6 +147,8 @@ export function resourceTotals(entries,grantId) {
 }
 export const resourceCapacity=(totals,requested,ceiling)=>coreBoolean(Core.resource_capacity(balance(totals),quantities(requested),quantities(ceiling)));
 export const resourceUsage=(previous,usage,ceiling,observed)=>coreBoolean(Core.resource_usage(quantities(previous),quantities(usage),quantities(ceiling),!!observed));
+export const resourceEnvelope=(requests,ceiling)=>coreBoolean(Core.resource_envelope(list(requests.map(quantities)),quantities(ceiling)));
+export const resourceAvailable=envelopes=>countValue(Core.resource_available(list(envelopes.map(({used,ceiling})=>({$:'CapacityEnvelope',used:amount(used),ceiling:count(ceiling)})))));
 
 export const resourceSubtract=(a,b)=>amountValue(Core.resource_subtract(count(a),count(b)));
 export const resourceBlocked=entries=>coreBoolean(Core.resource_blocked(list(entries.map(value=>list(value.limitViolations??[])))));
@@ -158,6 +161,10 @@ export function fenceNext(value) {
 }
 const calendarStart=-62167219200000,calendarEnd=253402300799999;
 const wallCount=value=>{if(!Number.isSafeInteger(value)||value<calendarStart||value>calendarEnd)fail('INVALID_ARGUMENT','Wall clock requires an integer millisecond in the supported UTC calendar');return count(value-calendarStart);};
+export function calendarAfter(anchor,duration) {
+ const result=amountValue(Core.calendar_after(wallCount(anchor),count(duration),count(calendarEnd-calendarStart)));
+ if(result===Infinity)fail('INVALID_ARGUMENT','Temporal anchor exceeds the supported calendar');const wall=result+calendarStart;wallCount(wall);return wall;
+}
 export function observeClock(clock) {
  const bootId=clock.bootId,wall=clock.wall(),monotonic=clock.monotonic();wallCount(wall);
  if(typeof bootId!=='string'||!bootId||clock.bootId!==bootId||!Number.isFinite(monotonic)||monotonic<0||monotonic>Number.MAX_SAFE_INTEGER)fail('INVALID_ARGUMENT','Invalid or changed monotonic clock frame');
