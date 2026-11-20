@@ -9,6 +9,7 @@ import {Client} from '@modelcontextprotocol/client';
 import {StdioClientTransport} from '@modelcontextprotocol/client/stdio';
 import {exposedOperations} from '../runtime/bindings.mjs';
 import {openHome} from '../runtime/home.mjs';
+import {captureSource,verifySource,verifyPackedSource} from './release-source.mjs';
 
 const root=fileURLToPath(new URL('../',import.meta.url)),pkg=JSON.parse(readFileSync(join(root,'package.json'))),dist=join(root,'dist');
 const hash=(bytes,algorithm='sha256')=>createHash(algorithm).update(bytes).digest(algorithm==='sha512'?'base64':'hex');
@@ -20,12 +21,14 @@ mkdirSync(dist,{recursive:true});
 const archive=join(dist,pkg.name.replace('@','').replace('/','-')+'-'+pkg.version+'.tgz');
 const checks=[];let client,transport,installed;
 try {
+ const sourceSnapshot=captureSource(root);
  run('pnpm',['pack','--skip-manifest-obfuscation','--out',archive]);
  const inventory=run('tar',['-tzf',archive]).trim().split('\n');
  assert.ok(inventory.every(p=>p.startsWith('package/')&&!p.split('/').includes('..')),'Non-package archive path');
  assert.ok(inventory.every(p=>!/(^|\/)(node_modules|\.git|\.moment|\.codex|captures|secrets)(\/|$)/.test(p)),'Private/generated archive payload');
  const extracted=join(scratch,'extracted');mkdirSync(extracted);run('tar',['-xzf',archive,'-C',extracted]);
  const packed=join(extracted,'package');
+ verifyPackedSource(packed,inventory,sourceSnapshot);
  assert.deepEqual(readFileSync(join(packed,'package.json')),readFileSync(join(root,'package.json')),'Packing changed integrity-checked manifest');
  const catalog=JSON.parse(readFileSync(join(packed,'runtime/generated/bindings.json')));
  for(const source of catalog.sources){let path=resolve(packed,source.path);if(source.path==='pnpm-lock.yaml'&&!lstatSync(path,{throwIfNoEntry:false}))path=join(packed,'runtime/generated/source-lock.yaml');assert.ok(path.startsWith(packed+'/'));assert.ok(lstatSync(path).isFile()&&!lstatSync(path).isSymbolicLink());assert.equal('sha256:'+hash(readFileSync(path)),source.digest,'Missing or changed packaged source: '+source.path);}
@@ -63,7 +66,10 @@ try {
  writeFileSync(consumer,`import {createClient} from '${pkg.name}/client';\nimport type {Input} from '${pkg.name}/contracts';\nconst input:Input<'system.describe'>={protocolVersion:'0.1'};\nconst result=await createClient('/test-owned/example').call('system.describe',input);\nif(result.ok) result.value.systemId satisfies string;\n`);
  run('pnpm',['exec','tsc','--ignoreConfig','--noEmit','--strict','--module','NodeNext','--moduleResolution','NodeNext','--target','ES2022',consumer]);
  checks.push('Independent TypeScript client/contract exports');
+ verifySource(root,sourceSnapshot);
+ checks.push('Clean immutable source revision and every packed file match');
  const bytes=readFileSync(archive),report={name:pkg.name,version:pkg.version,archive:archive.slice(root.length),sha256:hash(bytes),integrity:'sha512-'+hash(bytes,'sha512'),bytes:bytes.length,catalog:catalog.identity,sourceCount:catalog.sources.length,qualifierDigest:'sha256:'+hash(readFileSync(fileURLToPath(import.meta.url))),platform:process.platform,arch:process.arch,node:process.version,pnpm:run('pnpm',['--version']).trim(),checks,inventory,limitations:['No inference, primary Codex or real personal store exercised','Optional Darwin COW helper not exercised','Qualification applies to this source/catalog, artifact and platform']};
+ report.sourceSnapshot=sourceSnapshot;
  writeFileSync(join(dist,'package-verification.json'),JSON.stringify(report,null,2)+'\n');
  console.log(JSON.stringify({name:report.name,version:report.version,archive:report.archive,sha256:report.sha256,integrity:report.integrity,bytes:report.bytes,sourceCount:report.sourceCount,checks}));
 } finally {
