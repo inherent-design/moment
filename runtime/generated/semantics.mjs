@@ -1025,6 +1025,171 @@ function $topology_combine_1(_results_0) {
   return $topology_combine(_results_0);
 }
 
+function $scope_allows(_mode_0, _scope_0, _key_0) {
+  if (_mode_0.$ === "AccessAction") {
+    const _actions_0 = _scope_0["actions"];
+    return $text_contains(_actions_0, _key_0);
+  } else if (_mode_0.$ === "AccessResource") {
+    const _resources_1 = _scope_0["resources"];
+    return $text_contains(_resources_1, _key_0);
+  } else if (_mode_0.$ === "AccessIncident") {
+    const _all_incidents_2 = _scope_0["all_incidents"];
+    const _incidents_2 = _scope_0["incidents"];
+    const _x_0 = $$text_contains(_incidents_2, _key_0);
+    return (_all_incidents_2 || _x_0);
+  } else {
+    const _all_incidents_3 = _scope_0["all_incidents"];
+    const _resources_3 = _scope_0["resources"];
+    return $Bool_and(_all_incidents_3, $$text_contains(_resources_3, _key_0));
+  }
+}
+
+function $scopes_fold($0, $1, $2, $3) {
+  for (;;) {
+    {
+      const _scopes_0 = $0;
+      const _mode_0 = $1;
+      const _key_0 = $2;
+      const _accepted_0 = $3;
+      if (_scopes_0.$ === "Nil") {
+        return _accepted_0;
+      } else {
+        const _head_0 = _scopes_0["head"];
+        const _tail_0 = _scopes_0["tail"];
+        $0 = _tail_0;
+        $1 = _mode_0;
+        $2 = _key_0;
+        $3 = $$Bool_and(_accepted_0, $$scope_allows(_mode_0, _head_0, _key_0));
+        continue;
+      }
+    }
+  }
+}
+
+function $scopes_allow(_scopes_0, _mode_0, _key_0) {
+  if (_scopes_0.$ === "Nil") {
+    return false;
+  } else {
+    const _head_0 = _scopes_0["head"];
+    const _tail_0 = _scopes_0["tail"];
+    return $scopes_fold(_tail_0, _mode_0, _key_0, $$scope_allows(_mode_0, _head_0, _key_0));
+  }
+}
+
+function $access_operator(_principal_0, _owner_0, _context_owner_0, _bound_0) {
+  return $Bool_and($$String_eq(_principal_0, _owner_0), $$Bool_and($$String_eq(_principal_0, _context_owner_0), $$Bool_not(_bound_0)));
+}
+
+function $access_resource(_operator_0, _scopes_0, _key_0) {
+  const _x_0 = $$scopes_allow(_scopes_0, {$: "AccessResource"}, _key_0);
+  return (_operator_0 || _x_0);
+}
+
+function $access_incident(_operator_0, _scopes_0, _key_0) {
+  const _x_0 = $$scopes_allow(_scopes_0, {$: "AccessIncident"}, _key_0);
+  return (_operator_0 || _x_0);
+}
+
+function $method_context(_method_0, _scopes_0, _context_0) {
+  const _x_0 = $$String_eq(_method_0, "context.close");
+  const _x_1 = $$String_eq(_method_0, "policy.activate");
+  const _wide_0 = (_x_0 || _x_1);
+  return $Bool_pick($$Bool_and(_wide_0, $$Bool_not($$scopes_allow(_scopes_0, {$: "AccessContext"}, _context_0))), {$: "MethodContextWide"}, {$: "MethodAllowed"});
+}
+
+function $method_delegate(_method_0, _scopes_0, _context_0) {
+  return $Bool_pick($$String_eq(_method_0, "schema.publish"), {$: "MethodSchemaOperator"}, $$Bool_pick($$String_eq(_method_0, "context.limits"), {$: "MethodLimitsOperator"}, $$method_context(_method_0, _scopes_0, _context_0)));
+}
+
+function $access_method(_operator_0, _scopes_0, _method_0, _context_0) {
+  return $Bool_pick(_operator_0, {$: "MethodAllowed"}, $$Bool_pick($$scopes_allow(_scopes_0, {$: "AccessAction"}, _method_0), $$method_delegate(_method_0, _scopes_0, _context_0), {$: "MethodOutsideGrant"}));
+}
+
+function $mutation_basis(_current_0, _expected_0, _state_0, _method_0) {
+  const _x_0 = $$String_eq(_state_0, "open");
+  const _x_1 = $$text_contains({$: "Con", "head": "context.close", "tail": {$: "Con", "head": "execution.finish", "tail": {$: "Con", "head": "execution.reconcile", "tail": {$: "Con", "head": "execution.cancel", "tail": {$: "Nil"}}}}}, _method_0);
+  return $Bool_pick($$String_eq(_current_0, _expected_0), $$Bool_pick((_x_0 || _x_1), {$: "MutationAllowed"}, {$: "MutationClosed"}), {$: "MutationStale"});
+}
+
+function $incident_terminal(_state_0) {
+  if (_state_0.$ === "IncidentCompleted") {
+    return true;
+  } else if (_state_0.$ === "IncidentCancelled") {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+function $incident_revisable(_old_0, _current_0) {
+  const _x_0 = $$Bool_not($$incident_terminal(_old_0));
+  const _x_1 = $$incident_terminal(_current_0);
+  return (_x_0 || _x_1);
+}
+
+function $incident_sources(_sources_0) {
+  if (_sources_0.$ === "Nil") {
+    return {$: "IncidentCompletionMissing"};
+  } else {
+    return {$: "IncidentEvidenceAllowed"};
+  }
+}
+
+function $incident_evidence(_state_0, _present_0, _sources_0) {
+  if (_state_0.$ === "IncidentOpen") {
+    return {$: "IncidentEvidenceAllowed"};
+  } else if (_state_0.$ === "IncidentCompleted") {
+    return $Bool_pick(_present_0, $$incident_sources(_sources_0), {$: "IncidentEvidenceMissing"});
+  } else {
+    return $Bool_pick(_present_0, {$: "IncidentEvidenceAllowed"}, {$: "IncidentEvidenceMissing"});
+  }
+}
+
+function $query_match(_id_0, _schema_0, _support_0, _ids_present_0, _ids_0, _schemas_present_0, _schemas_0, _status_0, _related_present_0, _related_0) {
+  const _x_0 = $$Bool_not(_ids_present_0);
+  const _x_1 = $$text_contains(_ids_0, _id_0);
+  const _x_2 = $$Bool_not(_schemas_present_0);
+  const _x_3 = $$text_contains(_schemas_0, _schema_0);
+  const _x_4 = $$String_eq(_status_0, "any");
+  const _x_5 = $$text_contains(_support_0, _status_0);
+  const _x_6 = $$Bool_not(_related_present_0);
+  const _x_7 = $$text_contains(_related_0, _id_0);
+  return $Bool_and((_x_0 || _x_1), $$Bool_and((_x_2 || _x_3), $$Bool_and((_x_4 || _x_5), (_x_6 || _x_7))));
+}
+
+function $role_connects($0, $1, $2, $3, $4) {
+  for (;;) {
+    {
+      const _roles_0 = $0;
+      const _role_present_0 = $1;
+      const _role_0 = $2;
+      const _target_0 = $3;
+      const _hit_0 = $4;
+      if (_roles_0.$ === "Nil") {
+        return _hit_0;
+      } else {
+        const _t_0 = _roles_0["head"];
+        const _name_0 = _t_0["name"];
+        const _members_0 = _t_0["members"];
+        const _tail_0 = _roles_0["tail"];
+        const _x_0 = $$Bool_not(_role_present_0);
+        const _x_1 = $$String_eq(_name_0, _role_0);
+        const _x_2 = $$Bool_and((_x_0 || _x_1), $$text_contains(_members_0, _target_0));
+        $0 = _tail_0;
+        $1 = _role_present_0;
+        $2 = _role_0;
+        $3 = _target_0;
+        $4 = (_hit_0 || _x_2);
+        continue;
+      }
+    }
+  }
+}
+
+function $query_related(_kind_0, _roles_0, _role_present_0, _role_0, _target_0) {
+  return $Bool_and($$String_eq(_kind_0, "relation"), $$role_connects(_roles_0, _role_present_0, _role_0, _target_0, false));
+}
+
 function $Bool_not(_b_0) {
   if (!_b_0) {
     return true;
@@ -1188,6 +1353,13 @@ const $$rule_contains = $rule_contains;
 const $$denies_preserved = $denies_preserved;
 const $$permit_narrowed = $permit_narrowed;
 const $$permits_bounded = $permits_bounded;
+const $$scope_allows = $scope_allows;
+const $$scopes_allow = $scopes_allow;
+const $$method_context = $method_context;
+const $$method_delegate = $method_delegate;
+const $$incident_terminal = $incident_terminal;
+const $$incident_sources = $incident_sources;
+const $$role_connects = $role_connects;
 const $$String_order = $String_order;
 const $$List_append = $List_append;export default {
   "execution:terminal": run_lib((a0) => run_loop($execution_terminal(a0)), 1),
@@ -1255,4 +1427,21 @@ const $$List_append = $List_append;export default {
   "policy_rules": run_lib((a0,a1,a2) => run_loop($policy_rules(a0,a1,a2)), 3),
   "topology_record": run_lib((a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,a10) => run_loop($topology_record(str_in(a0),str_in(a1),a2,str_in(a3),str_in(a4),a5,str_in(a6),str_in(a7),str_in(a8),str_in(a9),str_in(a10))), 11),
   "topology_combine": run_lib((a0) => run_loop($topology_combine_1(a0)), 1),
+  "scope_allows": run_lib((a0,a1,a2) => run_loop($scope_allows(a0,a1,str_in(a2))), 3),
+  "scopes_fold": run_lib((a0,a1,a2,a3) => run_loop($scopes_fold(a0,a1,str_in(a2),a3)), 4),
+  "scopes_allow": run_lib((a0,a1,a2) => run_loop($scopes_allow(a0,a1,str_in(a2))), 3),
+  "access_operator": run_lib((a0,a1,a2,a3) => run_loop($access_operator(str_in(a0),str_in(a1),str_in(a2),a3)), 4),
+  "access_resource": run_lib((a0,a1,a2) => run_loop($access_resource(a0,a1,str_in(a2))), 3),
+  "access_incident": run_lib((a0,a1,a2) => run_loop($access_incident(a0,a1,str_in(a2))), 3),
+  "method_context": run_lib((a0,a1,a2) => run_loop($method_context(str_in(a0),a1,str_in(a2))), 3),
+  "method_delegate": run_lib((a0,a1,a2) => run_loop($method_delegate(str_in(a0),a1,str_in(a2))), 3),
+  "access_method": run_lib((a0,a1,a2,a3) => run_loop($access_method(a0,a1,str_in(a2),str_in(a3))), 4),
+  "mutation_basis": run_lib((a0,a1,a2,a3) => run_loop($mutation_basis(str_in(a0),str_in(a1),str_in(a2),str_in(a3))), 4),
+  "incident_terminal": run_lib((a0) => run_loop($incident_terminal(a0)), 1),
+  "incident_revisable": run_lib((a0,a1) => run_loop($incident_revisable(a0,a1)), 2),
+  "incident_sources": run_lib((a0) => run_loop($incident_sources(a0)), 1),
+  "incident_evidence": run_lib((a0,a1,a2) => run_loop($incident_evidence(a0,a1,a2)), 3),
+  "query_match": run_lib((a0,a1,a2,a3,a4,a5,a6,a7,a8,a9) => run_loop($query_match(str_in(a0),str_in(a1),a2,a3,a4,a5,a6,str_in(a7),a8,a9)), 10),
+  "role_connects": run_lib((a0,a1,a2,a3,a4) => run_loop($role_connects(a0,a1,str_in(a2),str_in(a3),a4)), 5),
+  "query_related": run_lib((a0,a1,a2,a3,a4) => run_loop($query_related(str_in(a0),a1,a2,str_in(a3),str_in(a4))), 5),
 };

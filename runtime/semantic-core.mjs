@@ -98,3 +98,34 @@ export function topologyCertify(size,edges,ranks) {
  return topologyVerdict(Core.topology_certify(list(encoded),storage));
 }
 export const topologyCombine=results=>topologyVerdict(Core.topology_combine(list(results.map(value=>({$:topologyVerdict({$:value})})))));
+
+const coreBoolean=value=>{if(typeof value!=='boolean')fail('INTERNAL','Invalid core predicate output');return value;};
+export const isOperator=(principal,owner,contextOwner,bound)=>coreBoolean(Core.access_operator(principal,owner,contextOwner??'',!!bound));
+export function accessScopes(operator,chain) {
+ if(typeof operator!=='boolean'||!Array.isArray(chain))fail('INVALID_ARGUMENT','Invalid authority observation');
+ const scopes=list(chain.map(grant=>({$:'AccessScope',actions:list(grant.actions),all_incidents:grant.incidentIds==='all',incidents:list(grant.incidentIds==='all'?[]:grant.incidentIds),resources:list(grant.resourceRefs.map(resourceKey))}))),resources=new Map(),incidents=new Map();
+ return {
+  canRead(ref){const key=resourceKey(ref);if(!resources.has(key))resources.set(key,coreBoolean(Core.access_resource(operator,scopes,key)));return resources.get(key);},
+  canIncident(id){if(!incidents.has(id))incidents.set(id,coreBoolean(Core.access_incident(operator,scopes,id)));return incidents.get(id);},
+  method(method,context){const result=Core.access_method(operator,scopes,method,resourceKey(context));if(!['MethodAllowed','MethodOutsideGrant','MethodSchemaOperator','MethodLimitsOperator','MethodContextWide'].includes(result?.$))fail('INTERNAL','Invalid core method admission');return result.$;}
+ };
+}
+export function mutationBasis(current,expected,state,method) {
+ for(const revision of [current,expected])if(!Number.isSafeInteger(revision)||revision<0)fail('INVALID_ARGUMENT','Revisions require safe nonnegative integers');
+ const result=Core.mutation_basis(String(current),String(expected),state,method);if(!['MutationAllowed','MutationStale','MutationClosed'].includes(result?.$))fail('INTERNAL','Invalid core mutation basis');return result.$;
+}
+const incidentStates={open:'IncidentOpen',resting:'IncidentResting',completed:'IncidentCompleted',cancelled:'IncidentCancelled'};
+const incidentState=state=>{if(typeof state!=='string'||!Object.hasOwn(incidentStates,state))fail('INVALID_ARGUMENT','Unsupported incident state');return {$:incidentStates[state]};};
+export const incidentTerminal=state=>coreBoolean(Core.incident_terminal(incidentState(state)));
+export const incidentRevisable=(old,current)=>coreBoolean(Core.incident_revisable(incidentState(old),incidentState(current)));
+export function incidentEvidence(state,evidence) {
+ const result=Core.incident_evidence(incidentState(state),evidence!==undefined,list(evidence?.sources.map(resourceKey)??[]));if(!['IncidentEvidenceAllowed','IncidentEvidenceMissing','IncidentCompletionMissing'].includes(result?.$))fail('INTERNAL','Invalid core incident evidence decision');return result.$;
+}
+export function querySelection(selector,relatedIds) {
+ const ids=list(selector.ids??[]),schemas=list(selector.schemaNames??[]),related=list(relatedIds??[]);
+ return (record,statuses)=>coreBoolean(Core.query_match(record.id,record.schema.name,list(statuses),selector.ids!==undefined,ids,selector.schemaNames!==undefined,schemas,selector.assertionStatus,relatedIds!==undefined,related));
+}
+export function queryRelated(record,role,target) {
+ const roles=list(Object.entries(record.roles??{}).map(([name,refs])=>({$:'QueryRole',name,members:list(refs.map(resourceKey))})));
+ return coreBoolean(Core.query_related(record.kind,roles,role!==undefined,role??'',resourceKey(target)));
+}

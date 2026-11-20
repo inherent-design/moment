@@ -274,6 +274,98 @@ theorem top_combine_associates (a b c : TopVerdict) :
     topCombine (topCombine a b) c = topCombine a (topCombine b c) := by
   cases a <;> cases b <;> cases c <;> rfl
 
+structure AccessScope where
+  actions : List String
+  allIncidents : Bool
+  incidents : List String
+  resources : List String
+  deriving DecidableEq, Repr
+inductive AccessMode | action | resource | incident | context deriving DecidableEq, Repr
+def scopeAllows (mode : AccessMode) (scope : AccessScope) (key : String) : Bool :=
+  match mode with
+  | .action => scope.actions.contains key
+  | .resource => scope.resources.contains key
+  | .incident => scope.allIncidents || scope.incidents.contains key
+  | .context => scope.allIncidents && scope.resources.contains key
+def scopesAllow (scopes : List AccessScope) (mode : AccessMode) (key : String) : Bool :=
+  !scopes.isEmpty && scopes.all (fun scope => scopeAllows mode scope key)
+def accessOperator (principal owner contextOwner : String) (bound : Bool) : Bool :=
+  principal == owner && principal == contextOwner && !bound
+def accessResource (operator : Bool) (scopes : List AccessScope) (key : String) : Bool :=
+  operator || scopesAllow scopes .resource key
+def accessIncident (operator : Bool) (scopes : List AccessScope) (key : String) : Bool :=
+  operator || scopesAllow scopes .incident key
+inductive MethodAdmission | allowed | outsideGrant | schemaOperator | limitsOperator | contextWide
+  deriving DecidableEq, Repr
+def accessMethod (operator : Bool) (scopes : List AccessScope) (method context : String) : MethodAdmission :=
+  if operator then .allowed
+  else if !scopesAllow scopes .action method then .outsideGrant
+  else if method == "schema.publish" then .schemaOperator
+  else if method == "context.limits" then .limitsOperator
+  else if ["context.close","policy.activate"].contains method && !scopesAllow scopes .context context then .contextWide
+  else .allowed
+theorem bound_identity_not_operator (p o c : String) : accessOperator p o c true = false := by simp [accessOperator]
+theorem admitted_owner_is_operator (p : String) : accessOperator p p p false = true := by simp [accessOperator]
+theorem empty_chain_has_no_resource (key : String) : accessResource false [] key = false := rfl
+theorem resource_requires_every_scope (scopes : List AccessScope) (key : String)
+    (h : accessResource false scopes key = true) :
+    ∀ scope ∈ scopes, scope.resources.contains key = true := by
+  have all : scopes.all (fun scope => scopeAllows .resource scope key) = true := by
+    have paired : (!scopes.isEmpty && scopes.all (fun scope => scopeAllows .resource scope key)) = true := by
+      simpa only [accessResource, scopesAllow, Bool.false_or] using h
+    exact (Bool.and_eq_true_iff.mp paired).2
+  intro scope member
+  exact (List.all_eq_true.mp all) scope member
+
+inductive IncidentState | open | resting | completed | cancelled deriving DecidableEq, Repr
+def incidentTerminal : IncidentState → Bool
+  | .completed | .cancelled => true
+  | _ => false
+def incidentRevisable (old current : IncidentState) : Bool := !incidentTerminal old || incidentTerminal current
+inductive IncidentEvidence | allowed | missing | completionMissing deriving DecidableEq, Repr
+def incidentEvidence (state : IncidentState) (present : Bool) (sources : List String) : IncidentEvidence :=
+  if state == .open then .allowed
+  else if !present then .missing
+  else if state == .completed && sources.isEmpty then .completionMissing
+  else .allowed
+theorem terminal_incident_cannot_reopen (old current : IncidentState)
+    (ended : incidentTerminal old = true) (admitted : incidentRevisable old current = true) :
+    incidentTerminal current = true := by simpa [incidentRevisable, ended] using admitted
+theorem completion_requires_source (present : Bool) (sources : List String)
+    (admitted : incidentEvidence .completed present sources = .allowed) : sources ≠ [] := by
+  intro empty
+  subst sources
+  cases present <;> simp [incidentEvidence] at admitted
+theorem open_without_evidence_is_usable : incidentEvidence .open false [] = .allowed := rfl
+
+inductive MutationAdmission | allowed | stale | closed deriving DecidableEq, Repr
+def mutationBasis (current expected : Nat) (state method : String) : MutationAdmission :=
+  if current != expected then .stale
+  else if state == "open" || ["context.close","execution.finish","execution.reconcile","execution.cancel"].contains method then .allowed
+  else .closed
+theorem stale_basis_refused (current expected : Nat) (state method : String) (stale : current ≠ expected) :
+    mutationBasis current expected state method = .stale := by simp [mutationBasis, stale]
+theorem closed_context_can_reconcile (revision : Nat) : mutationBasis revision revision "closed" "execution.reconcile" = .allowed := by simp [mutationBasis]
+
+def queryMatch (id schema : String) (support : List String) (ids schemas : Option (List String))
+    (status : String) (related : Option (List String)) : Bool :=
+  (ids.all (fun xs => xs.contains id)) && (schemas.all (fun xs => xs.contains schema)) &&
+    (status == "any" || support.contains status) && (related.all (fun xs => xs.contains id))
+def queryRelated (kind : String) (roles : List (String × List String)) (role : Option String) (target : String) : Bool :=
+  kind == "relation" && roles.any (fun pair => (role.all (fun name => name == pair.1)) && pair.2.contains target)
+theorem empty_id_selection_matches_nothing (id schema status : String) (support : List String)
+    (schemas related : Option (List String)) : queryMatch id schema support (some []) schemas status related = false := by simp [queryMatch]
+
+#print axioms bound_identity_not_operator
+#print axioms admitted_owner_is_operator
+#print axioms empty_chain_has_no_resource
+#print axioms resource_requires_every_scope
+#print axioms terminal_incident_cannot_reopen
+#print axioms completion_requires_source
+#print axioms open_without_evidence_is_usable
+#print axioms stale_basis_refused
+#print axioms closed_context_can_reconcile
+#print axioms empty_id_selection_matches_nothing
 #print axioms certified_edge
 #print axioms rank_along_path
 #print axioms certificate_excludes_cycle
@@ -389,6 +481,35 @@ def topProjectionLabel : Moment.TopProjection → String
   | .before scope a b => s!"precedes:{scope}:{a}:{b}"
 def topSupports : List (List String) := [[],["withdrawn"],["asserted"],["withdrawn","asserted"]]
 
+def accessMethods : List String := ["graph.query","graph.transact","schema.publish","context.limits","context.close","policy.activate"]
+def accessSamples : List Moment.AccessScope :=
+  [⟨accessMethods,true,[],["one","ctx"]⟩,⟨accessMethods,false,["incident"],["one","ctx"]⟩,
+   ⟨["graph.query","graph.transact"],true,[],["two"]⟩,⟨[],false,[],[]⟩]
+def accessChain (depth code : Nat) : List Moment.AccessScope :=
+  (List.range depth).map (fun i => (accessSamples[code / 4^i % 4]?).getD ⟨[],false,[],[]⟩)
+def methodAdmissionLabel : Moment.MethodAdmission → String
+  | .allowed => "MethodAllowed"
+  | .outsideGrant => "MethodOutsideGrant"
+  | .schemaOperator => "MethodSchemaOperator"
+  | .limitsOperator => "MethodLimitsOperator"
+  | .contextWide => "MethodContextWide"
+def incidentStates : List Moment.IncidentState := [.open,.resting,.completed,.cancelled]
+def incidentStateLabel : Moment.IncidentState → String
+  | .open => "open"
+  | .resting => "resting"
+  | .completed => "completed"
+  | .cancelled => "cancelled"
+def incidentEvidenceLabel : Moment.IncidentEvidence → String
+  | .allowed => "IncidentEvidenceAllowed"
+  | .missing => "IncidentEvidenceMissing"
+  | .completionMissing => "IncidentCompletionMissing"
+def mutationLabel : Moment.MutationAdmission → String
+  | .allowed => "MutationAllowed"
+  | .stale => "MutationStale"
+  | .closed => "MutationClosed"
+def queryFilters (name : String) : List (Option (List String)) := [none,some [],some [name],some ["other"]]
+def queryRoles : List (List (String × List String)) := [[],[("subject",["one"])],[("object",["two"])],[("subject",["one"]),("object",["two"])]]
+
 /-- Bounded executable correspondence cases; these do not replace theorems. -/
 def main : IO Unit := do
   let values : List Moment.Truth := [.yes,.no,.unknown]
@@ -461,3 +582,40 @@ def main : IO Unit := do
       let rank := fun i => rankMask / 3^i % 3
       let valid := Moment.topCertificate (topEdges 3 mask) rank
       IO.println s!"case|topologyCertificate|{mask}|{rankMask}|{if valid then "TopGood" else "TopInvalid"}"
+  for ownerMatches in [false,true] do
+    for contextMatches in [false,true] do
+      for bound in [false,true] do
+        IO.println s!"case|accessOperator|{ownerMatches}|{contextMatches}|{bound}|{Moment.accessOperator "caller" (if ownerMatches then "caller" else "owner") (if contextMatches then "caller" else "other") bound}"
+  for depth in List.range 4 do
+    for code in List.range (4^depth) do
+      let chain := accessChain depth code
+      for operator in [false,true] do
+        for key in ["one","two","ctx","foreign"] do
+          IO.println s!"case|accessResource|{depth}|{code}|{operator}|{key}|{Moment.accessResource operator chain key}"
+        for key in ["incident","other","missing"] do
+          IO.println s!"case|accessIncident|{depth}|{code}|{operator}|{key}|{Moment.accessIncident operator chain key}"
+        for method in accessMethods do
+          IO.println s!"case|accessMethod|{depth}|{code}|{operator}|{method}|{methodAdmissionLabel (Moment.accessMethod operator chain method "ctx")}"
+  for state in incidentStates do
+    IO.println s!"case|incidentTerminal|{incidentStateLabel state}|{Moment.incidentTerminal state}"
+    for next in incidentStates do
+      IO.println s!"case|incidentEdit|{incidentStateLabel state}|{incidentStateLabel next}|{Moment.incidentRevisable state next}"
+    for (evidence, index) in ([none,some [],some ["one"]] : List (Option (List String))).zipIdx do
+      IO.println s!"case|incidentEvidence|{incidentStateLabel state}|{index}|{incidentEvidenceLabel (Moment.incidentEvidence state evidence.isSome (evidence.getD []))}"
+  for revision in [0,4294967295,4294967296,9007199254740991] do
+    for same in [false,true] do
+      for state in ["open","closed"] do
+        for method in ["graph.transact","incident.update","context.close","execution.finish","execution.reconcile","execution.cancel"] do
+          let expected := if same then revision else if revision == 0 then 1 else 0
+          IO.println s!"case|mutationBasis|{revision}|{same}|{state}|{method}|{mutationLabel (Moment.mutationBasis revision expected state method)}"
+  for (ids, idsIndex) in (queryFilters "id").zipIdx do
+    for (schemas, schemasIndex) in (queryFilters "schema").zipIdx do
+      for status in ["any","asserted","withdrawn"] do
+        for (support, supportIndex) in topSupports.zipIdx do
+          for (related, relatedIndex) in (queryFilters "id").zipIdx do
+            IO.println s!"case|querySelection|{idsIndex}|{schemasIndex}|{status}|{supportIndex}|{relatedIndex}|{Moment.queryMatch "id" "schema" support ids schemas status related}"
+  for kind in ["atom","relation"] do
+    for (role, roleIndex) in ([none,some "subject",some "object",some "missing"] : List (Option String)).zipIdx do
+      for target in ["one","two","three"] do
+        for (roles, rolesIndex) in queryRoles.zipIdx do
+          IO.println s!"case|queryRelated|{kind}|{roleIndex}|{target}|{rolesIndex}|{Moment.queryRelated kind roles role target}"

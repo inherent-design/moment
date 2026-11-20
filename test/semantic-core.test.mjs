@@ -53,3 +53,24 @@ test('execution codecs refuse malformed states/signals/outcomes without inferrin
  for(const outcome of ['queued','running','constructor',undefined])assert.throws(()=>core.executionStep('running','finish',outcome),{code:'INVALID_ARGUMENT'});
  assert.equal(core.executionStep('unknown','claim').kind,'NotClaimable');
 });
+
+test('delegated scopes intersect full reference namespaces and keep operator identity separate from a bound grant',()=>{
+ const ref=id=>({systemId:'system',contextId:'context',id});
+ const scopes=[{actions:['graph.query'],incidentIds:'all',resourceRefs:[ref('one'),ref('two')]},{actions:['graph.query'],incidentIds:['incident'],resourceRefs:[ref('one')]}];
+ const access=core.accessScopes(false,scopes);
+ assert.equal(access.canRead(ref('one')),true);assert.equal(access.canRead(ref('two')),false);
+ assert.equal(access.canRead({...ref('one'),systemId:'foreign'}),false);assert.equal(access.canRead({...ref('one'),contextId:'foreign'}),false);
+ assert.equal(access.canIncident('incident'),true);assert.equal(access.canIncident('other'),false);
+ assert.equal(core.isOperator('owner','owner','owner',false),true);assert.equal(core.isOperator('owner','owner','owner',true),false);
+ assert.equal(core.isOperator('owner','owner',undefined,false),false);
+ assert.equal(core.accessScopes(false,[]).canRead(ref('one')),false);assert.equal(core.accessScopes(false,[]).canIncident('incident'),false);
+});
+
+test('revision identity does not wrap at word or JavaScript-host Nat boundaries',()=>{
+ for(const revision of [0,2**32-1,2**32,2**48,Number.MAX_SAFE_INTEGER]){
+  assert.equal(core.mutationBasis(revision,revision,'open','graph.transact'),'MutationAllowed');
+  assert.equal(core.mutationBasis(revision,revision===0?1:0,'open','graph.transact'),'MutationStale');
+ }
+ for(const revision of [-1,0.1,NaN,Infinity,2**53,'1'])assert.throws(()=>core.mutationBasis(1,revision,'open','graph.transact'),{code:'INVALID_ARGUMENT'});
+ for(const state of ['constructor','toString','__proto__','failed',undefined])assert.throws(()=>core.incidentTerminal(state),{code:'INVALID_ARGUMENT'});
+});

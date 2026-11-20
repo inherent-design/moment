@@ -67,3 +67,18 @@ law missing_temporal_frame_is_context:
 
 law single_edge_is_usable:
   {Core.topology_check(True{}, 2, Con{Top.TopEdge{0, 1}, Nil{}}, [0:U32 * 2n], [Nil{}:List<&2, U32> * 2n], [0:U32 * 2n], [0:U32 * 2n]) == Top.TopGood{} : Top.Verdict}
+
+law bound_identity_not_operator:
+  {Core.access_operator("owner", "owner", "owner", True{}) == False{} : Bool}
+
+law delegated_schema_remains_operator_only:
+  {Core.access_method(False{}, Con{Core.AccessScope{Con{"schema.publish", Nil{}}, True{}, Nil{}, Con{"context", Nil{}}}, Nil{}}, "schema.publish", "context") == Core.MethodSchemaOperator{} : Core.MethodAdmission}
+
+law open_without_evidence_is_usable:
+  {Core.incident_evidence(Core.IncidentOpen{}, False{}, Nil{}) == Core.IncidentEvidenceAllowed{} : Core.IncidentEvidence}
+
+law terminal_incident_cannot_reopen:
+  {Core.incident_revisable(Core.IncidentCompleted{}, Core.IncidentOpen{}) == False{} : Bool}
+
+law closed_context_can_reconcile:
+  {Core.mutation_basis("1", "1", "closed", "execution.reconcile") == Core.MutationAllowed{} : Core.MutationAdmission}

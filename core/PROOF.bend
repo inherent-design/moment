@@ -55,3 +55,18 @@ def Laws.missing_temporal_frame_is_context(context):
 
 def Laws.single_edge_is_usable():
   {==}
+
+def Laws.bound_identity_not_operator():
+  {==}
+
+def Laws.delegated_schema_remains_operator_only():
+  {==}
+
+def Laws.open_without_evidence_is_usable():
+  {==}
+
+def Laws.terminal_incident_cannot_reopen():
+  {==}
+
+def Laws.closed_context_can_reconcile():
+  {==}

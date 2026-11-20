@@ -106,6 +106,20 @@ test('restricted delegates can read and change selected records without reaching
   const wrongActor=randomUUID();assert.equal(f.call('context.get',{ contextId:f.contextId },wrongActor,bound.ref).error.code,'FORBIDDEN');
 });
 
+test('an operator using a bound grant remains delegated and cannot use operator-only admissions',t=>{
+  const f=setup(t),s=schema(f),record=atom(s),ref=id=>({systemId:f.systemId,contextId:f.contextId,id});
+  assert.equal(f.write('graph.transact',{changes:[{kind:'record.put',record}]}).ok,true);
+  const bound=grant(f,f.ownerId,{actions:['graph.query','schema.publish','context.limits'],resourceRefs:[ref(record.id),ref(f.contextId)]});
+  const read=delegated(f,f.ownerId,bound,'graph.query',{selector:{assertionStatus:'any'},limit:10});
+  assert.equal(read.ok,true);assert.equal(read.value.items.length,1);
+  const revision=f.store.read(f.contextId).context.revision;
+  const schemaResult=delegated(f,f.ownerId,bound,'schema.publish',{schema:s,document:{type:'string'}},true);
+  assert.equal(schemaResult.error.code,'FORBIDDEN');assert.match(schemaResult.error.message,/operator authority/);
+  const limitsResult=delegated(f,f.ownerId,bound,'context.limits',{limits,evidence:{sources:[ref(record.id)],method:'bound request',artifactDigests:[]}},true);
+  assert.equal(limitsResult.error.code,'FORBIDDEN');assert.match(limitsResult.error.message,/local operator/);
+  f.reopen();assert.equal(f.store.read(f.contextId).context.revision,revision);
+});
+
 test('delegation cannot widen actions, resources, budgets or incident scope',t=>{
   const f=setup(t);allowDelegated(f);const actor=randomUUID(), incidentId=randomUUID(), resource={ systemId:f.systemId,contextId:f.contextId,id:randomUUID() };
   const parent=grant(f,actor,{ actions:['grant.issue','context.get'],incidentIds:[incidentId],resourceRefs:[resource],limits:{ ...limits,cpuMillis:10 } });

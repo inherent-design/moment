@@ -349,3 +349,137 @@ def topology_record(kind: String, +schema: String, supports: +List<String>, cont
 
 def topology_combine(results: +List<Top.Verdict>) -> Top.Verdict:
   Top.combine(results)
+
+type AccessScope is Data:
+  AccessScope{actions: +List<String>, all_incidents: Bool, incidents: +List<String>, resources: +List<String>}
+
+type AccessMode is Data:
+  AccessAction{}
+  AccessResource{}
+  AccessIncident{}
+  AccessContext{}
+
+def scope_allows(mode: AccessMode, scope: AccessScope, key: String) -> Bool:
+  match mode:
+    case AccessAction{}:
+      AccessScope{actions, all_incidents, incidents, resources} = scope
+      text_contains(actions, key)
+    case AccessResource{}:
+      AccessScope{actions, all_incidents, incidents, resources} = scope
+      text_contains(resources, key)
+    case AccessIncident{}:
+      AccessScope{actions, all_incidents, incidents, resources} = scope
+      Bool.or(all_incidents, text_contains(incidents, key))
+    case AccessContext{}:
+      AccessScope{actions, all_incidents, incidents, resources} = scope
+      Bool.and(all_incidents, text_contains(resources, key))
+
+def scopes_fold(scopes: +List<AccessScope>, +mode: AccessMode, +key: String, accepted: Bool) -> Bool:
+  match scopes:
+    case Nil{}:
+      accepted
+    case Con{head, tail}:
+      scopes_fold(tail, mode, key, Bool.and(accepted, scope_allows(mode, head, key)))
+
+def scopes_allow(scopes: +List<AccessScope>, +mode: AccessMode, +key: String) -> Bool:
+  match scopes:
+    case Nil{}:
+      False{}
+    case Con{head, tail}:
+      scopes_fold(tail, mode, key, scope_allows(mode, head, key))
+
+def access_operator(+principal: String, owner: String, context_owner: String, bound: Bool) -> Bool:
+  Bool.and(String.eq(principal, owner), Bool.and(String.eq(principal, context_owner), Bool.not(bound)))
+
+def access_resource(operator: Bool, scopes: +List<AccessScope>, key: String) -> Bool:
+  Bool.or(operator, scopes_allow(scopes, AccessResource{}, key))
+
+def access_incident(operator: Bool, scopes: +List<AccessScope>, key: String) -> Bool:
+  Bool.or(operator, scopes_allow(scopes, AccessIncident{}, key))
+
+type MethodAdmission is Data:
+  MethodAllowed{}
+  MethodOutsideGrant{}
+  MethodSchemaOperator{}
+  MethodLimitsOperator{}
+  MethodContextWide{}
+
+def method_context(+method: String, scopes: +List<AccessScope>, context: String) -> MethodAdmission:
+  wide = Bool.or(String.eq(method, "context.close"), String.eq(method, "policy.activate"))
+  Bool.pick(MethodAdmission, Bool.and(wide, Bool.not(scopes_allow(scopes, AccessContext{}, context))), MethodContextWide{}, MethodAllowed{})
+
+def method_delegate(+method: String, scopes: +List<AccessScope>, context: String) -> MethodAdmission:
+  Bool.pick(MethodAdmission, String.eq(method, "schema.publish"), MethodSchemaOperator{},
+    Bool.pick(MethodAdmission, String.eq(method, "context.limits"), MethodLimitsOperator{}, method_context(method, scopes, context)))
+
+def access_method(operator: Bool, +scopes: +List<AccessScope>, +method: String, context: String) -> MethodAdmission:
+  Bool.pick(MethodAdmission, operator, MethodAllowed{},
+    Bool.pick(MethodAdmission, scopes_allow(scopes, AccessAction{}, method), method_delegate(method, scopes, context), MethodOutsideGrant{}))
+
+type MutationAdmission is Data:
+  MutationAllowed{}
+  MutationStale{}
+  MutationClosed{}
+
+def mutation_basis(current: String, expected: String, state: String, method: String) -> MutationAdmission:
+  Bool.pick(MutationAdmission, String.eq(current, expected),
+    Bool.pick(MutationAdmission, Bool.or(String.eq(state, "open"), text_contains(Con{"context.close", Con{"execution.finish", Con{"execution.reconcile", Con{"execution.cancel", Nil{}}}}}, method)), MutationAllowed{}, MutationClosed{}), MutationStale{})
+
+type IncidentState is Data:
+  IncidentOpen{}
+  IncidentResting{}
+  IncidentCompleted{}
+  IncidentCancelled{}
+
+def incident_terminal(state: IncidentState) -> Bool:
+  match state:
+    case IncidentCompleted{}:
+      True{}
+    case IncidentCancelled{}:
+      True{}
+    case _:
+      False{}
+
+def incident_revisable(old: IncidentState, current: IncidentState) -> Bool:
+  Bool.or(Bool.not(incident_terminal(old)), incident_terminal(current))
+
+type IncidentEvidence is Data:
+  IncidentEvidenceAllowed{}
+  IncidentEvidenceMissing{}
+  IncidentCompletionMissing{}
+
+def incident_sources(sources: +List<String>) -> IncidentEvidence:
+  match sources:
+    case Nil{}:
+      IncidentCompletionMissing{}
+    case Con{head, tail}:
+      IncidentEvidenceAllowed{}
+
+def incident_evidence(state: IncidentState, present: Bool, sources: +List<String>) -> IncidentEvidence:
+  match state:
+    case IncidentOpen{}:
+      IncidentEvidenceAllowed{}
+    case IncidentCompleted{}:
+      Bool.pick(IncidentEvidence, present, incident_sources(sources), IncidentEvidenceMissing{})
+    case _:
+      Bool.pick(IncidentEvidence, present, IncidentEvidenceAllowed{}, IncidentEvidenceMissing{})
+
+def query_match(+id: String, schema: String, support: +List<String>, ids_present: Bool, ids: +List<String>, schemas_present: Bool, schemas: +List<String>, +status: String, related_present: Bool, related: +List<String>) -> Bool:
+  Bool.and(Bool.or(Bool.not(ids_present), text_contains(ids, id)),
+    Bool.and(Bool.or(Bool.not(schemas_present), text_contains(schemas, schema)),
+      Bool.and(Bool.or(String.eq(status, "any"), text_contains(support, status)),
+        Bool.or(Bool.not(related_present), text_contains(related, id)))))
+
+type QueryRole is Data:
+  QueryRole{name: String, members: +List<String>}
+
+def role_connects(roles: +List<QueryRole>, +role_present: Bool, +role: String, +target: String, hit: Bool) -> Bool:
+  match roles:
+    case Nil{}:
+      hit
+    case Con{head, tail}:
+      QueryRole{name, members} = head
+      role_connects(tail, role_present, role, target, Bool.or(hit, Bool.and(Bool.or(Bool.not(role_present), String.eq(name, role)), text_contains(members, target))))
+
+def query_related(kind: String, roles: +List<QueryRole>, role_present: Bool, role: String, target: String) -> Bool:
+  Bool.and(String.eq(kind, "relation"), role_connects(roles, role_present, role, target, False{}))

@@ -13,7 +13,7 @@ export function checkAxioms(output,claims) {
 export function checkCorrespondence(output) {
  const truth=value=>value==='true'?true:value==='false'?false:value==='unknown'?'unknown':(()=>{throw Error('Unknown model truth');})();
  const rows=output.split('\n').filter(line=>line.startsWith('case|'));
- assert.equal(rows.length,18163,'The complete declared finite correspondence set must be present');
+ assert.equal(rows.length,21373,'The complete declared finite correspondence set must be present');
  const counts={},seen=new Set(),choose=(values,mask)=>values.filter((_value,i)=>Number(mask)&2**i);
  const when={kind:'equal',left:{kind:'literal',value:true},right:{kind:'literal',value:true}},rules=[
   {id:'read',effect:'permit',when,actions:['read']},{id:'write',effect:'permit',when,actions:['write']},
@@ -25,6 +25,13 @@ export function checkCorrespondence(output) {
  const edgeList=values=>values.map(([source,target])=>({source,target}));
  const topExtra=[[3,[[3,0]]],[3,[[0,3]]],[3,[[4,0]]],[3,[[0,0xffffffff]]],[0,[[0,0]]],
   [3,[[0,1],[0,2],[3,1]]],[2,[[0,1],[0,1]]],[2,[[0,1],[1,0],[0,1]]],[3,[[0,1],[0,1],[0,2]]]];
+ const ref=id=>({systemId:'system',contextId:'context',id}),accessMethods=['graph.query','graph.transact','schema.publish','context.limits','context.close','policy.activate'];
+ const accessSamples=[{actions:accessMethods,incidentIds:'all',resourceRefs:['one','ctx'].map(ref)},
+  {actions:accessMethods,incidentIds:['incident'],resourceRefs:['one','ctx'].map(ref)},
+  {actions:['graph.query','graph.transact'],incidentIds:'all',resourceRefs:[ref('two')]},{actions:[],incidentIds:[],resourceRefs:[]}],accessCache=new Map();
+ const access=(depth,code,operator)=>{const key=[depth,code,operator].join('|');if(!accessCache.has(key))accessCache.set(key,core.accessScopes(truth(operator),Array.from({length:Number(depth)},(_,i)=>accessSamples[Math.floor(Number(code)/4**i)%4])));return accessCache.get(key);};
+ const filters=(index,name)=>[undefined,[],[name],['other']][Number(index)],supports=[[],['withdrawn'],['asserted'],['withdrawn','asserted']];
+ const queryRoles=[{}, {subject:[ref('one')]},{object:[ref('two')]},{subject:[ref('one')],object:[ref('two')]}];
  for(const row of rows){const [,kind,...parts]=row.split('|'),expected=parts.pop(),key=[kind,...parts].join('|');let actual;
   assert.ok(!seen.has(key),'Duplicate model input: '+key);seen.add(key);counts[kind]=(counts[kind]??0)+1;
   const a=['not','all','any','policy','record','assertion'].includes(kind)?truth(parts[0]):undefined;
@@ -64,9 +71,24 @@ export function checkCorrespondence(output) {
   else if(kind==='topologyCertificate'){
    const [mask,rankMask]=parts;actual=core.topologyCertify(3,topEdges(3,mask),Array.from({length:3},(_,i)=>Math.floor(Number(rankMask)/3**i)%3));
   }
+  else if(kind==='accessOperator')actual=String(core.isOperator('caller',truth(parts[0])?'caller':'owner',truth(parts[1])?'caller':'other',truth(parts[2])));
+  else if(kind==='accessResource')actual=String(access(...parts.slice(0,3)).canRead(ref(parts[3])));
+  else if(kind==='accessIncident')actual=String(access(...parts.slice(0,3)).canIncident(parts[3]));
+  else if(kind==='accessMethod')actual=access(...parts.slice(0,3)).method(parts[3],ref('ctx'));
+  else if(kind==='incidentTerminal')actual=String(core.incidentTerminal(parts[0]));
+  else if(kind==='incidentEdit')actual=String(core.incidentRevisable(parts[0],parts[1]));
+  else if(kind==='incidentEvidence')actual=core.incidentEvidence(parts[0],[undefined,{sources:[]},{sources:[ref('one')]}][Number(parts[1])]);
+  else if(kind==='mutationBasis'){
+   const revision=Number(parts[0]),expected=truth(parts[1])?revision:revision===0?1:0;actual=core.mutationBasis(revision,expected,parts[2],parts[3]);
+  }
+  else if(kind==='querySelection'){
+   const [ids,schemas,status,support,related]=parts;
+   actual=String(core.querySelection({ids:filters(ids,'id'),schemaNames:filters(schemas,'schema'),assertionStatus:status},filters(related,'id'))({id:'id',schema:{name:'schema'}},supports[Number(support)]));
+  }
+  else if(kind==='queryRelated')actual=String(core.queryRelated({kind:parts[0],roles:queryRoles[Number(parts[3])]},[undefined,'subject','object','missing'][Number(parts[1])],ref(parts[2])));
   else throw Error('Unknown model case');
   assert.equal(actual,expected,'Native/model correspondence mismatch: '+row);
  }
- assert.deepEqual(counts,{not:3,all:9,any:9,policy:9,record:4,assertion:12,withdraw:3,graph:63,grant:576,grantEnd:2,policyRules:1024,issuers:16,runTerminal:8,runStep:104,runTrace:1352,topology:1062,topologyExtra:18,topologyProjection:48,topologyCombine:17,topologyCertificate:13824});
- return {cases:rows.length,counts,coverage:'Finite complete truth/support and execution state/action tables, all two-step execution traces; record/support orderings through length five; grant boundary matrix; all subsets of four rules and two grant actions; issuer sets; every directed graph through three nodes with exclusive/nonexclusive parents; invalid indices/duplicates; topology projections and verdict pairs; all three-node edge sets with three-valued rank certificates',limitations:['Finite exhaustive correspondence only within the named input sets, not every possible policy or graph','Topology certificate theorem excludes cycles for every finite checked edge set, conditional on its stated rank check; native input assembly and compiler translation remain trust boundaries','Execution signals require native lease/provider/evidence/current-authority validation; state selection grants none of those','Theorems concern their stated models; compiler/translation and native adapters remain explicit trust boundaries','Numeric codecs and native effects require their independent execution checks']};
+ assert.deepEqual(counts,{not:3,all:9,any:9,policy:9,record:4,assertion:12,withdraw:3,graph:63,grant:576,grantEnd:2,policyRules:1024,issuers:16,runTerminal:8,runStep:104,runTrace:1352,topology:1062,topologyExtra:18,topologyProjection:48,topologyCombine:17,topologyCertificate:13824,accessOperator:8,accessResource:680,accessIncident:510,accessMethod:1020,incidentTerminal:4,incidentEdit:16,incidentEvidence:12,mutationBasis:96,querySelection:768,queryRelated:96});
+ return {cases:rows.length,counts,coverage:'Finite truth/support and execution tables and two-step traces; record/support orderings through length five; grant boundaries and four-rule/two-action policies; every directed graph through three nodes, both parent modes, invalid/duplicate inputs and three-valued rank certificates; every chain through length three over four scope samples, six method gates and namespace-key samples; incident lifecycles/evidence; selected revision boundaries; complete named query-filter/support/role product',limitations:['Finite exhaustive correspondence only within the named input sets, not every possible policy or graph','Topology certificate theorem excludes cycles for every finite checked edge set, conditional on its stated rank check; native input assembly and compiler translation remain trust boundaries','Execution signals require native lease/provider/evidence/current-authority validation; state selection grants none of those','Grant scope tables assume independently validated current grant chains and authenticated principal observations','Theorems concern their stated models; compiler/translation and native adapters remain explicit trust boundaries','Numeric codecs and native effects require their independent execution checks']};
 }

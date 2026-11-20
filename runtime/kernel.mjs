@@ -13,6 +13,7 @@ import { Events,mutationEvents } from './events.mjs';
 import { Scheduler } from './scheduler.mjs';
 import { Awareness } from './awareness.mjs';
 import { Guidance } from './guidance.mjs';
+import * as core from './semantic-core.mjs';
 
 import { kernelMethods as methods } from './operations.mjs';
 
@@ -54,12 +55,9 @@ export class Kernel {
     if (id===snapshot.context.id || snapshot.assertions.some(item=>item.assertion.ref.id===id) || snapshot.records.some(item=>item.ref.id===id) || Object.values(snapshot.controlState).some(namespace=>namespace && typeof namespace==='object' && Object.values(namespace).some(item=>item?.ref?.id===id))) fail('IDENTITY_CONFLICT','Object identity already used');
   }
   admission(snapshot, principalId, boundGrant) {
-    const operator = principalId === this.ownerId && snapshot.controlState.owners?.principalId === principalId && !boundGrant;
+    const operator = core.isOperator(principalId,this.ownerId,snapshot.controlState.owners?.principalId,boundGrant);
     const chain = operator ? [] : grantChain(snapshot, boundGrant, principalId,this.clock.wall());
-    const key=ref=>`${ref.systemId}|${ref.contextId}|${ref.id}`;
-    const resourceSets=chain.map(grant=>new Set(grant.resourceRefs.map(key)));
-    const resources=new Set(chain[0]?.resourceRefs.filter(ref=>resourceSets.every(set=>set.has(key(ref)))).map(key) ?? []);
-    return { operator, chain,scopeKey:operator?'operator':digest(chain.map(grant=>grant.id)), canRead: ref => operator || resources.has(key(ref)), canIncident: id => operator || chain.every(grant => grant.incidentIds === 'all' || grant.incidentIds.includes(id)) };
+    return {operator,chain,scopeKey:operator?'operator':digest(chain.map(grant=>grant.id)),...core.accessScopes(operator,chain)};
   }
   policyQueries(snapshot, access, principalId) {
     if (snapshot.records.length>4096 || snapshot.assertions.length>16384) return { exists:()=> 'unknown',related:()=> 'unknown' };
@@ -107,10 +105,9 @@ export class Kernel {
   }
   authorize(snapshot, method, principalId, input, boundGrant) {
     const access = this.admission(snapshot, principalId, boundGrant);
-    if (!access.operator && access.chain.some(grant => !grant.actions.includes(method))) fail('FORBIDDEN', 'Action is outside delegated authority');
-    if (method==='schema.publish' && !access.operator) fail('FORBIDDEN','Schema admission requires operator authority');
-    if (method==='context.limits' && !access.operator) fail('FORBIDDEN','Context resource ceilings require the authenticated local operator');
-    if (['context.close','policy.activate'].includes(method) && !access.operator && !access.chain.every(grant=>grant.incidentIds==='all' && includesRef(grant.resourceRefs,this.ref(snapshot.context.id,snapshot.context.id)))) fail('FORBIDDEN','Operation requires context-wide delegation');
+    const methodAdmission=access.method(method,this.ref(snapshot.context.id,snapshot.context.id));
+    const refusal={MethodOutsideGrant:'Action is outside delegated authority',MethodSchemaOperator:'Schema admission requires operator authority',MethodLimitsOperator:'Context resource ceilings require the authenticated local operator',MethodContextWide:'Operation requires context-wide delegation'}[methodAdmission];
+    if(refusal)fail('FORBIDDEN',refusal);
     const incidentId=(method==='incident.create'?input.id:undefined) ?? input.incidentId ?? input.message?.incidentId ?? input.schedule?.incidentId ?? snapshot.controlState.schedules?.[input.scheduleId]?.value.incidentId ?? input.execution?.incidentId ?? input.proposal?.incidentId ?? snapshot.controlState.transitions?.[input.proposalId]?.value.proposal.incidentId ?? snapshot.controlState.executions?.[input.executionId]?.value.intent.incidentId;
     if (incidentId && !access.canIncident(incidentId)) fail('NOT_FOUND', 'Incident is not accessible');
     const resources=input.resourceRefs ?? (input.changes ?? []).map(change=>change.kind==='record.put'?this.ref(snapshot.context.id,change.record.id):change.kind==='assertion.put'?change.assertion.record:snapshot.assertions.find(item=>item.assertion.value.id===change.assertionId)?.assertion.value.record).filter(Boolean);
@@ -154,8 +151,9 @@ export class Kernel {
           if(receipt.response.intent?.input?.profile==='moment-guidance/1')this.guidance.inputAccess(current,receipt.response.intent.input,access);
           return ok(receipt.response.kind === 'commit-receipt' ? receipt.commit : receipt.response);
         }
-        if (current.context.revision !== input.expectedRevision) fail('REVISION_CONFLICT', 'Context changed since observation', 'refresh');
-        if (current.context.state !== 'open' && !['context.close','execution.finish','execution.reconcile','execution.cancel'].includes(method)) fail('FORBIDDEN', 'Context is closed');
+        const basis=core.mutationBasis(current.context.revision,input.expectedRevision,current.context.state,method);
+        if(basis==='MutationStale')fail('REVISION_CONFLICT','Context changed since observation','refresh');
+        if(basis==='MutationClosed')fail('FORBIDDEN','Context is closed');
       }
       const commitEventId=randomUUID();
       const batch = { mutation: input, principalId, requestDigest: digest(input), changes: [], controlChanges: [], events: [], outbox: [], response: { kind: 'commit-receipt' } };
@@ -304,14 +302,14 @@ export class Kernel {
         case 'incident.update': {
           const item = current.controlState.incidents?.[input.incidentId];
           if (!item) fail('NOT_FOUND', 'Incident not found');
-          if (['completed', 'cancelled'].includes(item.value.status) && !['completed', 'cancelled'].includes(input.incident.status)) fail('FORBIDDEN', 'Reopening requires a separately admitted operation');
+          if (!core.incidentRevisable(item.value.status,input.incident.status)) fail('FORBIDDEN', 'Reopening requires a separately admitted operation');
           this.incidentEvidence(current,input.incident,input.evidence,access);
           const stored = this.stored(input.contextId, { id: input.incidentId, ...input.incident }, revision, principalId);
           stored.value = { ...input.incident };
           stored.digest = digest(stored.value);
           stored.evidence=input.evidence;
           control('incidents', input.incidentId, stored);
-          if (['completed','cancelled'].includes(input.incident.status)) this.executions.cancelMatching(current,value=>value.intent.incidentId===input.incidentId,'Incident ended',principalId,control);
+          if (core.incidentTerminal(input.incident.status)) this.executions.cancelMatching(current,value=>value.intent.incidentId===input.incidentId,'Incident ended',principalId,control);
           batch.response = stored; break;
         }
         case 'graph.transact': this.admitGraph(current,input.changes,principalId,access);batch.changes=input.changes;break;
@@ -504,8 +502,9 @@ export class Kernel {
     }
   }
   incidentEvidence(snapshot,incident,evidence,access) {
-    if (incident.status!=='open' && !evidence) fail('INVALID_ARGUMENT','Non-open creation requires attributable evidence');
-    if (incident.status==='completed' && !evidence?.sources.length) fail('INVALID_ARGUMENT','Completion requires attributable evidence');
+    const decision=core.incidentEvidence(incident.status,evidence);
+    if(decision==='IncidentEvidenceMissing')fail('INVALID_ARGUMENT','Non-open creation requires attributable evidence');
+    if(decision==='IncidentCompletionMissing')fail('INVALID_ARGUMENT','Completion requires attributable evidence');
     for (const ref of evidence?.sources ?? []) {
       if (!access.canRead(ref)) fail('NOT_FOUND','Evidence is not accessible');
       this.lookup(snapshot,ref);
@@ -550,19 +549,15 @@ export class Kernel {
     let relatedIds;
     if (input.selector.relatedTo) {
       this.local(input.selector.relatedTo,snapshot.context.id);relatedIds=new Set();
-      for (const relation of snapshot.records) if (relation.value.kind==='relation' && access.canRead(relation.ref) && Object.entries(relation.value.roles).some(([role,refs])=>(!input.selector.relationRole || role===input.selector.relationRole) && refs.some(ref=>sameRef(ref,input.selector.relatedTo)))) {
+      for (const relation of snapshot.records) if (access.canRead(relation.ref) && core.queryRelated(relation.value,input.selector.relationRole,input.selector.relatedTo)) {
         for (const refs of Object.values(relation.value.roles)) for (const ref of refs) relatedIds.add(ref.id);
       }
     }
+    const matches=core.querySelection(input.selector,relatedIds===undefined?undefined:[...relatedIds]);
     const selected = snapshot.records.filter(item => {
       if (!access.canRead(item.ref)) return false;
-      const s = input.selector;
-      if (s.ids && !s.ids.includes(item.value.id)) return false;
-      if (s.schemaNames && !s.schemaNames.includes(item.value.schema.name)) return false;
       const support = visibleSupport(item.ref);
-      if (s.assertionStatus !== 'any' && !support.some(a => a.status === s.assertionStatus)) return false;
-      if (relatedIds && !relatedIds.has(item.ref.id)) return false;
-      return true;
+      return matches(item.value,support.map(item=>item.status));
     });
     const compare=(a,b)=>a<b?-1:a>b?1:0;
     if (options.groupBy==='schema') selected.sort((a,b)=>compare(a.value.schema.name,b.value.schema.name) || compare(a.ref.id,b.ref.id));
