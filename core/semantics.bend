@@ -18,6 +18,9 @@ def topology_certify(edges: +List<Top.Edge>, rank: Array<U32>) -> Top.Verdict:
 def resource_add(left: Budget.Count, right: Budget.Count) -> Budget.Amount:
   Budget.add(left, right)
 
+def resource_subtract(left: Budget.Count, right: Budget.Count) -> Budget.Amount:
+  Budget.subtract(left, right)
+
 def resource_le(left: Budget.Count, right: Budget.Count) -> Bool:
   Budget.le(left, right)
 
@@ -499,3 +502,143 @@ def role_connects(roles: +List<QueryRole>, +role_present: Bool, +role: String, +
 
 def query_related(kind: String, roles: +List<QueryRole>, role_present: Bool, role: String, target: String) -> Bool:
   Bool.and(String.eq(kind, "relation"), role_connects(roles, role_present, role, target, False{}))
+
+def fence_equal(left: Budget.Count, right: Budget.Count) -> Bool:
+  Budget.equal(left, right)
+
+def fence_next(current: Budget.Count) -> Budget.Amount:
+  Budget.add(current, Budget.one())
+
+def count_minimum(values: +List<Budget.Count>, +minimum: Budget.Count) -> Budget.Count:
+  match values:
+    case Nil{}:
+      minimum
+    case Con{head, tail}:
+      +value = head
+      count_minimum(tail, Bool.pick(Budget.Count, Budget.le(value, minimum), value, minimum))
+
+type LeaseWindow is Data:
+  ClockWindow{deadline: Budget.Count, duration: Budget.Count}
+  ClockExpired{}
+  ClockUnrepresentable{}
+
+def lease_duration(value: Budget.Amount, deadline: Budget.Count) -> LeaseWindow:
+  match value:
+    case Budget.BudgetOverflow{}:
+      ClockUnrepresentable{}
+    case Budget.BudgetFinite{count}:
+      ClockWindow{deadline, count}
+
+def lease_positive(expired: Bool, +now: Budget.Count, +deadline: Budget.Count) -> LeaseWindow:
+  Bool.pick(LeaseWindow, expired, ClockExpired{}, lease_duration(Budget.subtract(deadline, now), deadline))
+
+def lease_requested(value: Budget.Amount, +now: Budget.Count, bounds: +List<Budget.Count>) -> LeaseWindow:
+  match value:
+    case Budget.BudgetOverflow{}:
+      ClockUnrepresentable{}
+    case Budget.BudgetFinite{count}:
+      +deadline = count_minimum(bounds, count)
+      lease_positive(Budget.le(deadline, now), now, deadline)
+
+def lease_window(+now: Budget.Count, millis: Budget.Count, bounds: +List<Budget.Count>) -> LeaseWindow:
+  lease_requested(Budget.add(now, millis), now, bounds)
+
+def lease_frame(meta_present: Bool, source_boot: String, current_boot: String) -> Bool:
+  Bool.and(meta_present, String.eq(source_boot, current_boot))
+
+def lease_expired(present: Bool, meta_present: Bool, source_boot: String, current_boot: String, wall: Rank, wall_deadline: Rank, monotonic: Rank, monotonic_deadline: Rank) -> Bool:
+  Bool.and(present, Bool.or(Bool.not(lease_frame(meta_present, source_boot, current_boot)), Bool.or(rank_le(wall_deadline, wall), rank_le(monotonic_deadline, monotonic))))
+
+def lease_valid(present: Bool, holder: String, principal: String, lease_id: String, submitted_id: String, fence: Budget.Count, submitted_fence: Budget.Count, expired: Bool) -> Bool:
+  Bool.and(present, Bool.and(String.eq(holder, principal), Bool.and(String.eq(lease_id, submitted_id), Bool.and(Budget.equal(fence, submitted_fence), Bool.not(expired)))))
+
+type RetryAdmission is Data:
+  RetryAllowed{}
+  RetryCancelled{}
+  RetryUnsupported{}
+
+def retry_admission(cancelled: Bool, basis: String, provider: String) -> RetryAdmission:
+  Bool.pick(RetryAdmission, cancelled, RetryCancelled{}, Bool.pick(RetryAdmission, Bool.and(String.eq(basis, "idempotent"), Bool.not(String.eq(provider, "idempotent"))), RetryUnsupported{}, RetryAllowed{}))
+
+type Maintenance is Data:
+  ClockKeep{}
+  ClockLost{}
+  ClockCancelDeadline{}
+  ClockCancelAuthority{}
+
+def expiry_fold(expiries: +List<Rank>, +now: Rank, hit: Bool) -> Bool:
+  match expiries:
+    case Nil{}:
+      hit
+    case Con{head, tail}:
+      expiry_fold(tail, now, Bool.or(hit, rank_le(head, now)))
+
+def queued_maintenance(state: Run.State, capability_expired: Bool, grant_expired: Bool) -> Maintenance:
+  match state:
+    case Run.RunQueued{}:
+      Bool.pick(Maintenance, Bool.or(capability_expired, grant_expired), ClockCancelAuthority{}, ClockKeep{})
+    case _:
+      ClockKeep{}
+
+def execution_maintenance(+state: Run.State, expired: Bool, deadline_present: Bool, deadline: Rank, +now: Rank, capability_expiry: Rank, grant_expiries: +List<Rank>) -> Maintenance:
+  Bool.pick(Maintenance, Run.terminal(state), ClockKeep{}, Bool.pick(Maintenance, expired, ClockLost{},
+    Bool.pick(Maintenance, Bool.and(deadline_present, rank_le(deadline, now)), ClockCancelDeadline{},
+      queued_maintenance(state, rank_le(capability_expiry, now), expiry_fold(grant_expiries, now, False{})))))
+
+def marker_present(values: +List<String>) -> Bool:
+  match values:
+    case Nil{}:
+      False{}
+    case Con{head, tail}:
+      True{}
+
+def overrun_fold(markers: +List<+List<String>>, hit: Bool) -> Bool:
+  match markers:
+    case Nil{}:
+      hit
+    case Con{head, tail}:
+      overrun_fold(tail, Bool.or(hit, marker_present(head)))
+
+def resource_blocked(markers: +List<+List<String>>) -> Bool:
+  overrun_fold(markers, False{})
+
+def resource_single_slot(value: Budget.Count) -> Bool:
+  Budget.equal(value, Budget.one())
+
+def execution_queued(state: Run.State) -> Bool:
+  match state:
+    case Run.RunQueued{}:
+      True{}
+    case _:
+      False{}
+
+def execution_waits_deadline(state: Run.State, cancelled: Bool) -> Bool:
+  Bool.and(Bool.not(Run.terminal(state)), Bool.not(cancelled))
+
+type ClockCandidate is Data:
+  ClockCandidate{index: U32, value: Rank}
+
+type ClockDelay is Data:
+  ClockIdle{}
+  ClockImmediate{}
+  ClockSelected{index: U32}
+
+def delay_finish(candidate: ClockCandidate, zero: Rank) -> ClockDelay:
+  ClockCandidate{index, value} = candidate
+  Bool.pick(ClockDelay, rank_le(value, zero), ClockImmediate{}, ClockSelected{index})
+
+def delay_fold(values: +List<ClockCandidate>, +minimum: ClockCandidate, zero: Rank) -> ClockDelay:
+  match values:
+    case Nil{}:
+      delay_finish(minimum, zero)
+    case Con{head, tail}:
+      ClockCandidate{index, +value} = head
+      ClockCandidate{old_index, +old_value} = minimum
+      delay_fold(tail, Bool.pick(ClockCandidate, rank_le(value, old_value), ClockCandidate{index, value}, ClockCandidate{old_index, old_value}), zero)
+
+def clock_delay(values: +List<ClockCandidate>, zero: Rank) -> ClockDelay:
+  match values:
+    case Nil{}:
+      ClockIdle{}
+    case Con{head, tail}:
+      delay_fold(tail, head, zero)

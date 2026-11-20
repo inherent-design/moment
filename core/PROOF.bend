@@ -82,3 +82,24 @@ def Laws.overflow_never_fits():
 
 def Laws.empty_balance_is_usable():
   {==}
+
+def Laws.word_borrow_is_exact():
+  {==}
+
+def Laws.negative_difference_refused():
+  {==}
+
+def Laws.live_lease_is_usable():
+  {==}
+
+def Laws.missing_clock_frame_expires(wall, wall_end, mono, mono_end):
+  {==}
+
+def Laws.terminal_clock_is_inert():
+  {==}
+
+def Laws.exhausted_fence_refused():
+  {==}
+
+def Laws.cancellation_blocks_retry():
+  {==}

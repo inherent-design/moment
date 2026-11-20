@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import {digest} from '../runtime/json.mjs';
 import { atom, grant, incident, limits, allowDelegated, delegated } from './helpers.mjs';
 import { zeroUsage } from '../runtime/executions.mjs';
 
@@ -113,6 +114,52 @@ test('monotonic lease expiry remains effective when wall time moves backwards',t
   let wall=Date.now(),elapsed=0;const clock={ wall:()=>wall,monotonic:()=>elapsed,bootId:randomUUID() };
   const f=fixture(t,{ clock }),q=f.request();f.running(q.intent.id);wall-=60000;elapsed+=15001;
   assert.equal(f.get(q.intent.id).value.state,'unknown');
+});
+
+test('fractional monotonic deadlines preserve their frame when wall time later moves backwards',t=>{
+  let wall=Date.parse('2026-11-20T12:00:00.000Z'),elapsed=0.1;
+  const f=fixture(t,{clock:{wall:()=>wall,monotonic:()=>elapsed,bootId:randomUUID()}}),q=f.request(),running=f.running(q.intent.id);
+  const expected=elapsed+(Date.parse(running.lease.expiresAt)-wall),meta=f.store.read(f.contextId).controlState.executionLeases[q.intent.id];
+  assert.equal(meta.monotonicDeadline,expected,'Epoch-scale addition must not round away part of the monotonic origin');
+  wall-=60000;elapsed=expected;
+  assert.equal(f.get(q.intent.id).value.state,'unknown','Equality is expiration in either valid clock frame');
+});
+
+test('unknown work still wakes for its intent deadline and then rests after recording cancellation',t=>{
+  let wall=Date.parse('2026-11-20T12:00:00.000Z'),elapsed=0;
+  const clock={wall:()=>wall,monotonic:()=>elapsed,bootId:randomUUID()},f=fixture(t,{clock});
+  const execution={...f.intent(),limits:{...budget,deadline:new Date(wall+1000).toISOString()}};
+  assert.equal(f.write('execution.request',{execution}).ok,true);f.running(execution.id);
+  clock.bootId=randomUUID();assert.equal(f.get(execution.id).value.state,'unknown');
+  assert.equal(f.kernel.executions.nextDelay(),1000,'Uncertain effects retain their unobserved deadline');
+  wall+=1000;elapsed+=1000;f.kernel.executions.maintain(f.contextId);
+  const unknown=f.get(execution.id).value;assert.equal(unknown.state,'unknown');assert.equal(unknown.cancellation.reason,'Execution deadline observed');
+  assert.equal(f.kernel.executions.nextDelay(),null,'A recorded cancellation must not create an immediate timer loop');
+  const revision=f.store.read(f.contextId).context.revision;f.kernel.executions.maintain(f.contextId);assert.equal(f.store.read(f.contextId).context.revision,revision);
+});
+
+test('persisted high fencing tokens round-trip exactly and exhaustion refuses without effects',t=>{
+  const f=fixture(t),maximum=Number.MAX_SAFE_INTEGER;
+  // Seed valid high-counter states in this owned fixture; do not simulate
+  // quadrillions of provider attempts or claim that they actually occurred.
+  const seed=(id,attempt)=>{
+    const snapshot=f.store.read(f.contextId),previous=snapshot.controlState.executions[id],value={...previous.value,attempt};
+    const mutation={contextId:f.contextId,expectedRevision:snapshot.context.revision,idempotencyKey:randomUUID()};
+    const result=f.store.commit({mutation,principalId:f.ownerId,requestDigest:digest({id,attempt}),changes:[],controlChanges:[{namespace:'executions',key:id,value:f.kernel.stored(f.contextId,value,snapshot.context.revision+1,f.ownerId,id)}],events:[],outbox:[],response:{kind:'commit-receipt'}},'$fixture.high-counter');
+    assert.equal(result.ok,true);
+  };
+  const first=f.request();seed(first.intent.id,maximum-1);f.reopen();
+  const leased=f.claim(first.intent.id),lease=f.leaseInput(leased);assert.equal(lease.fencingToken,maximum);
+  assert.equal(f.write('execution.heartbeat',{...lease,leaseMillis:1000}).ok,true);
+  const before=f.store.read(f.contextId).context.revision;
+  assert.equal(f.write('execution.finish',{...lease,fencingToken:maximum%2**32,outcome,usage}).error.code,'LEASE_STALE');
+  assert.equal(f.store.read(f.contextId).context.revision,before);
+  assert.equal(f.write('execution.finish',{...lease,outcome,usage}).ok,true);
+  const second=f.request();seed(second.intent.id,maximum);f.reopen();
+  const revision=f.store.read(f.contextId).context.revision,outbox=f.store.outbox(f.contextId).length;
+  assert.equal(f.write('execution.claim',{executionId:second.intent.id,leaseMillis:1000}).error.code,'LIMIT_EXCEEDED');
+  assert.equal(f.store.read(f.contextId).context.revision,revision);assert.equal(f.store.outbox(f.contextId).length,outbox);
+  assert.equal(f.get(second.intent.id).value.state,'queued');
 });
 
 test('descendant grants share consumed ancestor budget',t=>{

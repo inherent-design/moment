@@ -146,3 +146,54 @@ export function resourceTotals(entries,grantId) {
 }
 export const resourceCapacity=(totals,requested,ceiling)=>coreBoolean(Core.resource_capacity(balance(totals),quantities(requested),quantities(ceiling)));
 export const resourceUsage=(previous,usage,ceiling,observed)=>coreBoolean(Core.resource_usage(quantities(previous),quantities(usage),quantities(ceiling),!!observed));
+
+export const resourceSubtract=(a,b)=>amountValue(Core.resource_subtract(count(a),count(b)));
+export const resourceBlocked=entries=>coreBoolean(Core.resource_blocked(list(entries.map(value=>list(value.limitViolations??[])))));
+export const resourceSingleSlot=value=>coreBoolean(Core.resource_single_slot(count(value)));
+export const executionQueued=state=>coreBoolean(Core.execution_queued(runState(state)));
+export const executionWaitsDeadline=(state,cancelled)=>coreBoolean(Core.execution_waits_deadline(runState(state),!!cancelled));
+export const fenceEqual=(a,b)=>coreBoolean(Core.fence_equal(count(a),count(b)));
+export function fenceNext(value) {
+ const next=amountValue(Core.fence_next(count(value)));if(next===Infinity)fail('LIMIT_EXCEEDED','Execution fencing token exhausted');return next;
+}
+const calendarStart=-62167219200000,calendarEnd=253402300799999;
+const wallCount=value=>{if(!Number.isSafeInteger(value)||value<calendarStart||value>calendarEnd)fail('INVALID_ARGUMENT','Wall clock requires an integer millisecond in the supported UTC calendar');return count(value-calendarStart);};
+export function observeClock(clock) {
+ const bootId=clock.bootId,wall=clock.wall(),monotonic=clock.monotonic();wallCount(wall);
+ if(typeof bootId!=='string'||!bootId||clock.bootId!==bootId||!Number.isFinite(monotonic)||monotonic<0||monotonic>Number.MAX_SAFE_INTEGER)fail('INVALID_ARGUMENT','Invalid or changed monotonic clock frame');
+ return {bootId,wall,monotonic};
+}
+export function leaseWindow(observed,millis,bounds) {
+ if(!Number.isSafeInteger(millis)||millis<1||millis>30000)fail('INVALID_ARGUMENT','Lease duration requires 1–30000 integer milliseconds');
+ const result=Core.lease_window(wallCount(observed.wall),count(millis),list(bounds.map(wallCount)));
+ if(result?.$==='ClockExpired')fail('LEASE_STALE','No remaining lease interval','reconcile');
+ if(result?.$==='ClockUnrepresentable')fail('INVALID_ARGUMENT','Lease window exceeds the supported clock representation');
+ if(result?.$!=='ClockWindow')fail('INTERNAL','Invalid core lease window');
+ const deadline=countValue(result.deadline)+calendarStart,duration=countValue(result.duration);wallCount(deadline);
+ if(duration<1||duration>millis)fail('INTERNAL','Invalid core lease interval');
+ // The interval is formed in one wall frame before interpolation into the
+ // observed fractional monotonic frame. Never add an epoch to that reading.
+ const monotonicDeadline=observed.monotonic+duration;
+ if(!Number.isFinite(monotonicDeadline)||monotonicDeadline<=observed.monotonic||monotonicDeadline>Number.MAX_SAFE_INTEGER)fail('INVALID_ARGUMENT','Monotonic clock cannot represent the lease interval');
+ return {expiresAt:new Date(deadline).toISOString(),meta:{bootId:observed.bootId,monotonicDeadline}};
+}
+export const leaseFrame=(meta,observed)=>coreBoolean(Core.lease_frame(!!meta,meta?.bootId??'',observed.bootId));
+export function leaseExpired(lease,meta,observed) {
+ return coreBoolean(Core.lease_expired(!!lease,!!meta,meta?.bootId??'',observed.bootId,rank(observed.wall),instant(lease?.expiresAt),rank(observed.monotonic),rank(meta?.monotonicDeadline??0)));
+}
+export function leaseValid(lease,meta,observed,principal,input) {
+ return coreBoolean(Core.lease_valid(!!lease,lease?.holderId??'',principal,lease?.id??'',input.leaseId,count(lease?.fencingToken??0),count(input.fencingToken),leaseExpired(lease,meta,observed)));
+}
+export function retryAdmission(cancelled,basis,provider) {
+ const result=Core.retry_admission(!!cancelled,basis,provider);if(!['RetryAllowed','RetryCancelled','RetryUnsupported'].includes(result?.$))fail('INTERNAL','Invalid core retry admission');return result.$;
+}
+export function executionMaintenance(value,meta,observed,capabilityExpiry,grantExpiries) {
+ const result=Core.execution_maintenance(runState(value.state),leaseExpired(value.lease,meta,observed),value.intent.limits.deadline!==undefined,instant(value.intent.limits.deadline),rank(observed.wall),rank(capabilityExpiry),list(grantExpiries.map(rank)));
+ if(!['ClockKeep','ClockLost','ClockCancelDeadline','ClockCancelAuthority'].includes(result?.$))fail('INTERNAL','Invalid core execution maintenance');return result.$;
+}
+export function timeDelay(values) {
+ if(!Array.isArray(values)||values.length>0x7fffffff)fail('INVALID_ARGUMENT','Timer selection is outside the index domain');
+ const result=Core.clock_delay(list(values.map((value,index)=>({$:'ClockCandidate',index,value:rank(value)}))),rank(0));
+ if(result?.$==='ClockIdle')return null;if(result?.$==='ClockImmediate')return 0;
+ if(result?.$!=='ClockSelected'||!Number.isInteger(result.index)||result.index<0||result.index>=values.length)fail('INTERNAL','Invalid core timer selection');return values[result.index];
+}

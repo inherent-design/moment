@@ -81,7 +81,7 @@ export class Executions {
     this.k.authorize(snapshot,cap.name,requester,{ incidentId:intent.incidentId,resourceRefs:[intent.capability] },intent.grant);
     boundLimits(intent.limits,snapshot.context.limits);boundLimits(intent.limits,this.k.lookup(snapshot,snapshot.context.policy).value.limits);
     for (const grant of access.chain) boundLimits(intent.limits,grant.limits);
-    if (intent.limits.concurrentExecutions!==1) fail('INVALID_ARGUMENT','One execution reserves exactly one concurrency slot');
+    if (!core.resourceSingleSlot(intent.limits.concurrentExecutions)) fail('INVALID_ARGUMENT','One execution reserves exactly one concurrency slot');
     if (intent.limits.deadline && Date.parse(intent.limits.deadline)<=this.k.clock.wall()) fail('LIMIT_EXCEEDED','Execution deadline passed');
     if (!this.k.compiled(this.k.schema(snapshot,cap.inputSchema))(intent.input)) fail('INVALID_ARGUMENT','Execution input does not satisfy the capability schema');
     validateVerifier(cap,this.k.ownerId,intent);
@@ -98,7 +98,7 @@ export class Executions {
     return core.resourceTotals(Object.entries(snapshot.controlState.executions??{}).map(([id,stored])=>({value:stored.value,origin:snapshot.controlState.executionOrigins[id]})),grantId);
   }
   capacity(snapshot,intent,chain) {
-    if (Object.values(snapshot.controlState.executions ?? {}).some(item=>item.value.limitViolations?.length)) fail('LIMIT_EXCEEDED','Observed resource overrun blocks further context dispatch');
+    if (core.resourceBlocked(Object.values(snapshot.controlState.executions??{}).map(item=>item.value))) fail('LIMIT_EXCEEDED','Observed resource overrun blocks further context dispatch');
     for (const [grantId,limits] of [[undefined,snapshot.context.limits],[undefined,this.k.lookup(snapshot,snapshot.context.policy).value.limits],...chain.map(grant=>[grant.id,grant.limits])]) {
       const totals=this.totals(snapshot,grantId);
       if(!core.resourceCapacity(totals,intent.limits,limits))fail('LIMIT_EXCEEDED','Aggregate execution reservation exceeds its envelope');
@@ -122,11 +122,10 @@ export class Executions {
     if(stored.value.intent.input?.profile===guidanceProfile)this.k.guidance.inputAccess(snapshot,stored.value.intent.input,access);
     return stored;
   }
-  expired(value,meta) {
-    return value.lease && (!meta || meta.bootId!==this.k.clock.bootId || this.k.clock.monotonic()>=meta.monotonicDeadline || this.k.clock.wall()>=Date.parse(value.lease.expiresAt));
-  }
   lease(snapshot,value,principal,input) {
-    if (!value.lease || value.lease.holderId!==principal || value.lease.id!==input.leaseId || value.lease.fencingToken!==input.fencingToken || this.expired(value,snapshot.controlState.executionLeases?.[value.intent.id])) fail('LEASE_STALE','Execution lease is stale','reconcile');
+    const observed=core.observeClock(this.k.clock);
+    if(!core.leaseValid(value.lease,snapshot.controlState.executionLeases?.[value.intent.id],observed,principal,input))fail('LEASE_STALE','Execution lease is stale','reconcile');
+    return observed;
   }
   usage(value,usage,outcome,observed=false) {
     if(!core.resourceUsage(value.usage,usage,value.intent.limits,observed))fail('LIMIT_EXCEEDED','Cumulative execution usage is outside its reservation');
@@ -150,34 +149,33 @@ export class Executions {
     let leaseMeta=snapshot.controlState.executionLeases?.[value.intent.id] ?? null;
     if (method==='execution.cancel') this.cancel(value,input.reason,principal);
     else if (method==='execution.claim') {
-      if (cap.providerId!==principal) fail('FORBIDDEN','Only the advertised provider can claim execution');
+      if (!core.sameText(cap.providerId,principal)) fail('FORBIDDEN','Only the advertised provider can claim execution');
       const next=transition(value,'claim');
       if(next.authority)this.authority(snapshot,value.intent,origin.principalId);
-      if (value.attempt>=Number.MAX_SAFE_INTEGER) fail('LIMIT_EXCEEDED','Execution fencing token exhausted');
-      value.attempt++;value.state=next.state;
-      const deadline=this.leaseDeadline(snapshot,value,input.leaseMillis,cap);
-      value.lease={ id:randomUUID(),holderId:principal,fencingToken:value.attempt,expiresAt:new Date(deadline).toISOString() };
-      leaseMeta={ bootId:this.k.clock.bootId,monotonicDeadline:this.k.clock.monotonic()+deadline-this.k.clock.wall() };
+      value.attempt=core.fenceNext(value.attempt);value.state=next.state;
+      const window=this.leaseWindow(snapshot,value,input.leaseMillis,cap);
+      value.lease={id:randomUUID(),holderId:principal,fencingToken:value.attempt,expiresAt:window.expiresAt};leaseMeta=window.meta;
     } else if (method==='execution.heartbeat') {
-      this.lease(snapshot,value,principal,input);
+      const observed=this.lease(snapshot,value,principal,input);
       const next=transition(value,'heartbeat');
       if(next.authority)this.authority(snapshot,value.intent,origin.principalId);value.state=next.state;
-      const deadline=this.leaseDeadline(snapshot,value,input.leaseMillis,cap);
-      value.lease.expiresAt=new Date(deadline).toISOString();leaseMeta={ bootId:this.k.clock.bootId,monotonicDeadline:this.k.clock.monotonic()+deadline-this.k.clock.wall() };
+      const window=this.leaseWindow(snapshot,value,input.leaseMillis,cap,observed);
+      value.lease.expiresAt=window.expiresAt;leaseMeta=window.meta;
     } else if (method==='execution.finish') {
       this.lease(snapshot,value,principal,input);
       const next=transition(value,'finish',input.outcome.kind);
       this.outcome(snapshot,value,input.outcome,input.usage,access,next.state);leaseMeta=null;
     } else if (method==='execution.reconcile') {
-      if (input.attempt!==value.attempt) fail('LEASE_STALE','Reconciliation names a different attempt','reconcile');
+      if (!core.fenceEqual(input.attempt,value.attempt)) fail('LEASE_STALE','Reconciliation names a different attempt','reconcile');
       const next=transition(value,input.resolution.kind==='retry'?'retry':'observed',input.resolution.outcome?.kind);
       if (principal!==cap.providerId && !access.operator && !access.canRead(stored.ref)) fail('FORBIDDEN','Reconciliation requires provider or explicit execution access');
       const resolution=input.resolution,evidence=resolution.kind==='retry'?resolution.evidence:resolution.outcome.evidence;
       this.evidence(snapshot,evidence,access,true);
       if (resolution.kind==='observed') this.outcome(snapshot,value,resolution.outcome,input.usage,access,next.state);
       else {
-        if (value.cancellation) fail('FORBIDDEN','Cancelled execution intent cannot be retried');
-        if (resolution.basis==='idempotent' && cap.reconciliation!=='idempotent') fail('FORBIDDEN','Provider does not declare idempotent replay');
+        const admission=core.retryAdmission(value.cancellation,resolution.basis,cap.reconciliation);
+        if(admission==='RetryCancelled')fail('FORBIDDEN','Cancelled execution intent cannot be retried');
+        if(admission==='RetryUnsupported')fail('FORBIDDEN','Provider does not declare idempotent replay');
         if(next.authority)this.authority(snapshot,value.intent,origin.principalId);this.usage(value,input.usage);
         value.state=next.state;value.usage=input.usage;delete value.outcome;delete value.lease;
       }
@@ -188,10 +186,8 @@ export class Executions {
   authorityExpiries(snapshot,value) {
     return snapshot.controlState.executionOrigins[value.intent.id].grantIds.map(id=>snapshot.controlState.grants[id].value.expiresAt).filter(Boolean).map(instant=>Date.parse(instant));
   }
-  leaseDeadline(snapshot,value,millis,cap) {
-    const deadline=Math.min(this.k.clock.wall()+millis,Date.parse(cap.expiresAt),value.intent.limits.deadline?Date.parse(value.intent.limits.deadline):Infinity,...this.authorityExpiries(snapshot,value));
-    if (deadline<=this.k.clock.wall()) fail('LEASE_STALE','No remaining lease interval','reconcile');
-    return deadline;
+  leaseWindow(snapshot,value,millis,cap,observed=core.observeClock(this.k.clock)) {
+    return core.leaseWindow(observed,millis,[Date.parse(cap.expiresAt),...(value.intent.limits.deadline?[Date.parse(value.intent.limits.deadline)]:[]),...this.authorityExpiries(snapshot,value)]);
   }
   cancel(value,reason,principal) {
     const next=transition(value,'cancel');if(!next.cancellation)return;
@@ -206,13 +202,14 @@ export class Executions {
     }
   }
   maintain(contextId) {
-    const k=this.k,snapshot=k.store.read(contextId),changes=[];
+    const k=this.k,snapshot=k.store.read(contextId),changes=[],observed=core.observeClock(k.clock);
     for (const [id,stored] of Object.entries(snapshot.controlState.executions ?? {})) {
       const value=structuredClone(stored.value);
-      if (this.expired(value,snapshot.controlState.executionLeases?.[id])) {
+      const queued=core.executionQueued(value.state),decision=core.executionMaintenance(value,snapshot.controlState.executionLeases?.[id],observed,queued?Date.parse(this.capability(snapshot,value.intent.capability).value.expiresAt):0,queued?this.authorityExpiries(snapshot,value):[]);
+      if (decision==='ClockLost') {
         value.state=transition(value,'lost').state;value.outcome={ kind:'unknown',detail:'Lease expired or its owning runtime restarted',evidence:{ sources:[],artifactDigests:[],method:'runtime-lease-observation' } };delete value.lease;
-      } else if (value.intent.limits.deadline && Date.parse(value.intent.limits.deadline)<=k.clock.wall()) this.cancel(value,'Execution deadline observed',k.ownerId);
-      else if (value.state==='queued' && (Date.parse(this.capability(snapshot,value.intent.capability).value.expiresAt)<=k.clock.wall() || this.authorityExpiries(snapshot,value).some(time=>time<=k.clock.wall()))) this.cancel(value,'Undispatched capability or grant expired',k.ownerId);
+      } else if (decision==='ClockCancelDeadline') this.cancel(value,'Execution deadline observed',k.ownerId);
+      else if (decision==='ClockCancelAuthority') this.cancel(value,'Undispatched capability or grant expired',k.ownerId);
       if (canonical(value)!==canonical(stored.value)) {
         changes.push({ namespace:'executions',key:id,value:k.stored(contextId,value,snapshot.context.revision+1,k.ownerId,id) });
         if (!value.lease) changes.push({ namespace:'executionLeases',key:id,value:null });
@@ -226,21 +223,22 @@ export class Executions {
   }
   maintainAll() { for (const id of this.k.store.contextIds()) this.maintain(id); }
   nextDelay() {
-    const k=this.k;let delay=Infinity;
+    const k=this.k,observed=core.observeClock(k.clock),delays=[];
     for (const id of k.store.contextIds()) {
       const snapshot=k.store.read(id);
       for (const stored of Object.values(snapshot.controlState.executions ?? {})) {
         const value=stored.value;
-        if (value.lease) {
+        if (value.lease && !terminal(value.state)) {
           const meta=snapshot.controlState.executionLeases?.[value.intent.id];
-          delay=Math.min(delay,!meta || meta.bootId!==k.clock.bootId?0:Math.min(Date.parse(value.lease.expiresAt)-k.clock.wall(),meta.monotonicDeadline-k.clock.monotonic()));
+          if(!core.leaseFrame(meta,observed))delays.push(0);else delays.push(Date.parse(value.lease.expiresAt)-observed.wall,meta.monotonicDeadline-observed.monotonic);
         }
-        if (value.state==='queued') {
-          const deadlines=[Date.parse(this.capability(snapshot,value.intent.capability).value.expiresAt),...this.authorityExpiries(snapshot,value),...(value.intent.limits.deadline?[Date.parse(value.intent.limits.deadline)]:[])];
-          delay=Math.min(delay,...deadlines.map(time=>time-k.clock.wall()));
+        if (core.executionQueued(value.state)) {
+          const deadlines=[Date.parse(this.capability(snapshot,value.intent.capability).value.expiresAt),...this.authorityExpiries(snapshot,value)];
+          delays.push(...deadlines.map(time=>time-observed.wall));
         }
+        if(core.executionWaitsDeadline(value.state,value.cancellation)&&value.intent.limits.deadline)delays.push(Date.parse(value.intent.limits.deadline)-observed.wall);
       }
     }
-    return delay===Infinity?null:Math.max(0,delay);
+    return core.timeDelay(delays);
   }
 }

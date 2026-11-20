@@ -704,6 +704,28 @@ function $accounting_add(_left_0, _right_0) {
   return $accounting_added(((_x_0 + _x_1) >>> 0), _low_0);
 }
 
+function $accounting_subtract_checked(_allowed_0, _left_0, _right_0) {
+  if (!_allowed_0) {
+    return {$: "BudgetOverflow"};
+  } else {
+    const _a_0 = _left_0["high"];
+    const _b_0 = _left_0["low"];
+    const _c_0 = _right_0["high"];
+    const _d_0 = _right_0["low"];
+    const _x_0 = ((_a_0 - _c_0) >>> 0);
+    const _x_1 = $$Bool_pick((_b_0 < _d_0), 1, 0);
+    return {$: "BudgetFinite", "count": {$: "BudgetCount", "high": ((_x_0 - _x_1) >>> 0), "low": ((_b_0 - _d_0) >>> 0)}};
+  }
+}
+
+function $accounting_subtract(_left_0, _right_0) {
+  return $accounting_subtract_checked($$accounting_le(_right_0, _left_0), _left_0, _right_0);
+}
+
+function $accounting_equal(_left_0, _right_0) {
+  return $Bool_and($$accounting_le(_left_0, _right_0), $$accounting_le(_right_0, _left_0));
+}
+
 function $accounting_accumulate(_value_0, _extra_0) {
   if (_value_0.$ === "BudgetOverflow") {
     return {$: "BudgetOverflow"};
@@ -852,6 +874,10 @@ function $topology_certify_1(_edges_0, _rank_0) {
 
 function $resource_add(_left_0, _right_0) {
   return $accounting_add(_left_0, _right_0);
+}
+
+function $resource_subtract(_left_0, _right_0) {
+  return $accounting_subtract(_left_0, _right_0);
 }
 
 function $resource_le(_left_0, _right_0) {
@@ -1377,6 +1403,200 @@ function $query_related(_kind_0, _roles_0, _role_present_0, _role_0, _target_0) 
   return $Bool_and($$String_eq(_kind_0, "relation"), $$role_connects(_roles_0, _role_present_0, _role_0, _target_0, false));
 }
 
+function $fence_equal(_left_0, _right_0) {
+  return $accounting_equal(_left_0, _right_0);
+}
+
+function $fence_next(_current_0) {
+  return $accounting_add(_current_0, $$accounting_one());
+}
+
+function $count_minimum($0, $1) {
+  for (;;) {
+    {
+      const _values_0 = $0;
+      const _minimum_0 = $1;
+      if (_values_0.$ === "Nil") {
+        return _minimum_0;
+      } else {
+        const _head_0 = _values_0["head"];
+        const _tail_0 = _values_0["tail"];
+        const _value_0 = _head_0;
+        $0 = _tail_0;
+        $1 = $$Bool_pick($$accounting_le(_value_0, _minimum_0), _value_0, _minimum_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $lease_duration(_value_0, _deadline_0) {
+  if (_value_0.$ === "BudgetOverflow") {
+    return {$: "ClockUnrepresentable"};
+  } else {
+    const _count_0 = _value_0["count"];
+    return {$: "ClockWindow", "deadline": _deadline_0, "duration": _count_0};
+  }
+}
+
+function $lease_positive(_expired_0, _now_0, _deadline_0) {
+  return $Bool_pick(_expired_0, {$: "ClockExpired"}, $$lease_duration($$accounting_subtract(_deadline_0, _now_0), _deadline_0));
+}
+
+function $lease_requested(_value_0, _now_0, _bounds_0) {
+  if (_value_0.$ === "BudgetOverflow") {
+    return {$: "ClockUnrepresentable"};
+  } else {
+    const _count_0 = _value_0["count"];
+    const _deadline_0 = $$count_minimum(_bounds_0, _count_0);
+    return $lease_positive($$accounting_le(_deadline_0, _now_0), _now_0, _deadline_0);
+  }
+}
+
+function $lease_window(_now_0, _millis_0, _bounds_0) {
+  return $lease_requested($$accounting_add(_now_0, _millis_0), _now_0, _bounds_0);
+}
+
+function $lease_frame(_meta_present_0, _source_boot_0, _current_boot_0) {
+  return $Bool_and(_meta_present_0, $$String_eq(_source_boot_0, _current_boot_0));
+}
+
+function $lease_expired(_present_0, _meta_present_0, _source_boot_0, _current_boot_0, _wall_0, _wall_deadline_0, _monotonic_0, _monotonic_deadline_0) {
+  const _x_0 = $$rank_le(_wall_deadline_0, _wall_0);
+  const _x_1 = $$rank_le(_monotonic_deadline_0, _monotonic_0);
+  const _x_2 = $$Bool_not($$lease_frame(_meta_present_0, _source_boot_0, _current_boot_0));
+  const _x_3 = (_x_0 || _x_1);
+  return $Bool_and(_present_0, (_x_2 || _x_3));
+}
+
+function $lease_valid(_present_0, _holder_0, _principal_0, _lease_id_0, _submitted_id_0, _fence_0, _submitted_fence_0, _expired_0) {
+  return $Bool_and(_present_0, $$Bool_and($$String_eq(_holder_0, _principal_0), $$Bool_and($$String_eq(_lease_id_0, _submitted_id_0), $$Bool_and($$accounting_equal(_fence_0, _submitted_fence_0), $$Bool_not(_expired_0)))));
+}
+
+function $retry_admission(_cancelled_0, _basis_0, _provider_0) {
+  return $Bool_pick(_cancelled_0, {$: "RetryCancelled"}, $$Bool_pick($$Bool_and($$String_eq(_basis_0, "idempotent"), $$Bool_not($$String_eq(_provider_0, "idempotent"))), {$: "RetryUnsupported"}, {$: "RetryAllowed"}));
+}
+
+function $expiry_fold($0, $1, $2) {
+  for (;;) {
+    {
+      const _expiries_0 = $0;
+      const _now_0 = $1;
+      const _hit_0 = $2;
+      if (_expiries_0.$ === "Nil") {
+        return _hit_0;
+      } else {
+        const _head_0 = _expiries_0["head"];
+        const _tail_0 = _expiries_0["tail"];
+        const _x_0 = $$rank_le(_head_0, _now_0);
+        $0 = _tail_0;
+        $1 = _now_0;
+        $2 = (_hit_0 || _x_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $queued_maintenance(_state_0, _capability_expired_0, _grant_expired_0) {
+  if (_state_0.$ === "RunQueued") {
+    return $Bool_pick((_capability_expired_0 || _grant_expired_0), {$: "ClockCancelAuthority"}, {$: "ClockKeep"});
+  } else {
+    return {$: "ClockKeep"};
+  }
+}
+
+function $execution_maintenance(_state_0, _expired_0, _deadline_present_0, _deadline_0, _now_0, _capability_expiry_0, _grant_expiries_0) {
+  return $Bool_pick($$execution_terminal(_state_0), {$: "ClockKeep"}, $$Bool_pick(_expired_0, {$: "ClockLost"}, $$Bool_pick($$Bool_and(_deadline_present_0, $$rank_le(_deadline_0, _now_0)), {$: "ClockCancelDeadline"}, $$queued_maintenance(_state_0, $$rank_le(_capability_expiry_0, _now_0), $$expiry_fold(_grant_expiries_0, _now_0, false)))));
+}
+
+function $marker_present(_values_0) {
+  if (_values_0.$ === "Nil") {
+    return false;
+  } else {
+    return true;
+  }
+}
+
+function $overrun_fold($0, $1) {
+  for (;;) {
+    {
+      const _markers_0 = $0;
+      const _hit_0 = $1;
+      if (_markers_0.$ === "Nil") {
+        return _hit_0;
+      } else {
+        const _head_0 = _markers_0["head"];
+        const _tail_0 = _markers_0["tail"];
+        const _x_0 = $$marker_present(_head_0);
+        $0 = _tail_0;
+        $1 = (_hit_0 || _x_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $resource_blocked(_markers_0) {
+  return $overrun_fold(_markers_0, false);
+}
+
+function $resource_single_slot(_value_0) {
+  return $accounting_equal(_value_0, $$accounting_one());
+}
+
+function $execution_queued(_state_0) {
+  if (_state_0.$ === "RunQueued") {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+function $execution_waits_deadline(_state_0, _cancelled_0) {
+  return $Bool_and($$Bool_not($$execution_terminal(_state_0)), $$Bool_not(_cancelled_0));
+}
+
+function $delay_finish(_candidate_0, _zero_0) {
+  const _index_0 = _candidate_0["index"];
+  const _value_0 = _candidate_0["value"];
+  return $Bool_pick($$rank_le(_value_0, _zero_0), {$: "ClockImmediate"}, {$: "ClockSelected", "index": _index_0});
+}
+
+function $delay_fold($0, $1, $2) {
+  for (;;) {
+    {
+      const _values_0 = $0;
+      const _minimum_0 = $1;
+      const _zero_0 = $2;
+      if (_values_0.$ === "Nil") {
+        return $delay_finish(_minimum_0, _zero_0);
+      } else {
+        const _t_0 = _values_0["head"];
+        const _index_0 = _t_0["index"];
+        const _value_0 = _t_0["value"];
+        const _tail_0 = _values_0["tail"];
+        const _old_index_0 = _minimum_0["index"];
+        const _old_value_0 = _minimum_0["value"];
+        $0 = _tail_0;
+        $1 = $$Bool_pick($$rank_le(_value_0, _old_value_0), {$: "ClockCandidate", "index": _index_0, "value": _value_0}, {$: "ClockCandidate", "index": _old_index_0, "value": _old_value_0});
+        $2 = _zero_0;
+        continue;
+      }
+    }
+  }
+}
+
+function $clock_delay(_values_0, _zero_0) {
+  if (_values_0.$ === "Nil") {
+    return {$: "ClockIdle"};
+  } else {
+    const _head_0 = _values_0["head"];
+    const _tail_0 = _values_0["tail"];
+    return $delay_fold(_tail_0, _head_0, _zero_0);
+  }
+}
+
 function $Bool_not(_b_0) {
   if (!_b_0) {
     return true;
@@ -1559,6 +1779,15 @@ const $$method_delegate = $method_delegate;
 const $$incident_terminal = $incident_terminal;
 const $$incident_sources = $incident_sources;
 const $$role_connects = $role_connects;
+const $$accounting_subtract = $accounting_subtract;
+const $$lease_duration = $lease_duration;
+const $$count_minimum = $count_minimum;
+const $$accounting_add = $accounting_add;
+const $$lease_frame = $lease_frame;
+const $$accounting_equal = $accounting_equal;
+const $$expiry_fold = $expiry_fold;
+const $$queued_maintenance = $queued_maintenance;
+const $$marker_present = $marker_present;
 const $$String_order = $String_order;
 const $$List_append = $List_append;export default {
   "execution:terminal": run_lib((a0) => run_loop($execution_terminal(a0)), 1),
@@ -1591,6 +1820,9 @@ const $$List_append = $List_append;export default {
   "accounting:maximum": run_lib((a0,a1) => run_loop($accounting_maximum(a0,a1)), 2),
   "accounting:added": run_lib((a0,a1) => run_loop($accounting_added(a0,a1)), 2),
   "accounting:add": run_lib((a0,a1) => run_loop($accounting_add(a0,a1)), 2),
+  "accounting:subtract_checked": run_lib((a0,a1,a2) => run_loop($accounting_subtract_checked(a0,a1,a2)), 3),
+  "accounting:subtract": run_lib((a0,a1) => run_loop($accounting_subtract(a0,a1)), 2),
+  "accounting:equal": run_lib((a0,a1) => run_loop($accounting_equal(a0,a1)), 2),
   "accounting:accumulate": run_lib((a0,a1) => run_loop($accounting_accumulate(a0,a1)), 2),
   "accounting:fits": run_lib((a0,a1) => run_loop($accounting_fits(a0,a1)), 2),
   "accounting:empty": run_lib(() => run_loop($accounting_empty()), 0),
@@ -1609,6 +1841,7 @@ const $$List_append = $List_append;export default {
   "topology_check": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($topology_check_1(a0,a1,a2,a3,a4,a5,a6)), 7),
   "topology_certify": run_lib((a0,a1) => run_loop($topology_certify_1(a0,a1)), 2),
   "resource_add": run_lib((a0,a1) => run_loop($resource_add(a0,a1)), 2),
+  "resource_subtract": run_lib((a0,a1) => run_loop($resource_subtract(a0,a1)), 2),
   "resource_le": run_lib((a0,a1) => run_loop($resource_le(a0,a1)), 2),
   "resource_totals": run_lib((a0) => run_loop($resource_totals(a0)), 1),
   "resource_capacity": run_lib((a0,a1,a2) => run_loop($resource_capacity(a0,a1,a2)), 3),
@@ -1667,4 +1900,27 @@ const $$List_append = $List_append;export default {
   "query_match": run_lib((a0,a1,a2,a3,a4,a5,a6,a7,a8,a9) => run_loop($query_match(str_in(a0),str_in(a1),a2,a3,a4,a5,a6,str_in(a7),a8,a9)), 10),
   "role_connects": run_lib((a0,a1,a2,a3,a4) => run_loop($role_connects(a0,a1,str_in(a2),str_in(a3),a4)), 5),
   "query_related": run_lib((a0,a1,a2,a3,a4) => run_loop($query_related(str_in(a0),a1,a2,str_in(a3),str_in(a4))), 5),
+  "fence_equal": run_lib((a0,a1) => run_loop($fence_equal(a0,a1)), 2),
+  "fence_next": run_lib((a0) => run_loop($fence_next(a0)), 1),
+  "count_minimum": run_lib((a0,a1) => run_loop($count_minimum(a0,a1)), 2),
+  "lease_duration": run_lib((a0,a1) => run_loop($lease_duration(a0,a1)), 2),
+  "lease_positive": run_lib((a0,a1,a2) => run_loop($lease_positive(a0,a1,a2)), 3),
+  "lease_requested": run_lib((a0,a1,a2) => run_loop($lease_requested(a0,a1,a2)), 3),
+  "lease_window": run_lib((a0,a1,a2) => run_loop($lease_window(a0,a1,a2)), 3),
+  "lease_frame": run_lib((a0,a1,a2) => run_loop($lease_frame(a0,str_in(a1),str_in(a2))), 3),
+  "lease_expired": run_lib((a0,a1,a2,a3,a4,a5,a6,a7) => run_loop($lease_expired(a0,a1,str_in(a2),str_in(a3),a4,a5,a6,a7)), 8),
+  "lease_valid": run_lib((a0,a1,a2,a3,a4,a5,a6,a7) => run_loop($lease_valid(a0,str_in(a1),str_in(a2),str_in(a3),str_in(a4),a5,a6,a7)), 8),
+  "retry_admission": run_lib((a0,a1,a2) => run_loop($retry_admission(a0,str_in(a1),str_in(a2))), 3),
+  "expiry_fold": run_lib((a0,a1,a2) => run_loop($expiry_fold(a0,a1,a2)), 3),
+  "queued_maintenance": run_lib((a0,a1,a2) => run_loop($queued_maintenance(a0,a1,a2)), 3),
+  "execution_maintenance": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($execution_maintenance(a0,a1,a2,a3,a4,a5,a6)), 7),
+  "marker_present": run_lib((a0) => run_loop($marker_present(a0)), 1),
+  "overrun_fold": run_lib((a0,a1) => run_loop($overrun_fold(a0,a1)), 2),
+  "resource_blocked": run_lib((a0) => run_loop($resource_blocked(a0)), 1),
+  "resource_single_slot": run_lib((a0) => run_loop($resource_single_slot(a0)), 1),
+  "execution_queued": run_lib((a0) => run_loop($execution_queued(a0)), 1),
+  "execution_waits_deadline": run_lib((a0,a1) => run_loop($execution_waits_deadline(a0,a1)), 2),
+  "delay_finish": run_lib((a0,a1) => run_loop($delay_finish(a0,a1)), 2),
+  "delay_fold": run_lib((a0,a1,a2) => run_loop($delay_fold(a0,a1,a2)), 3),
+  "clock_delay": run_lib((a0,a1) => run_loop($clock_delay(a0,a1)), 2),
 };

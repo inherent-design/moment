@@ -13,7 +13,7 @@ export function checkAxioms(output,claims) {
 export function checkCorrespondence(output) {
  const truth=value=>value==='true'?true:value==='false'?false:value==='unknown'?'unknown':(()=>{throw Error('Unknown model truth');})();
  const rows=output.split('\n').filter(line=>line.startsWith('case|'));
- assert.equal(rows.length,24405,'The complete declared finite correspondence set must be present');
+ assert.equal(rows.length,25879,'The complete declared finite correspondence set must be present');
  const counts={},seen=new Set(),choose=(values,mask)=>values.filter((_value,i)=>Number(mask)&2**i);
  const when={kind:'equal',left:{kind:'literal',value:true},right:{kind:'literal',value:true}},rules=[
   {id:'read',effect:'permit',when,actions:['read']},{id:'write',effect:'permit',when,actions:['write']},
@@ -35,6 +35,8 @@ export function checkCorrespondence(output) {
  const budgetZero=()=>Object.fromEntries(['cpuMillis','memoryBytes','outputBytes','modelTokens','apiSpendMicrounits','concurrentExecutions'].map(key=>[key,0]));
  const amountLabel=n=>n===Infinity?'overflow':String(n);
  const budgetEntry=(state,key,ceiling,usage,unknown,grantIds=[])=>({value:{state,intent:{limits:{...budgetZero(),concurrentExecutions:1,[key]:Number(ceiling)}},usage:{...budgetZero(),[key]:Number(usage),...(unknown?{unmeasured:[key]}:{})}},origin:{grantIds}});
+ const sequence=(values,size,code)=>Array.from({length:Number(size)},(_,i)=>values[Math.floor(Number(code)/values.length**i)%values.length]);
+ const date=value=>new Date(value).toISOString(),calendarStart=-62167219200000;
  for(const row of rows){const [,kind,...parts]=row.split('|'),expected=parts.pop(),key=[kind,...parts].join('|');let actual;
   assert.ok(!seen.has(key),'Duplicate model input: '+key);seen.add(key);counts[kind]=(counts[kind]??0)+1;
   const a=['not','all','any','policy','record','assertion'].includes(kind)?truth(parts[0]):undefined;
@@ -107,9 +109,41 @@ export function checkCorrespondence(output) {
    const entries=Array.from({length:2},(_,i)=>budgetEntry(Number(stateMask)&2**i?'running':'succeeded','cpuMillis',values[Math.floor(Number(code)/3**i)%3],1,!!(Number(unknownMask)&2**i),[i===0?'a':'b','shared']));
    const total=core.resourceTotals(entries,scope==='all'?undefined:scope);actual=amountLabel(total.cpuMillis)+':'+total.concurrentExecutions;
   }
+  else if(kind==='budgetSubtract')actual=amountLabel(core.resourceSubtract(Number(parts[0]),Number(parts[1])));
+  else if(kind==='fenceEqual')actual=String(core.fenceEqual(Number(parts[0]),Number(parts[1])));
+  else if(kind==='fenceNext'){
+   try{actual=String(core.fenceNext(Number(parts[0])));}catch(error){if(error.code!=='LIMIT_EXCEEDED')throw error;actual='overflow';}
+  }
+  else if(kind==='singleSlot')actual=String(core.resourceSingleSlot(Number(parts[0])));
+  else if(kind==='leaseWindow'){
+   const [millis,size,code]=parts,bounds=sequence([50,100,101,1100,30100],size,code);
+   try{const result=core.leaseWindow({bootId:'boot',wall:calendarStart+100,monotonic:0.25},Number(millis),bounds.map(value=>calendarStart+value));actual=[Date.parse(result.expiresAt)-calendarStart,Date.parse(result.expiresAt)-(calendarStart+100)].join(':');}
+   catch(error){if(error.code!=='LEASE_STALE')throw error;actual='expired';}
+  }
+  else if(kind==='leaseExpiry'){
+   const [present,meta,boot,wall,mono]=parts;
+   actual=String(core.leaseExpired(truth(present)?{expiresAt:date(100)}:undefined,truth(meta)?{bootId:truth(boot)?'boot':'other',monotonicDeadline:100}:undefined,{bootId:'boot',wall:Number(wall),monotonic:Number(mono)/4}));
+  }
+  else if(kind==='leaseValid'){
+   const [present,meta,boot,holder,identity,fence,live,token]=parts;
+   const lease=truth(present)?{expiresAt:date(100),holderId:truth(holder)?'holder':'other',id:'lease',fencingToken:Number(token)}:undefined;
+   actual=String(core.leaseValid(lease,truth(meta)?{bootId:truth(boot)?'boot':'other',monotonicDeadline:100.25}:undefined,{bootId:'boot',wall:truth(live)?99:100,monotonic:0.25},'holder',{leaseId:truth(identity)?'lease':'different',fencingToken:truth(fence)?Number(token):0}));
+  }
+  else if(kind==='retryAdmission')actual=core.retryAdmission(truth(parts[0]),parts[1],parts[2]);
+  else if(kind==='executionQueued')actual=String(core.executionQueued(parts[0]));
+  else if(kind==='executionDeadline')actual=String(core.executionWaitsDeadline(parts[0],truth(parts[1])));
+  else if(kind==='executionMaintenance'){
+   const [state,expired,deadline,cap,grants]=parts,at=[undefined,99,100,101][Number(deadline)];
+   const value={state,intent:{limits:at===undefined?{}:{deadline:date(at)}},...(truth(expired)?{lease:{expiresAt:date(1000)}}:{})};
+   actual=core.executionMaintenance(value,truth(expired)?{bootId:'other',monotonicDeadline:1000}:undefined,{bootId:'boot',wall:100,monotonic:0.25},Number(cap),[[],[99],[101]][Number(grants)]);
+  }
+  else if(kind==='clockDelay'){
+   const values=sequence([-4,-1,0,1,4],parts[0],parts[1]),result=core.timeDelay(values.map(v=>v/4));actual=result===null?'idle':String(result*4);
+  }
+  else if(kind==='resourceBlocked')actual=String(core.resourceBlocked(sequence([[],['cpuMillis'],['memoryBytes'],['cpuMillis','memoryBytes']],parts[0],parts[1]).map(limitViolations=>({limitViolations}))));
   else throw Error('Unknown model case');
   assert.equal(actual,expected,'Native/model correspondence mismatch: '+row);
  }
- assert.deepEqual(counts,{not:3,all:9,any:9,policy:9,record:4,assertion:12,withdraw:3,graph:63,grant:576,grantEnd:2,policyRules:1024,issuers:16,runTerminal:8,runStep:104,runTrace:1352,topology:1062,topologyExtra:18,topologyProjection:48,topologyCombine:17,topologyCertificate:13824,accessOperator:8,accessResource:680,accessIncident:510,accessMethod:1020,incidentTerminal:4,incidentEdit:16,incidentEvidence:12,mutationBasis:96,querySelection:768,queryRelated:96,budgetAdd:121,budgetLe:121,budgetCapacity:1296,budgetCharge:648,budgetUsage:270,budgetTrace:576});
- return {cases:rows.length,counts,coverage:'Finite truth/support and execution tables and two-step traces; record/support orderings through length five; grant boundaries and four-rule/two-action policies; every directed graph through three nodes, both parent modes, invalid/duplicate inputs and three-valued rank certificates; chains through length three over four scope samples and six method gates; incident/evidence and revision boundaries; named query-filter/support/role product; exact resource count boundaries, per-field capacity/charge/usage products and scoped two-reservation traces',limitations:['Finite exhaustive correspondence only within the named input sets, not every possible policy or graph','Topology certificate theorem excludes cycles for every finite checked edge set, conditional on its stated rank check; native input assembly and compiler translation remain trust boundaries','Execution signals require native lease/provider/evidence/current-authority validation; state selection grants none of those','Grant scope tables assume independently validated current grant chains and authenticated principal observations','Theorems concern their stated models; compiler/translation and native adapters remain explicit trust boundaries','Resource counting is accounting, not host-enforced isolation or currency conversion; numeric codecs and native effects require independent execution checks']};
+ assert.deepEqual(counts,{not:3,all:9,any:9,policy:9,record:4,assertion:12,withdraw:3,graph:63,grant:576,grantEnd:2,policyRules:1024,issuers:16,runTerminal:8,runStep:104,runTrace:1352,topology:1062,topologyExtra:18,topologyProjection:48,topologyCombine:17,topologyCertificate:13824,accessOperator:8,accessResource:680,accessIncident:510,accessMethod:1020,incidentTerminal:4,incidentEdit:16,incidentEvidence:12,mutationBasis:96,querySelection:768,queryRelated:96,budgetAdd:121,budgetLe:121,budgetCapacity:1296,budgetCharge:648,budgetUsage:270,budgetTrace:576,fenceNext:11,singleSlot:11,budgetSubtract:121,fenceEqual:121,leaseWindow:93,leaseExpiry:72,leaseValid:384,retryAdmission:12,executionQueued:8,executionDeadline:16,executionMaintenance:384,clockDelay:156,resourceBlocked:85});
+ return {cases:rows.length,counts,coverage:'Finite truth/support and execution tables and two-step traces; record/support orderings through length five; grant boundaries and four-rule/two-action policies; every directed graph through three nodes and named rank certificates; bounded scope chains, incident/evidence/revision and query products; exact resource/count boundaries and scoped reservation traces; bounded lease windows and wall/quarter-millisecond expiry observations, credentials/fences, retries, maintenance and timer/overrun selections',limitations:['Finite exhaustive correspondence only within the named input sets, not every possible policy or graph','Topology certificate theorem excludes cycles under its complete rank-check premise; native input assembly and compiler translation remain trust boundaries','Lease comparison tables assume authenticated clock observations in their stated frames; native fractional interpolation is separately exercised and is not a physical-clock theorem','Execution signals require native lease/provider/evidence/current-authority validation; state selection grants none of those','Grant scope tables assume independently validated current grant chains and authenticated principal observations','Theorems concern their stated models; compiler/translation and native adapters remain explicit trust boundaries','Resource counting is accounting, not host-enforced isolation or currency conversion; numeric codecs and native effects require independent execution checks']};
 }

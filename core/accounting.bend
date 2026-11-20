@@ -32,6 +32,22 @@ def add(left: Count, right: Count) -> Amount:
   +low = U32.add(b, d)
   added(U32.add(U32.add(a, c), Bool.pick(U32, U32.is_lt(low, b), 1, 0)), low)
 
+def subtract_checked(allowed: Bool, left: Count, right: Count) -> Amount:
+  match allowed:
+    case False{}:
+      BudgetOverflow{}
+    case True{}:
+      BudgetCount{a, +b} = left
+      BudgetCount{c, +d} = right
+      BudgetFinite{BudgetCount{U32.sub(U32.sub(a, c), Bool.pick(U32, U32.is_lt(b, d), 1, 0)), U32.sub(b, d)}}
+
+# Unrepresentable negative differences refuse rather than wrapping.
+def subtract(+left: Count, +right: Count) -> Amount:
+  subtract_checked(le(right, left), left, right)
+
+def equal(+left: Count, +right: Count) -> Bool:
+  Bool.and(le(left, right), le(right, left))
+
 def accumulate(value: Amount, extra: Count) -> Amount:
   match value:
     case BudgetOverflow{}:

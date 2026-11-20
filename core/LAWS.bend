@@ -95,3 +95,28 @@ law overflow_never_fits:
 
 law empty_balance_is_usable:
   {Budget.within(Budget.empty(), Budget.BudgetQuantities{Budget.zero(), Budget.zero(), Budget.zero(), Budget.zero(), Budget.zero(), Budget.zero()}) == True{} : Bool}
+
+law word_borrow_is_exact:
+  {Budget.subtract(Budget.BudgetCount{1, 0}, Budget.one()) == Budget.BudgetFinite{Budget.BudgetCount{0, 4294967295}} : Budget.Amount}
+
+law negative_difference_refused:
+  {Budget.subtract(Budget.zero(), Budget.one()) == Budget.BudgetOverflow{} : Budget.Amount}
+
+law live_lease_is_usable:
+  {Core.lease_window(Budget.BudgetCount{0, 100}, Budget.one(), Con{Budget.BudgetCount{0, 200}, Nil{}}) == Core.ClockWindow{Budget.BudgetCount{0, 101}, Budget.one()} : Core.LeaseWindow}
+
+law missing_clock_frame_expires:
+  for wall: Core.Rank
+  for wall_end: Core.Rank
+  for mono: Core.Rank
+  for mono_end: Core.Rank
+  {Core.lease_expired(True{}, False{}, "", "boot", wall, wall_end, mono, mono_end) == True{} : Bool}
+
+law terminal_clock_is_inert:
+  {Core.execution_maintenance(Run.RunSucceeded{}, True{}, False{}, Core.Rank{0, 0}, Core.Rank{0, 0}, Core.Rank{0, 0}, Nil{}) == Core.ClockKeep{} : Core.Maintenance}
+
+law exhausted_fence_refused:
+  {Core.fence_next(Budget.BudgetCount{2097151, 4294967295}) == Budget.BudgetOverflow{} : Budget.Amount}
+
+law cancellation_blocks_retry:
+  {Core.retry_admission(True{}, "idempotent", "idempotent") == Core.RetryCancelled{} : Core.RetryAdmission}

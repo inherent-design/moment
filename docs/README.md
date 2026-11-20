@@ -32,4 +32,4 @@ Moment's implementation target is a local kernel whose reactions can be explaine
 | Documentation ownership and cleanup | [Documentation maintenance](development/documentation.md) |
 | Research precedents and applicability | [Research](research.md) |
 
-The `0.1` contract is a development proposal. Owner-established direction, agent-selected engineering defaults, implemented behavior, and verified evidence are different statuses. The decision record identifies the first two; implementation and verification records identify the latter two.
+The binding catalog distinguishes implemented operations from declared surfaces. The separate evolution declarations remain proposals. Owner-established direction, engineering defaults, implemented behavior and verified evidence are different statuses; use their owning documents and actual discovery results.

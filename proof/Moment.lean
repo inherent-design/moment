@@ -391,6 +391,108 @@ theorem usage_never_decreases (previous usage ceiling : Nat) (observed : Bool)
   have first := (Bool.and_eq_true_iff.mp h).1
   exact of_decide_eq_true first
 
+def budgetSubtract (a b : Nat) : Option Nat := if b ≤ a then some (a-b) else none
+theorem safe_difference_is_exact (a b n : Nat) (h : budgetSubtract a b = some n) : n+b = a := by
+  unfold budgetSubtract at h
+  split at h
+  · simp only [Option.some.injEq] at h
+    omega
+  · contradiction
+theorem borrowed_difference_is_exact (a b c d : Nat) (hb : b < 4294967296) (hd : d < 4294967296)
+    (ordered : c*4294967296+d ≤ a*4294967296+b) :
+    (a-c-(if b < d then 1 else 0))*4294967296 + (b+4294967296-d)%4294967296 =
+      (a*4294967296+b)-(c*4294967296+d) := by
+  split <;> omega
+
+theorem minimum_is_bounded (xs : List Nat) (initial : Nat) : xs.foldl min initial ≤ initial := by
+  induction xs generalizing initial with
+  | nil => exact Nat.le_refl _
+  | cons head tail ih => exact Nat.le_trans (ih (min initial head)) (Nat.min_le_left initial head)
+theorem minimum_below_member (xs : List Nat) (initial value : Nat) (member : value ∈ xs) :
+    xs.foldl min initial ≤ value := by
+  induction xs generalizing initial with
+  | nil => contradiction
+  | cons head tail ih =>
+    simp only [List.mem_cons] at member
+    rcases member with rfl | rest
+    · exact Nat.le_trans (minimum_is_bounded tail (min initial value)) (Nat.min_le_right initial value)
+    · exact ih (min initial head) rest
+inductive LeaseWindow | expired | window (deadline duration : Nat) deriving DecidableEq, Repr
+def leaseWindow (now millis : Nat) (bounds : List Nat) : LeaseWindow :=
+  let deadline := bounds.foldl min (now+millis)
+  if deadline ≤ now then .expired else .window deadline (deadline-now)
+theorem lease_window_is_bounded (now millis deadline duration : Nat) (bounds : List Nat)
+    (admitted : leaseWindow now millis bounds = .window deadline duration) :
+    now < deadline ∧ deadline ≤ now+millis ∧ duration = deadline-now := by
+  dsimp only [leaseWindow] at admitted
+  split at admitted
+  · contradiction
+  · rename_i positive
+    cases admitted
+    exact ⟨Nat.lt_of_not_ge positive,minimum_is_bounded bounds (now+millis),rfl⟩
+theorem lease_respects_every_bound (now millis deadline duration bound : Nat) (bounds : List Nat)
+    (admitted : leaseWindow now millis bounds = .window deadline duration) (member : bound ∈ bounds) :
+    deadline ≤ bound := by
+  dsimp only [leaseWindow] at admitted
+  split at admitted
+  · contradiction
+  · cases admitted
+    exact minimum_below_member bounds (now+millis) bound member
+
+def leaseFrame (present : Bool) (source current : String) : Bool := present && source == current
+def leaseExpired (present framePresent : Bool) (source current : String) (wall wallEnd mono monoEnd : Int) : Bool :=
+  present && (!leaseFrame framePresent source current || wallEnd ≤ wall || monoEnd ≤ mono)
+def leaseValid (present framePresent : Bool) (source current holder principal id submittedId : String)
+    (fence submittedFence : Nat) (wall wallEnd mono monoEnd : Int) : Bool :=
+  present && holder == principal && id == submittedId && fence == submittedFence &&
+    !leaseExpired present framePresent source current wall wallEnd mono monoEnd
+theorem missing_frame_expires (a b : String) (w e m n : Int) : leaseExpired true false a b w e m n = true := by simp [leaseExpired, leaseFrame]
+theorem wrong_boot_expires (a b : String) (framePresent : Bool) (w e m n : Int) (changed : a ≠ b) :
+    leaseExpired true framePresent a b w e m n = true := by simp [leaseExpired, leaseFrame, changed]
+inductive RetryAdmission | allowed | cancelled | unsupported deriving DecidableEq, Repr
+def retryAdmission (cancelled : Bool) (basis provider : String) : RetryAdmission :=
+  if cancelled then .cancelled else if basis == "idempotent" && provider != "idempotent" then .unsupported else .allowed
+theorem cancellation_blocks_retry (basis provider : String) : retryAdmission true basis provider = .cancelled := rfl
+inductive Maintenance | keep | lost | cancelDeadline | cancelAuthority deriving DecidableEq, Repr
+def executionMaintenance (state : RunState) (expired : Bool) (deadline : Option Nat) (now capabilityExpiry : Nat)
+    (grantExpiries : List Nat) : Maintenance :=
+  if runTerminal state then .keep
+  else if expired then .lost
+  else if deadline.any (fun time => time ≤ now) then .cancelDeadline
+  else if state == .queued && (capabilityExpiry ≤ now || grantExpiries.any (fun time => time ≤ now)) then .cancelAuthority
+  else .keep
+theorem terminal_maintenance_unchanged (state : RunState) (ended : runTerminal state = true)
+    (expired : Bool) (deadline : Option Nat) (now cap : Nat) (grants : List Nat) :
+    executionMaintenance state expired deadline now cap grants = .keep := by simp [executionMaintenance, ended]
+def maintenanceApply (state : RunState) : Maintenance → RunState
+  | .keep => state
+  | .lost => runApply state .lost
+  | .cancelDeadline | .cancelAuthority => runApply state .cancel
+theorem expired_active_refuses_reclaim (state : RunState) (active : runTerminal state = false)
+    (deadline : Option Nat) (now cap : Nat) (grants : List Nat) :
+    runStep (maintenanceApply state (executionMaintenance state true deadline now cap grants)) .claim = .notClaimable := by
+  simp [executionMaintenance, active, maintenanceApply, runApply, runStep]
+theorem fencing_strictly_increases (old next : Nat) (h : budgetAdd old 1 = some next) : old < next := by
+  have exactSum := (safe_sum_is_exact old 1 next h).1
+  omega
+def executionQueued (state : RunState) : Bool := state == .queued
+def executionWaitsDeadline (state : RunState) (cancelled : Bool) : Bool := !runTerminal state && !cancelled
+def clockDelay (values : List Int) : Option Int :=
+  values.foldl (fun minimum value => some (min (minimum.getD value) value)) none |>.map (max 0)
+def resourceBlocked (markers : List (List String)) : Bool := markers.any (fun row => !row.isEmpty)
+
+#print axioms safe_difference_is_exact
+#print axioms borrowed_difference_is_exact
+#print axioms minimum_is_bounded
+#print axioms minimum_below_member
+#print axioms lease_window_is_bounded
+#print axioms lease_respects_every_bound
+#print axioms missing_frame_expires
+#print axioms wrong_boot_expires
+#print axioms terminal_maintenance_unchanged
+#print axioms expired_active_refuses_reclaim
+#print axioms cancellation_blocks_retry
+#print axioms fencing_strictly_increases
 #print axioms safe_sum_is_exact
 #print axioms overflow_stays_overflow
 #print axioms capacity_respects_ceiling
@@ -567,6 +669,25 @@ def budgetTrace (stateMask unknownMask code : Nat) (scope : String) : Option Nat
       let ceiling := ([1,2,Moment.budgetMaximum][code / 3^i % 3]?).getD 0
       (Moment.budgetAccumulate amount (Moment.budgetCharge (if active then .running else .succeeded) "cpuMillis" unknown ceiling 1), concurrent + if active then 1 else 0)) (some 0,0)
 
+def leaseWindowLabel : Moment.LeaseWindow → String
+  | .expired => "expired"
+  | .window deadline duration => s!"{deadline}:{duration}"
+def clockBounds (size code : Nat) : List Nat :=
+  (List.range size).map (fun i => ([50,100,101,1100,30100][code / 5^i % 5]?).getD 0)
+def retryLabel : Moment.RetryAdmission → String
+  | .allowed => "RetryAllowed"
+  | .cancelled => "RetryCancelled"
+  | .unsupported => "RetryUnsupported"
+def maintenanceLabel : Moment.Maintenance → String
+  | .keep => "ClockKeep"
+  | .lost => "ClockLost"
+  | .cancelDeadline => "ClockCancelDeadline"
+  | .cancelAuthority => "ClockCancelAuthority"
+def clockDelayValues (size code : Nat) : List Int :=
+  (List.range size).map (fun i => ([-4,-1,0,1,4][code / 5^i % 5]?).getD 0)
+def overrunMarkers (size code : Nat) : List (List String) :=
+  (List.range size).map (fun i => ([[],["cpuMillis"],["memoryBytes"],["cpuMillis","memoryBytes"]][code / 4^i % 4]?).getD [])
+
 /-- Bounded executable correspondence cases; these do not replace theorems. -/
 def main : IO Unit := do
   let values : List Moment.Truth := [.yes,.no,.unknown]
@@ -703,3 +824,45 @@ def main : IO Unit := do
         for scope in ["all","a","shared","missing"] do
           let (amount, concurrent) := budgetTrace stateMask unknownMask code scope
           IO.println s!"case|budgetTrace|{stateMask}|{unknownMask}|{code}|{scope}|{budgetLabel amount}:{concurrent}"
+  for a in budgetValues do
+    IO.println s!"case|fenceNext|{a}|{budgetLabel (Moment.budgetAdd a 1)}"
+    IO.println s!"case|singleSlot|{a}|{decide (a = 1)}"
+    for b in budgetValues do
+      IO.println s!"case|budgetSubtract|{a}|{b}|{budgetLabel (Moment.budgetSubtract a b)}"
+      IO.println s!"case|fenceEqual|{a}|{b}|{decide (a = b)}"
+  for millis in [1,1000,30000] do
+    for size in List.range 3 do
+      for code in List.range (5^size) do
+        IO.println s!"case|leaseWindow|{millis}|{size}|{code}|{leaseWindowLabel (Moment.leaseWindow 100 millis (clockBounds size code))}"
+  for present in [false,true] do
+    for framePresent in [false,true] do
+      for boot in [false,true] do
+        for wall in ([99,100,101] : List Int) do
+          for mono in ([399,400,401] : List Int) do
+            IO.println s!"case|leaseExpiry|{present}|{framePresent}|{boot}|{wall}|{mono}|{Moment.leaseExpired present framePresent (if boot then "boot" else "other") "boot" wall 100 mono 400}"
+        for holder in [false,true] do
+          for identity in [false,true] do
+            for fence in [false,true] do
+              for live in [false,true] do
+                for token in [1,4294967296,9007199254740991] do
+                  let actual := Moment.leaseValid present framePresent (if boot then "boot" else "other") "boot" (if holder then "holder" else "other") "holder" "lease" (if identity then "lease" else "different") token (if fence then token else 0) (if live then 99 else 100) 100 1 401
+                  IO.println s!"case|leaseValid|{present}|{framePresent}|{boot}|{holder}|{identity}|{fence}|{live}|{token}|{actual}"
+  for cancelled in [false,true] do
+    for basis in ["not_started","idempotent"] do
+      for provider in ["lookup","idempotent","manual"] do
+        IO.println s!"case|retryAdmission|{cancelled}|{basis}|{provider}|{retryLabel (Moment.retryAdmission cancelled basis provider)}"
+  for state in runStates do
+    IO.println s!"case|executionQueued|{runLabel state}|{Moment.executionQueued state}"
+    for cancelled in [false,true] do
+      IO.println s!"case|executionDeadline|{runLabel state}|{cancelled}|{Moment.executionWaitsDeadline state cancelled}"
+    for expired in [false,true] do
+      for (deadline, index) in ([none,some 99,some 100,some 101] : List (Option Nat)).zipIdx do
+        for cap in [99,101] do
+          for (grants, grantIndex) in ([[],[99],[101]] : List (List Nat)).zipIdx do
+            IO.println s!"case|executionMaintenance|{runLabel state}|{expired}|{index}|{cap}|{grantIndex}|{maintenanceLabel (Moment.executionMaintenance state expired deadline 100 cap grants)}"
+  for size in List.range 4 do
+    for code in List.range (5^size) do
+      let result := (Moment.clockDelay (clockDelayValues size code)).map toString |>.getD "idle"
+      IO.println s!"case|clockDelay|{size}|{code}|{result}"
+    for code in List.range (4^size) do
+      IO.println s!"case|resourceBlocked|{size}|{code}|{Moment.resourceBlocked (overrunMarkers size code)}"
