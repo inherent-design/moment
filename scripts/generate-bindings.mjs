@@ -88,7 +88,10 @@ export function generateBindings() {
     const mode = id === 'context.create' ? 'bootstrap' : id === 'service.stop' ? 'control' : mutation || memoryWrite ? 'write' : 'read';
     const owner=managedMethods.includes(id)?(id==='bindings.discover'?'runtime/bindings.mjs':'runtime/managed.mjs'):serviceMethods.includes(id)?'runtime/server.mjs':'runtime/kernel.mjs';
     const domain={execution:'runtime/executions.mjs',capability:'runtime/executions.mjs',schedule:'runtime/scheduler.mjs',events:'runtime/events.mjs',messages:'runtime/awareness.mjs',prompt:'runtime/awareness.mjs',graph:'runtime/graph.mjs',captures:'runtime/captures.mjs',memory:'runtime/session-memory.mjs',guidance:'runtime/guidance.mjs'}[id.split('.')[0]];
-    const operationSources=[...new Set(['contracts/index.ts',...(id==='captures.read'?['contracts/captures.ts']:[]),'runtime/operations.mjs','runtime/input-schemas.mjs','runtime/validation.mjs','runtime/directives.mjs',owner,...(domain?[domain]:[])])].sort().map(source);
+    // Installed operations share the source-checked semantic boundary, even
+    // when a selected handler only reads metadata from that installed build.
+    const semanticSources=implemented?['core/semantics.bend','runtime/semantic-core.mjs','runtime/semantic-manifest.mjs','runtime/generated/semantics.mjs','runtime/generated/semantics.json']:[];
+    const operationSources=[...new Set(['contracts/index.ts',...(id==='captures.read'?['contracts/captures.ts']:[]),'runtime/operations.mjs','runtime/input-schemas.mjs','runtime/validation.mjs','runtime/directives.mjs',owner,...(domain?[domain]:[]),...semanticSources])].sort().map(source);
     // The checked TS shape and the existing admitted refinements both apply.
     // Keep their local-reference namespaces separate in a self-contained document.
     const input = pruneSchema(implemented ? { ...schemas.input, type: 'object', allOf: [{ $ref: '#/$defs/admitted' }], $defs: { ...schemas.input.$defs, admitted: inputSchemas[id], ...defs } } : schemas.input);

@@ -17,6 +17,7 @@ test('catalog generation is deterministic and accounts for exact installed handl
   assert.equal(first, canonical(generateBindings()) + '\n');
   assert.equal(first, readFileSync(outputPath, 'utf8'));
   const implemented = catalog.operations.filter(o => o.availability === 'implemented');
+  for(const binding of implemented)for(const path of ['core/semantics.bend','runtime/semantic-core.mjs','runtime/generated/semantics.mjs'])assert.equal(binding.sources.find(s=>s.path===path)?.digest,catalog.sources.find(s=>s.path===path)?.digest,'Discovered operations retain their actual executable semantic provenance');
   assert.deepEqual(implemented.map(o => o.id).sort(), [...kernelMethods, ...serviceMethods, ...managedMethods].sort());
   assert.equal(new Set(catalog.operations.map(o => o.mcpName)).size, catalog.operations.length);
   assert.equal(discoverBindings({ operationId: 'artifact.put' }).operations[0].availability, 'declared');
