@@ -4,10 +4,19 @@ import { sameRef, boundLimits, grantChain } from './authority.mjs';
 import { validateVerifier } from './providers/bytes-definition.mjs';
 import {guidanceProfile} from './guidance.mjs';
 import {matchesGuidance,guidanceCapabilityName} from './guidance-profile.mjs';
+import * as core from './semantic-core.mjs';
 
 import { executionMethods } from './operations.mjs';
 export { executionMethods } from './operations.mjs';
-export const terminal=state=>['succeeded','failed','cancelled'].includes(state);
+export const terminal=core.executionTerminal;
+const transition=(value,action,outcome)=>{
+  const step=core.executionStep(value.state,action,outcome);
+  if(step.kind==='NotClaimable')fail('LEASE_STALE','Execution is not claimable','reconcile');
+  if(step.kind==='Inactive')fail('LEASE_STALE','Execution is not active','reconcile');
+  if(step.kind==='DispatchRequired')fail('INVALID_ARGUMENT','Dispatch heartbeat is required before reporting an effect');
+  if(step.kind==='NotUncertain')fail('INVALID_ARGUMENT','Only unknown executions can be reconciled');
+  return step;
+};
 const cumulative=['cpuMillis','outputBytes','modelTokens','apiSpendMicrounits'];
 export const zeroUsage=()=>({ cpuMillis:0,memoryBytes:0,outputBytes:0,modelTokens:0,apiSpendMicrounits:0 });
 
@@ -137,14 +146,14 @@ export class Executions {
     const bytes=outcome?.kind==='succeeded'?Buffer.byteLength(canonical(outcome.output)):outcome?.detail?Buffer.byteLength(outcome.detail):0;
     if (usage.outputBytes<bytes) fail('INVALID_ARGUMENT','Reported output usage does not cover the outcome');
   }
-  outcome(snapshot,value,outcome,usage,access) {
+  outcome(snapshot,value,outcome,usage,access,state) {
     this.evidence(snapshot,outcome.evidence,access);
     this.usage(value,usage,outcome,true);
     if (outcome.kind==='succeeded') {
       const cap=this.capability(snapshot,value.intent.capability).value;
       if (!this.k.compiled(this.k.schema(snapshot,cap.outputSchema))(outcome.output)) fail('INVALID_ARGUMENT','Outcome does not satisfy capability output schema');
     }
-    value.state=outcome.kind;value.outcome=outcome;value.usage=usage;delete value.lease;
+    value.state=state;value.outcome=outcome;value.usage=usage;delete value.lease;
     const violations=[...cumulative,'memoryBytes'].filter(key=>usage[key]>value.intent.limits[key]);
     if (violations.length) value.limitViolations=violations;
   }
@@ -155,36 +164,35 @@ export class Executions {
     if (method==='execution.cancel') this.cancel(value,input.reason,principal);
     else if (method==='execution.claim') {
       if (cap.providerId!==principal) fail('FORBIDDEN','Only the advertised provider can claim execution');
-      if (value.state!=='queued') fail('LEASE_STALE','Execution is not claimable','reconcile');
-      this.authority(snapshot,value.intent,origin.principalId);
+      const next=transition(value,'claim');
+      if(next.authority)this.authority(snapshot,value.intent,origin.principalId);
       if (value.attempt>=Number.MAX_SAFE_INTEGER) fail('LIMIT_EXCEEDED','Execution fencing token exhausted');
-      value.attempt++;value.state='leased';
+      value.attempt++;value.state=next.state;
       const deadline=this.leaseDeadline(snapshot,value,input.leaseMillis,cap);
       value.lease={ id:randomUUID(),holderId:principal,fencingToken:value.attempt,expiresAt:new Date(deadline).toISOString() };
       leaseMeta={ bootId:this.k.clock.bootId,monotonicDeadline:this.k.clock.monotonic()+deadline-this.k.clock.wall() };
     } else if (method==='execution.heartbeat') {
       this.lease(snapshot,value,principal,input);
-      if (!['leased','running','cancel_requested'].includes(value.state)) fail('LEASE_STALE','Execution is not active','reconcile');
-      if (value.state!=='cancel_requested') { this.authority(snapshot,value.intent,origin.principalId);value.state='running'; }
+      const next=transition(value,'heartbeat');
+      if(next.authority)this.authority(snapshot,value.intent,origin.principalId);value.state=next.state;
       const deadline=this.leaseDeadline(snapshot,value,input.leaseMillis,cap);
       value.lease.expiresAt=new Date(deadline).toISOString();leaseMeta={ bootId:this.k.clock.bootId,monotonicDeadline:this.k.clock.monotonic()+deadline-this.k.clock.wall() };
     } else if (method==='execution.finish') {
       this.lease(snapshot,value,principal,input);
-      if (!['leased','running','cancel_requested'].includes(value.state)) fail('LEASE_STALE','Execution is not active','reconcile');
-      if (value.state==='leased' && ['succeeded','failed'].includes(input.outcome.kind)) fail('INVALID_ARGUMENT','Dispatch heartbeat is required before reporting an effect');
-      this.outcome(snapshot,value,input.outcome,input.usage,access);leaseMeta=null;
+      const next=transition(value,'finish',input.outcome.kind);
+      this.outcome(snapshot,value,input.outcome,input.usage,access,next.state);leaseMeta=null;
     } else if (method==='execution.reconcile') {
       if (input.attempt!==value.attempt) fail('LEASE_STALE','Reconciliation names a different attempt','reconcile');
-      if (value.state!=='unknown') fail('INVALID_ARGUMENT','Only unknown executions can be reconciled');
+      const next=transition(value,input.resolution.kind==='retry'?'retry':'observed',input.resolution.outcome?.kind);
       if (principal!==cap.providerId && !access.operator && !access.canRead(stored.ref)) fail('FORBIDDEN','Reconciliation requires provider or explicit execution access');
       const resolution=input.resolution,evidence=resolution.kind==='retry'?resolution.evidence:resolution.outcome.evidence;
       this.evidence(snapshot,evidence,access,true);
-      if (resolution.kind==='observed') this.outcome(snapshot,value,resolution.outcome,input.usage,access);
+      if (resolution.kind==='observed') this.outcome(snapshot,value,resolution.outcome,input.usage,access,next.state);
       else {
         if (value.cancellation) fail('FORBIDDEN','Cancelled execution intent cannot be retried');
         if (resolution.basis==='idempotent' && cap.reconciliation!=='idempotent') fail('FORBIDDEN','Provider does not declare idempotent replay');
-        this.authority(snapshot,value.intent,origin.principalId);this.usage(value,input.usage);
-        value.state='queued';value.usage=input.usage;delete value.outcome;delete value.lease;
+        if(next.authority)this.authority(snapshot,value.intent,origin.principalId);this.usage(value,input.usage);
+        value.state=next.state;value.usage=input.usage;delete value.outcome;delete value.lease;
       }
       leaseMeta=null;
     } else fail('INVALID_ARGUMENT','Unknown execution operation');
@@ -199,11 +207,10 @@ export class Executions {
     return deadline;
   }
   cancel(value,reason,principal) {
-    if (terminal(value.state)) return;
+    const next=transition(value,'cancel');if(!next.cancellation)return;
     value.cancellation ??= { requestedBy:principal,requestedAt:new Date(this.k.clock.wall()).toISOString(),reason };
-    if (value.state==='unknown') return;
-    if (value.state==='queued') { value.state='cancelled';value.outcome={ kind:'cancelled',evidence:{ sources:[],artifactDigests:[],method:reason } }; }
-    else value.state='cancel_requested';
+    value.state=next.state;
+    if(next.immediate)value.outcome={ kind:'cancelled',evidence:{ sources:[],artifactDigests:[],method:reason } };
   }
   cancelMatching(snapshot,predicate,reason,principal,control) {
     for (const [id,stored] of Object.entries(snapshot.controlState.executions ?? {})) if (predicate(stored.value,snapshot.controlState.executionOrigins[id])) {
@@ -216,7 +223,7 @@ export class Executions {
     for (const [id,stored] of Object.entries(snapshot.controlState.executions ?? {})) {
       const value=structuredClone(stored.value);
       if (this.expired(value,snapshot.controlState.executionLeases?.[id])) {
-        value.state='unknown';value.outcome={ kind:'unknown',detail:'Lease expired or its owning runtime restarted',evidence:{ sources:[],artifactDigests:[],method:'runtime-lease-observation' } };delete value.lease;
+        value.state=transition(value,'lost').state;value.outcome={ kind:'unknown',detail:'Lease expired or its owning runtime restarted',evidence:{ sources:[],artifactDigests:[],method:'runtime-lease-observation' } };delete value.lease;
       } else if (value.intent.limits.deadline && Date.parse(value.intent.limits.deadline)<=k.clock.wall()) this.cancel(value,'Execution deadline observed',k.ownerId);
       else if (value.state==='queued' && (Date.parse(this.capability(snapshot,value.intent.capability).value.expiresAt)<=k.clock.wall() || this.authorityExpiries(snapshot,value).some(time=>time<=k.clock.wall()))) this.cancel(value,'Undispatched capability or grant expired',k.ownerId);
       if (canonical(value)!==canonical(stored.value)) {

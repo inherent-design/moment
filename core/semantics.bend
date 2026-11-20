@@ -1,4 +1,11 @@
 import Base
+import ./execution.bend as Run
+
+def execution_step(state: Run.State, action: Run.Action) -> Run.Step:
+  Run.step(state, action)
+
+def execution_terminal(state: Run.State) -> Bool:
+  Run.terminal(state)
 
 # These values describe observations. Authority is a separate decision.
 type Truth is Data:

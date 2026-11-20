@@ -180,6 +180,154 @@ function io_eff(k, run) {
 // Program
 // =======
 
+function $execution_terminal(_state_0) {
+  if (_state_0.$ === "RunSucceeded") {
+    return true;
+  } else if (_state_0.$ === "RunFailed") {
+    return true;
+  } else if (_state_0.$ === "RunCancelled") {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+function $execution_result(_outcome_0) {
+  if (_outcome_0.$ === "RunSuccess") {
+    return {$: "RunSucceeded"};
+  } else if (_outcome_0.$ === "RunFailure") {
+    return {$: "RunFailed"};
+  } else if (_outcome_0.$ === "RunCancellation") {
+    return {$: "RunCancelled"};
+  } else {
+    return {$: "RunUncertain"};
+  }
+}
+
+function $execution_finish_leased(_outcome_0) {
+  if (_outcome_0.$ === "RunSuccess") {
+    return {$: "RunDispatchRequired"};
+  } else if (_outcome_0.$ === "RunFailure") {
+    return {$: "RunDispatchRequired"};
+  } else if (_outcome_0.$ === "RunCancellation") {
+    return {$: "RunNext", "state": {$: "RunCancelled"}, "cancellation": false, "authority": false, "immediate": false};
+  } else {
+    return {$: "RunNext", "state": {$: "RunUncertain"}, "cancellation": false, "authority": false, "immediate": false};
+  }
+}
+
+function $execution_step(_state_0, _action_0) {
+  if (_state_0.$ === "RunQueued") {
+    if (_action_0.$ === "RunClaim") {
+      return {$: "RunNext", "state": {$: "RunLeased"}, "cancellation": false, "authority": true, "immediate": false};
+    } else if (_action_0.$ === "RunHeartbeat") {
+      return {$: "RunInactive"};
+    } else if (_action_0.$ === "RunFinish") {
+      return {$: "RunInactive"};
+    } else if (_action_0.$ === "RunCancel") {
+      return {$: "RunNext", "state": {$: "RunCancelled"}, "cancellation": true, "authority": false, "immediate": true};
+    } else if (_action_0.$ === "RunLost") {
+      return {$: "RunNext", "state": {$: "RunUncertain"}, "cancellation": false, "authority": false, "immediate": false};
+    } else if (_action_0.$ === "RunRetry") {
+      return {$: "RunNotUncertain"};
+    } else {
+      return {$: "RunNotUncertain"};
+    }
+  } else if (_state_0.$ === "RunLeased") {
+    if (_action_0.$ === "RunClaim") {
+      return {$: "RunNotClaimable"};
+    } else if (_action_0.$ === "RunHeartbeat") {
+      return {$: "RunNext", "state": {$: "RunRunning"}, "cancellation": false, "authority": true, "immediate": false};
+    } else if (_action_0.$ === "RunFinish") {
+      const _outcome_2 = _action_0["outcome"];
+      return $execution_finish_leased(_outcome_2);
+    } else if (_action_0.$ === "RunCancel") {
+      return {$: "RunNext", "state": {$: "RunCancelling"}, "cancellation": true, "authority": false, "immediate": false};
+    } else if (_action_0.$ === "RunLost") {
+      return {$: "RunNext", "state": {$: "RunUncertain"}, "cancellation": false, "authority": false, "immediate": false};
+    } else if (_action_0.$ === "RunRetry") {
+      return {$: "RunNotUncertain"};
+    } else {
+      return {$: "RunNotUncertain"};
+    }
+  } else if (_state_0.$ === "RunRunning") {
+    if (_action_0.$ === "RunClaim") {
+      return {$: "RunNotClaimable"};
+    } else if (_action_0.$ === "RunHeartbeat") {
+      return {$: "RunNext", "state": {$: "RunRunning"}, "cancellation": false, "authority": true, "immediate": false};
+    } else if (_action_0.$ === "RunFinish") {
+      const _outcome_4 = _action_0["outcome"];
+      return {$: "RunNext", "state": $$execution_result(_outcome_4), "cancellation": false, "authority": false, "immediate": false};
+    } else if (_action_0.$ === "RunCancel") {
+      return {$: "RunNext", "state": {$: "RunCancelling"}, "cancellation": true, "authority": false, "immediate": false};
+    } else if (_action_0.$ === "RunLost") {
+      return {$: "RunNext", "state": {$: "RunUncertain"}, "cancellation": false, "authority": false, "immediate": false};
+    } else if (_action_0.$ === "RunRetry") {
+      return {$: "RunNotUncertain"};
+    } else {
+      return {$: "RunNotUncertain"};
+    }
+  } else if (_state_0.$ === "RunCancelling") {
+    if (_action_0.$ === "RunClaim") {
+      return {$: "RunNotClaimable"};
+    } else if (_action_0.$ === "RunHeartbeat") {
+      return {$: "RunNext", "state": {$: "RunCancelling"}, "cancellation": false, "authority": false, "immediate": false};
+    } else if (_action_0.$ === "RunFinish") {
+      const _outcome_6 = _action_0["outcome"];
+      return {$: "RunNext", "state": $$execution_result(_outcome_6), "cancellation": false, "authority": false, "immediate": false};
+    } else if (_action_0.$ === "RunCancel") {
+      return {$: "RunNext", "state": {$: "RunCancelling"}, "cancellation": true, "authority": false, "immediate": false};
+    } else if (_action_0.$ === "RunLost") {
+      return {$: "RunNext", "state": {$: "RunUncertain"}, "cancellation": false, "authority": false, "immediate": false};
+    } else if (_action_0.$ === "RunRetry") {
+      return {$: "RunNotUncertain"};
+    } else {
+      return {$: "RunNotUncertain"};
+    }
+  } else if (_state_0.$ === "RunUncertain") {
+    if (_action_0.$ === "RunClaim") {
+      return {$: "RunNotClaimable"};
+    } else if (_action_0.$ === "RunHeartbeat") {
+      return {$: "RunInactive"};
+    } else if (_action_0.$ === "RunFinish") {
+      return {$: "RunInactive"};
+    } else if (_action_0.$ === "RunCancel") {
+      return {$: "RunNext", "state": {$: "RunUncertain"}, "cancellation": true, "authority": false, "immediate": false};
+    } else if (_action_0.$ === "RunLost") {
+      return {$: "RunNext", "state": {$: "RunUncertain"}, "cancellation": false, "authority": false, "immediate": false};
+    } else if (_action_0.$ === "RunRetry") {
+      return {$: "RunNext", "state": {$: "RunQueued"}, "cancellation": false, "authority": true, "immediate": false};
+    } else {
+      const _outcome_9 = _action_0["outcome"];
+      return {$: "RunNext", "state": $$execution_result(_outcome_9), "cancellation": false, "authority": false, "immediate": false};
+    }
+  } else {
+    if (_action_0.$ === "RunClaim") {
+      return {$: "RunNotClaimable"};
+    } else if (_action_0.$ === "RunHeartbeat") {
+      return {$: "RunInactive"};
+    } else if (_action_0.$ === "RunFinish") {
+      return {$: "RunInactive"};
+    } else if (_action_0.$ === "RunCancel") {
+      return {$: "RunNext", "state": _state_0, "cancellation": false, "authority": false, "immediate": false};
+    } else if (_action_0.$ === "RunLost") {
+      return {$: "RunNext", "state": {$: "RunUncertain"}, "cancellation": false, "authority": false, "immediate": false};
+    } else if (_action_0.$ === "RunRetry") {
+      return {$: "RunNotUncertain"};
+    } else {
+      return {$: "RunNotUncertain"};
+    }
+  }
+}
+
+function $execution_step_1(_state_0, _action_0) {
+  return $execution_step(_state_0, _action_0);
+}
+
+function $execution_terminal_1(_state_0) {
+  return $execution_terminal(_state_0);
+}
+
 function $truth_not(_value_0) {
   if (_value_0.$ === "Yes") {
     return {$: "No"};
@@ -632,6 +780,7 @@ function $String_order_go($0, $1, $2) {
   }
 }
 
+const $$execution_result = $execution_result;
 const $$truth_all = $truth_all;
 const $$truth_any = $truth_any;
 const $$String_eq = $String_eq;
@@ -656,6 +805,12 @@ const $$permit_narrowed = $permit_narrowed;
 const $$permits_bounded = $permits_bounded;
 const $$String_order = $String_order;
 const $$List_append = $List_append;export default {
+  "execution:terminal": run_lib((a0) => run_loop($execution_terminal(a0)), 1),
+  "execution:result": run_lib((a0) => run_loop($execution_result(a0)), 1),
+  "execution:finish_leased": run_lib((a0) => run_loop($execution_finish_leased(a0)), 1),
+  "execution:step": run_lib((a0,a1) => run_loop($execution_step(a0,a1)), 2),
+  "execution_step": run_lib((a0,a1) => run_loop($execution_step_1(a0,a1)), 2),
+  "execution_terminal": run_lib((a0) => run_loop($execution_terminal_1(a0)), 1),
   "truth.not": run_lib((a0) => run_loop($truth_not(a0)), 1),
   "truth.and": run_lib((a0,a1) => run_loop($truth_and(a0,a1)), 2),
   "truth.or": run_lib((a0,a1) => run_loop($truth_or(a0,a1)), 2),

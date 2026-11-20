@@ -143,6 +143,66 @@ theorem accepted_permits_within_grant (candidate current : List PolicyRule) (gra
       · contradiction
       · exact ih h rule rest permit
 
+inductive RunState | queued | leased | running | cancelling | uncertain | succeeded | failed | cancelled
+  deriving DecidableEq, Repr
+inductive RunOutcome | success | failure | cancellation | unobserved deriving DecidableEq, Repr
+inductive RunAction
+  | claim | heartbeat | finish (outcome : RunOutcome) | cancel | lost | retry | observed (outcome : RunOutcome)
+  deriving DecidableEq, Repr
+inductive RunStep
+  | next (state : RunState) (cancellation authority immediate : Bool)
+  | notClaimable | inactive | dispatchRequired | notUncertain
+  deriving DecidableEq, Repr
+def runTerminal : RunState → Bool
+  | .succeeded | .failed | .cancelled => true
+  | _ => false
+def runResult : RunOutcome → RunState
+  | .success => .succeeded
+  | .failure => .failed
+  | .cancellation => .cancelled
+  | .unobserved => .uncertain
+def runStep : RunState → RunAction → RunStep
+  | .queued, .claim => .next .leased false true false
+  | _, .claim => .notClaimable
+  | .leased, .heartbeat | .running, .heartbeat => .next .running false true false
+  | .cancelling, .heartbeat => .next .cancelling false false false
+  | _, .heartbeat => .inactive
+  | .leased, .finish .success | .leased, .finish .failure => .dispatchRequired
+  | .leased, .finish .cancellation => .next .cancelled false false false
+  | .leased, .finish .unobserved => .next .uncertain false false false
+  | .running, .finish result | .cancelling, .finish result => .next (runResult result) false false false
+  | _, .finish _ => .inactive
+  | .queued, .cancel => .next .cancelled true false true
+  | .leased, .cancel | .running, .cancel | .cancelling, .cancel => .next .cancelling true false false
+  | .uncertain, .cancel => .next .uncertain true false false
+  | s, .cancel => .next s false false false
+  | _, .lost => .next .uncertain false false false
+  | .uncertain, .retry => .next .queued false true false
+  | _, .retry => .notUncertain
+  | .uncertain, .observed result => .next (runResult result) false false false
+  | _, .observed _ => .notUncertain
+
+def runApply (s : RunState) (a : RunAction) : RunState :=
+  match runStep s a with
+  | .next next _ _ _ => next
+  | _ => s
+def claimTrace : Nat → RunState → RunState
+  | 0, s => s
+  | n+1, s => claimTrace n (runApply s .claim)
+
+theorem uncertain_claim_refused : runStep .uncertain .claim = .notClaimable := rfl
+theorem claim_requires_current_authority : runStep .queued .claim = .next .leased false true false := rfl
+theorem retry_requires_current_authority : runStep .uncertain .retry = .next .queued false true false := rfl
+theorem leased_effect_needs_dispatch : runStep .leased (.finish .success) = .dispatchRequired := rfl
+theorem cancelling_accepts_real_success : runStep .cancelling (.finish .success) = .next .succeeded false false false := rfl
+theorem queued_cancel_needs_no_effect : runStep .queued .cancel = .next .cancelled true false true := rfl
+theorem terminal_cancel_unchanged (s : RunState) (h : runTerminal s = true) :
+    runStep s .cancel = .next s false false false := by cases s <;> simp_all [runTerminal, runStep]
+theorem uncertain_claim_trace (n : Nat) : claimTrace n .uncertain = .uncertain := by
+  induction n with
+  | zero => rfl
+  | succ n ih => simpa [claimTrace, runApply, runStep] using ih
+
 #print axioms deny_precedence
 #print axioms unknown_deny_blocks_permit
 #print axioms positive_permit
@@ -161,6 +221,14 @@ theorem accepted_permits_within_grant (candidate current : List PolicyRule) (gra
 #print axioms repeated_chain_refused
 #print axioms accepted_policy_preserves_denies
 #print axioms accepted_permits_within_grant
+#print axioms uncertain_claim_refused
+#print axioms claim_requires_current_authority
+#print axioms retry_requires_current_authority
+#print axioms leased_effect_needs_dispatch
+#print axioms cancelling_accepts_real_success
+#print axioms queued_cancel_needs_no_effect
+#print axioms terminal_cancel_unchanged
+#print axioms uncertain_claim_trace
 end Moment
 
 def truthLabel : Moment.Truth → String
@@ -200,6 +268,28 @@ def chooseMask {α : Type} (xs : List α) (mask : Nat) : List α :=
 def sampleRules : List Moment.PolicyRule :=
   [⟨true,"read","yes",["read"]⟩,⟨true,"write","yes",["write"]⟩,
    ⟨false,"deny","yes",["read"]⟩,⟨true,"both","yes",["read","write"]⟩]
+
+def runLabel : Moment.RunState → String
+  | .queued => "queued"
+  | .leased => "leased"
+  | .running => "running"
+  | .cancelling => "cancel_requested"
+  | .uncertain => "unknown"
+  | .succeeded => "succeeded"
+  | .failed => "failed"
+  | .cancelled => "cancelled"
+def runStepLabel : Moment.RunStep → String
+  | .next s c a i => s!"next:{runLabel s}:{c}:{a}:{i}"
+  | .notClaimable => "NotClaimable"
+  | .inactive => "Inactive"
+  | .dispatchRequired => "DispatchRequired"
+  | .notUncertain => "NotUncertain"
+def runStates : List Moment.RunState := [.queued,.leased,.running,.cancelling,.uncertain,.succeeded,.failed,.cancelled]
+def runActions : List (String × Moment.RunAction) :=
+  [("claim",.claim),("heartbeat",.heartbeat),("finish.succeeded",.finish .success),
+   ("finish.failed",.finish .failure),("finish.cancelled",.finish .cancellation),("finish.unknown",.finish .unobserved),
+   ("cancel",.cancel),("lost",.lost),("retry",.retry),("observed.succeeded",.observed .success),
+   ("observed.failed",.observed .failure),("observed.cancelled",.observed .cancellation),("observed.unknown",.observed .unobserved)]
 
 /-- Bounded executable correspondence cases; these do not replace theorems. -/
 def main : IO Unit := do
@@ -246,3 +336,9 @@ def main : IO Unit := do
     for current in List.range 4 do
       let result := Moment.policyIssuers (chooseMask ["a","b"] candidate) (chooseMask ["a","b"] current)
       IO.println s!"case|issuers|{candidate}|{current}|{policyBoundLabel result}"
+  for state in runStates do
+    IO.println s!"case|runTerminal|{runLabel state}|{Moment.runTerminal state}"
+    for (label, action) in runActions do
+      IO.println s!"case|runStep|{runLabel state}|{label}|{runStepLabel (Moment.runStep state action)}"
+      for (second, next) in runActions do
+        IO.println s!"case|runTrace|{runLabel state}|{label}|{second}|{runLabel (Moment.runApply (Moment.runApply state action) next)}"

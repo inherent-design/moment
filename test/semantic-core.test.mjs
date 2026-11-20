@@ -46,3 +46,10 @@ test('compiled support transitions retain missing, conflicting and irreversibly 
  assert.equal(core.assertionEdit(true,false,'absent'),'Insert');assert.equal(core.assertionEdit(true,true,'asserted'),'Keep');
  assert.equal(core.sameScope({},{}),false);assert.equal(core.sameReference({},{}),false);
 });
+
+test('execution codecs refuse malformed states/signals/outcomes without inferring a successful transition',()=>{
+ for(const state of ['suspended',undefined,{},0])assert.throws(()=>core.executionStep(state,'claim'),{code:'INVALID_ARGUMENT'});
+ assert.throws(()=>core.executionStep('queued','dispatch'),{code:'INVALID_ARGUMENT'});
+ for(const outcome of ['queued','running',undefined])assert.throws(()=>core.executionStep('running','finish',outcome),{code:'INVALID_ARGUMENT'});
+ assert.equal(core.executionStep('unknown','claim').kind,'NotClaimable');
+});

@@ -89,7 +89,7 @@ export function generateBindings() {
     const domain={execution:'runtime/executions.mjs',capability:'runtime/executions.mjs',schedule:'runtime/scheduler.mjs',events:'runtime/events.mjs',messages:'runtime/awareness.mjs',prompt:'runtime/awareness.mjs',graph:'runtime/graph.mjs',captures:'runtime/captures.mjs',memory:'runtime/session-memory.mjs',guidance:'runtime/guidance.mjs'}[id.split('.')[0]];
     // Installed operations share the source-checked semantic boundary, even
     // when a selected handler only reads metadata from that installed build.
-    const semanticSources=implemented?['core/semantics.bend','runtime/semantic-core.mjs','runtime/semantic-manifest.mjs','runtime/generated/semantics.mjs','runtime/generated/semantics.json']:[];
+    const semanticSources=implemented?['core/semantics.bend','core/execution.bend','runtime/semantic-core.mjs','runtime/semantic-manifest.mjs','runtime/generated/semantics.mjs','runtime/generated/semantics.json']:[];
     const operationSources=[...new Set(['contracts/index.ts',...(id==='captures.read'?['contracts/captures.ts']:[]),'runtime/operations.mjs','runtime/input-schemas.mjs','runtime/validation.mjs','runtime/directives.mjs',owner,...(domain?[domain]:[]),...semanticSources])].sort().map(source);
     // The checked TS shape and the existing admitted refinements both apply.
     // Keep their local-reference namespaces separate in a self-contained document.
