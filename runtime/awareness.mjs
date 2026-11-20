@@ -1,6 +1,5 @@
 import { canonical,digest,fail,DomainError } from './json.mjs';
 import { sealCursor,openCursor } from './cursors.mjs';
-import { sameRef } from './authority.mjs';
 import { promptSchema } from './builtins.mjs';
 import * as core from './semantic-core.mjs';
 
@@ -12,15 +11,13 @@ export class Awareness {
     const stored=this.k.lookup(snapshot,ref);
     if(snapshot.controlState.guidanceSources?.[ref.id])this.k.guidance.source(snapshot,ref.id,access);
     if(snapshot.controlState.guidanceCaptures?.[ref.id])this.k.guidance.capture(snapshot,ref.id,access);
-    // Message bodies have their own recipient boundary. Internal runtime state is never a prompt source.
-    if (snapshot.controlState.messages?.[ref.id]) fail('NOT_FOUND','Use the recipient mailbox for message bodies');
-    if (stored.value.kind==='relation' && Object.values(stored.value.roles).flat().some(item=>!access.canRead(item))) fail('NOT_FOUND','Relation detail is not accessible');
-    if (snapshot.controlState.incidents?.[ref.id] && !access.canIncident(ref.id)) fail('NOT_FOUND','Incident detail is not accessible');
-    for (const source of [...(stored.evidence?.sources ?? []),...(stored.value.evidence?.sources ?? []),...(stored.value.continuation ?? [])]) if (!access.canRead(source)) fail('NOT_FOUND','Detail dependencies are not accessible');
+    const decision=core.awarenessDetail(stored,!!snapshot.controlState.messages?.[ref.id],!!snapshot.controlState.incidents?.[ref.id],access.canIncident(ref.id),access);
+    const reason={DetailMailbox:'Use the recipient mailbox for message bodies',DetailRelation:'Relation detail is not accessible',DetailIncident:'Incident detail is not accessible',DetailDependencies:'Detail dependencies are not accessible'}[decision];
+    if(reason)fail('NOT_FOUND',reason);
     return stored;
   }
   visible(snapshot,stored,principal,access) {
-    if (stored.value.recipientId!==principal || !access.canIncident(stored.value.incidentId)) return false;
+    if (!core.messageVisible(stored,principal,!!stored&&access.canIncident(stored.value.incidentId))) return false;
     try { this.incidentAccess(snapshot,principal,stored.value.incidentId,access.chain[0]?this.k.ref(snapshot.context.id,access.chain[0].id):undefined);for (const ref of stored.value.detailRefs) this.detail(snapshot,ref,access);return true; }
     catch(error) { if (!(error instanceof DomainError)) throw error;return false; }
   }
@@ -30,8 +27,7 @@ export class Awareness {
   }
   recipient(snapshot,principal,incidentId) {
     const k=this.k;
-    const candidates=principal===k.ownerId?[undefined]:Object.values(snapshot.controlState.grants ?? {}).filter(item=>item.value.principalId===principal).map(item=>item.ref);
-    if (candidates.length>4096) fail('LIMIT_EXCEEDED','Recipient grant lookup exceeds its bound');
+    const candidates=core.recipientCandidates(snapshot,principal,k.ownerId);
     for (const grant of candidates) try {
       this.incidentAccess(snapshot,principal,incidentId,grant);
       k.authorize(snapshot,'messages.read',principal,{ incidentId },grant);return;
@@ -40,18 +36,18 @@ export class Awareness {
   }
   prepare(snapshot,message,principal,access) {
     const k=this.k;k.ensureNewId(snapshot,message.id);
-    if (Object.keys(snapshot.controlState.messages ?? {}).length>=4096) fail('LIMIT_EXCEEDED','Context mailbox retention bound reached');
-    if (Buffer.byteLength(message.summary)>8192) fail('LIMIT_EXCEEDED','Message summary exceeds 8 KiB');
-    if (!snapshot.controlState.incidents?.[message.incidentId] || !access.canIncident(message.incidentId)) fail('NOT_FOUND','Incident not found');
-    if (message.expiresAt && Date.parse(message.expiresAt)<=k.clock.wall()) fail('INVALID_ARGUMENT','A new message must not already be expired');
+    const admission=core.messageAdmission(Object.keys(snapshot.controlState.messages??{}).length,Buffer.byteLength(message.summary),!!snapshot.controlState.incidents?.[message.incidentId],access.canIncident(message.incidentId),core.executionDeadline(message.expiresAt,k.clock.wall()));
+    if(admission==='MessageRetention')fail('LIMIT_EXCEEDED','Context mailbox retention bound reached');
+    if(admission==='MessageSummary')fail('LIMIT_EXCEEDED','Message summary exceeds 8 KiB');
+    if(admission==='MessageIncident')fail('NOT_FOUND','Incident not found');
+    if(admission==='MessageExpired')fail('INVALID_ARGUMENT','A new message must not already be expired');
     for (const ref of message.detailRefs) this.detail(snapshot,ref,access);
     this.recipient(snapshot,message.recipientId,message.incidentId);
-    if (message.kind==='response' && !message.inReplyTo) fail('INVALID_ARGUMENT','A response must name its request');
-    if (message.inReplyTo) {
-      const parent=snapshot.controlState.messages?.[message.inReplyTo];
-      if (!parent || parent.value.kind!=='request' || parent.value.incidentId!==message.incidentId || parent.value.recipientId!==principal || parent.recordedBy!==message.recipientId || !this.visible(snapshot,parent,principal,access)) fail('NOT_FOUND','Reply request is not accessible to these participants');
-    }
-    return k.stored(snapshot.context.id,message,snapshot.context.revision+1,principal);
+    const parent=message.inReplyTo?snapshot.controlState.messages?.[message.inReplyTo]:undefined,reply=core.messageReply(message,principal,parent);
+    if(reply==='ReplyRequired')fail('INVALID_ARGUMENT','A response must name its request');
+    if(reply==='ReplyUnavailable')fail('NOT_FOUND','Reply request is not accessible to these participants');
+    if(reply==='ReplyNeedsVisibility'&&!this.visible(snapshot,parent,principal,access))fail('NOT_FOUND','Reply request is not accessible to these participants');
+    return k.stored(snapshot.context.id,message,core.counterNext(snapshot.context.revision,'Context revision'),principal);
   }
   message(snapshot,id,principal,access,grant) {
     const stored=snapshot.controlState.messages?.[id];
@@ -67,21 +63,21 @@ export class Awareness {
       snapshot=this.k.store.read(input.contextId,cursor.revision);offset=cursor.offset;
     }
     const items=Object.values(snapshot.controlState.messages ?? {}).filter(stored=>{
-      if (!input.includeAcknowledged && snapshot.controlState.messageAcks?.[stored.ref.id]) return false;
+      if (!core.messageSelected(input.includeAcknowledged,!!snapshot.controlState.messageAcks?.[stored.ref.id])) return false;
       try { this.message(current,stored.ref.id,principal,access,grant);return this.visible(snapshot,stored,principal,access); }
       catch(error) { if (!(error instanceof DomainError)) throw error;return false; }
-    }).sort((a,b)=>a.revision-b.revision || a.ref.id.localeCompare(b.ref.id));
+    }).sort(core.messageCompare);
     return { items:items.slice(offset,offset+input.limit),snapshotRevision:snapshot.context.revision,...(offset+input.limit<items.length?{ nextCursor:sealCursor({ ...scope,revision:snapshot.context.revision,offset:offset+input.limit },this.k.cursorKey) }:{}) };
   }
   compose(snapshot,current,input,principal,access) {
     const k=this.k,template=this.detail(snapshot,input.template,access),present=this.detail(current,input.template,access);
-    if (template.value.kind!=='atom' || !sameRef(template.ref,present.ref) || canonical(template.value.schema)!==canonical(promptSchema)) fail('INVALID_ARGUMENT','Expected the installed prompt-template atom');
+    if (!core.promptTemplate(template,present,promptSchema)) fail('INVALID_ARGUMENT','Expected the installed prompt-template atom');
     const issuers=k.lookup(current,current.context.policy).value.authorityIssuers ?? [k.ownerId];
-    const trusted=current.assertions.some(item=>item.status==='asserted' && item.assertion.value.record.id===input.template.id && issuers.includes(item.assertion.recordedBy) && item.assertion.value.evidence.sources.every(access.canRead));
+    const trusted=core.templateSupported(current.assertions,input.template,issuers,access);
     if (!trusted) fail('FORBIDDEN','Template instructions need current admitted issuer support');
     const { text,sourceSlots,optionalSlots=[] }=template.value.value;
     const markers=[...text.matchAll(/\{\{([A-Za-z][A-Za-z0-9_]{0,63})\}\}/g)].map(item=>item[1]);
-    if (input.sourceRefs.length!==sourceSlots.length || optionalSlots.some(slot=>!sourceSlots.includes(slot)) || markers.some(slot=>!sourceSlots.includes(slot)) || sourceSlots.some(slot=>!markers.includes(slot)) || text.replace(/\{\{[A-Za-z][A-Za-z0-9_]{0,63}\}\}/g,'').includes('{{')) fail('INVALID_ARGUMENT','Template slots do not match the supplied bindings');
+    if (!core.promptSlots(input.sourceRefs.length,sourceSlots,optionalSlots,markers,text.replace(/\{\{[A-Za-z][A-Za-z0-9_]{0,63}\}\}/g,'').includes('{{'))) fail('INVALID_ARGUMENT','Template slots do not match the supplied bindings');
     const incident=snapshot.controlState.incidents?.[input.incidentId];
     if (!incident || !access.canIncident(input.incidentId)) fail('NOT_FOUND','Incident not found');
     for (const ref of incident.value.continuation) this.detail(current,ref,access);
@@ -92,9 +88,14 @@ export class Awareness {
     for (const name of ['cpuMillis','memoryBytes','outputBytes','modelTokens','apiSpendMicrounits','concurrentExecutions']) limits[name]=core.resourceAvailable(envelopes.map(envelope=>({used:0,ceiling:envelope[name]})));
     for (const envelope of envelopes) if (envelope.deadline && !core.deadlineFits(limits.deadline,envelope.deadline)) limits.deadline=envelope.deadline;
     const omitted=new Set(),render=()=>canonical({ instructions:{ templateText:text },quotedEvidence:{ rendered:text.replace(/\{\{([A-Za-z][A-Za-z0-9_]{0,63})\}\}/g,(_,slot)=>omitted.has(slot)?'[omitted]':canonical(sources[sourceSlots.indexOf(slot)])) },context:{ incident,policy:current.context.policy,limits,grantActions:access.operator?null:access.chain[0].actions,authorityNotice:'Action names are a ceiling; every operation rechecks current policy, resources and incident scope.' },output:{ schema:input.outputSchema,document:output.value.document } });
-    let content=render();
-    for (const slot of [...sourceSlots].reverse()) if (Buffer.byteLength(content)>input.maximumInputBytes && optionalSlots.includes(slot)) { omitted.add(slot);content=render(); }
-    if (Buffer.byteLength(content)>input.maximumInputBytes) fail('LIMIT_EXCEEDED','Required prompt exceeds its UTF-8 byte budget');
+    let content=render(),candidates=core.promptCandidates(sourceSlots,optionalSlots),complete=false;
+    for(let step=0;step<=sourceSlots.length;step++) {
+      const decision=core.promptStep(candidates,Buffer.byteLength(content),input.maximumInputBytes);
+      if(decision.kind==='PromptFits'){complete=true;break;}
+      if(decision.kind==='PromptRequired')fail('LIMIT_EXCEEDED','Required prompt exceeds its UTF-8 byte budget');
+      omitted.add(decision.slot);candidates=decision.remaining;content=render();
+    }
+    if(!complete)fail('INTERNAL','Core prompt selection exceeded its declared slot bound');
     const artifact={ template:input.template,sourceRefs:input.sourceRefs,content,outputSchema:input.outputSchema,omittedRefs:sourceSlots.flatMap((slot,index)=>omitted.has(slot)?[input.sourceRefs[index]]:[]) };
     return { ...artifact,digest:digest(artifact) };
   }

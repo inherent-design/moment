@@ -960,6 +960,116 @@ theorem react_unknown_survives_false : reactObserve (.pending true) .no = .pendi
 theorem react_positive_resolves_unknown : reactFinish (reactObserve (.pending true) .yes) = "ReactionEligible" := rfl
 theorem react_compare_reflexive (n : Nat) : reactCompare n n = 0 := by simp [reactCompare]
 
+def awDetail (message : Bool) (kind : String) (roles : List Bool) (incident scope : Bool) (dependencies : List Bool) : String :=
+  if message then "DetailMailbox"
+  else if kind == "relation" && !(roles.all id) then "DetailRelation"
+  else if incident && !scope then "DetailIncident"
+  else if !(dependencies.all id) then "DetailDependencies" else "DetailAllowed"
+def awMessageVisible (present sameRecipient incident : Bool) : Bool := present && sameRecipient && incident
+def awMessage (retained bytes : Nat) (incident scope live : Bool) : String :=
+  if retained ≥ 4096 then "MessageRetention" else if bytes > 8192 then "MessageSummary"
+  else if !(incident && scope) then "MessageIncident" else if !live then "MessageExpired" else "MessageAllowed"
+inductive AwParent | none | missing | request (kind incident recipient sender : String) deriving DecidableEq, Repr
+def awReply (kind incident principal recipient : String) : AwParent → String
+  | .none => if kind == "response" then "ReplyRequired" else "ReplyReady"
+  | .missing => "ReplyUnavailable"
+  | .request pk pi pr ps => if pk == "request" && pi == incident && pr == principal && ps == recipient then "ReplyNeedsVisibility" else "ReplyUnavailable"
+def awRecipients (owner : Bool) (grants : List String) : Option (List Nat) :=
+  if owner then none else some ((grants.zipIdx.filter (fun item => item.1 == "actor")).map Prod.snd)
+def awSelected (includeAck acknowledged : Bool) : Bool := includeAck || !acknowledged
+def awMessageCompare (left : Nat) (leftId : String) (right : Nat) (rightId : String) : Int :=
+  if left < right then -1 else if left > right then 1 else if leftId < rightId then -1 else if leftId == rightId then 0 else 1
+def awTemplate (atom schema current : Bool) : Bool := atom && schema && current
+structure AwSupport where
+  target : String
+  issuer : String
+  status : String
+  sources : List Bool
+  deriving DecidableEq, Repr
+def awSupported (items : List AwSupport) (record : String) (issuers : List String) : Bool :=
+  items.any (fun item => item.target == record && issuers.contains item.issuer && item.status == "asserted" && item.sources.all id)
+def awSlots (count : Nat) (declared optional markers : List String) (malformed : Bool) : Bool :=
+  count == declared.length && !malformed && optional.all declared.contains && markers.all declared.contains && declared.all markers.contains
+def awPromptCandidates (declared optional : List String) : List String := (declared.filter optional.contains).reverse
+def awPromptStep (candidates : List String) (used ceiling : Nat) : String :=
+  if used ≤ ceiling then "PromptFits" else match candidates with
+  | [] => "PromptRequired"
+  | slot :: tail => "PromptOmit:" ++ slot ++ ":" ++ String.intercalate "," tail
+def awRoute (isLocal message readable incident execution schedule : Bool) : String :=
+  if isLocal && message then "RefMailbox" else if readable then "RefAllowed" else if !isLocal then "RefDenied"
+  else if incident then "RefIncident" else if execution then "RefExecution" else if schedule then "RefSchedule" else "RefDenied"
+def awScan (items ceiling scanned : Nat) : Nat := if items ≥ ceiling || scanned ≥ 4096 then 0 else min 256 (4096-scanned)
+structure AwEvent where
+  identity : String
+  context : String
+  groups : List (List String)
+  causes : List String
+  deriving DecidableEq, Repr
+def awGroup (readable : List String) (groups : List (List String)) : Bool :=
+  groups.any (fun group => !group.isEmpty && group.all readable.contains)
+def awWalk (events : List AwEvent) (readable : List String) : Nat → List String → List String → Bool
+  | _, [], _ => true
+  | 0, _ :: _, _ => false
+  | count+1, head :: tail, seen =>
+    if seen.contains head then awWalk events readable count tail seen
+    else match events.find? (fun event => event.identity == head) with
+    | none => false
+    | some event => if event.context != "context" || !(awGroup readable event.groups) then false else
+      let nextSeen := head :: seen
+      awWalk events readable count ((event.causes.filter (fun id => !nextSeen.contains id)).reverse ++ tail) nextSeen
+
+theorem aw_mailbox_is_not_detail (kind : String) (roles : List Bool) (incident scope : Bool) (dependencies : List Bool) :
+    awDetail true kind roles incident scope dependencies = "DetailMailbox" := rfl
+theorem aw_no_incident_no_message (present recipient : Bool) : awMessageVisible present recipient false = false := by simp [awMessageVisible]
+theorem aw_summary_byte_bound (retained bytes : Nat) (incident scope live : Bool) (h : retained < 4096) (b : bytes > 8192) :
+    awMessage retained bytes incident scope live = "MessageSummary" := by simp [awMessage,Nat.not_le_of_gt h,b]
+theorem aw_new_message_is_usable : awMessage 0 8192 true true true = "MessageAllowed" := rfl
+theorem aw_response_needs_request (incident principal recipient : String) : awReply "response" incident principal recipient .none = "ReplyRequired" := rfl
+theorem aw_matching_reply_is_usable (incident a b : String) : awReply "response" incident b a (.request "request" incident b a) = "ReplyNeedsVisibility" := by simp [awReply]
+theorem aw_unacknowledged_is_selected (includeAck : Bool) : awSelected includeAck false = true := by simp [awSelected]
+theorem aw_acknowledged_requires_selection : awSelected false true = false := rfl
+theorem aw_hidden_template_is_not_instruction (atom schema : Bool) : awTemplate atom schema false = false := by simp [awTemplate]
+theorem aw_empty_support_is_not_instruction (record : String) (issuers : List String) : awSupported [] record issuers = false := rfl
+theorem aw_withdrawn_support_is_inactive (record issuer : String) (sources : List Bool) (issuers : List String) :
+    awSupported [{target:=record,issuer,status:="withdrawn",sources}] record issuers = false := by simp [awSupported]
+theorem aw_known_support_is_usable : awSupported [{target:="t",issuer:="owner",status:="asserted",sources:=[]}] "t" ["owner"] = true := rfl
+theorem aw_malformed_slots_refuse (count : Nat) (declared optional markers : List String) : awSlots count declared optional markers true = false := by simp [awSlots]
+theorem aw_fitting_prompt_is_usable (candidates : List String) (used ceiling : Nat) (h : used ≤ ceiling) :
+    awPromptStep candidates used ceiling = "PromptFits" := by simp [awPromptStep,h]
+theorem aw_required_prompt_cannot_disappear (used ceiling : Nat) (h : ceiling < used) :
+    awPromptStep [] used ceiling = "PromptRequired" := by simp [awPromptStep,Nat.not_le_of_gt h]
+theorem aw_candidate_from_declared (declared optional : List String) (slot : String) (h : slot ∈ awPromptCandidates declared optional) :
+    slot ∈ declared ∧ slot ∈ optional := by simpa [awPromptCandidates,List.mem_filter] using h
+theorem aw_empty_group_is_not_authority (readable : List String) : awGroup readable [[]] = false := rfl
+theorem aw_complete_group_is_useful : awGroup ["a","b"] [["a","b"]] = true := rfl
+theorem aw_partial_groups_cannot_pool : awGroup ["a","d"] [["a","b"],["c","d"]] = false := rfl
+theorem aw_zero_pop_budget_refuses (events : List AwEvent) (readable : List String) (head : String) (tail seen : List String) :
+    awWalk events readable 0 (head::tail) seen = false := rfl
+theorem aw_finished_walk_is_useful (events : List AwEvent) (readable : List String) (count : Nat) (seen : List String) :
+    awWalk events readable count [] seen = true := by cases count <;> rfl
+
+#print axioms aw_mailbox_is_not_detail
+#print axioms aw_no_incident_no_message
+#print axioms aw_summary_byte_bound
+#print axioms aw_new_message_is_usable
+#print axioms aw_response_needs_request
+#print axioms aw_matching_reply_is_usable
+#print axioms aw_unacknowledged_is_selected
+#print axioms aw_acknowledged_requires_selection
+#print axioms aw_hidden_template_is_not_instruction
+#print axioms aw_empty_support_is_not_instruction
+#print axioms aw_withdrawn_support_is_inactive
+#print axioms aw_known_support_is_usable
+#print axioms aw_malformed_slots_refuse
+#print axioms aw_fitting_prompt_is_usable
+#print axioms aw_required_prompt_cannot_disappear
+#print axioms aw_candidate_from_declared
+#print axioms aw_empty_group_is_not_authority
+#print axioms aw_complete_group_is_useful
+#print axioms aw_partial_groups_cannot_pool
+#print axioms aw_zero_pop_budget_refuses
+#print axioms aw_finished_walk_is_useful
+
 #print axioms react_future_source_unavailable
 #print axioms react_hidden_event_is_not_trigger
 #print axioms react_eventless_is_usable
@@ -1295,6 +1405,24 @@ def ctlNames : List String := ["policies","transitions","executions","schemas","
 def ctlBindingSamples : List (List String) := [[],["now"],["arbitrary"],["now","event.id"],["now","arbitrary"]]
 def fromCode {α : Type} (values : List α) (size code : Nat) : List α :=
   (List.range size).filterMap (fun i => values[code / values.length^i % values.length]?)
+
+def awBoolLists : List (List Bool) := [[],[true],[false],[true,false]]
+def awParents (code : Nat) : Moment.AwParent :=
+  if code == 0 then .none else if code == 1 then .missing else
+    let mask := code-2
+    .request (if mask % 2 == 1 then "request" else "notice") (if mask / 2 % 2 == 1 then "i" else "other") (if mask / 4 % 2 == 1 then "actor" else "other") (if mask / 8 % 2 == 1 then "recipient" else "other")
+def awSupports : List Moment.AwSupport := [
+  {target:="t",issuer:="owner",status:="asserted",sources:=[]},
+  {target:="t",issuer:="other",status:="asserted",sources:=[]},
+  {target:="t",issuer:="owner",status:="withdrawn",sources:=[]},
+  {target:="other",issuer:="owner",status:="asserted",sources:=[]},
+  {target:="t",issuer:="owner",status:="asserted",sources:=[false]},
+  {target:="t",issuer:="owner",status:="asserted",sources:=[true]}]
+def awGroups : List (List (List String)) := [[],[[]],[["r0"]],[["r1"]],[["r0","r1"]],[["r0"],["r1"]],[["r0","r0"],["r1"]]]
+def awGraph (size mask missing foreign group : Nat) : List Moment.AwEvent :=
+  (List.range size).filterMap (fun i => if missing / 2^i % 2 == 1 then none else some {
+    identity:="e"++toString i,context:=if foreign / 2^i % 2 == 1 then "foreign" else "context",groups:=(awGroups[group]?).getD [],
+    causes:=(List.range size).filterMap (fun j => if mask / 2^(i*size+j) % 2 == 1 then some ("e"++toString j) else none)})
 
 def main : IO Unit := do
   let values : List Moment.Truth := [.yes,.no,.unknown]
@@ -1748,3 +1876,79 @@ def main : IO Unit := do
 
   for value in budgetValues do
     IO.println s!"case|counterNext|{value}|{budgetLabel (if value < Moment.budgetMaximum then some (value+1) else none)}"
+
+  for message in [false,true] do
+    for kind in ["atom","relation","policy"] do
+      for (roles,ri) in awBoolLists.zipIdx do
+        for incident in [false,true] do
+          for scope in [false,true] do
+            for (dependencies,di) in awBoolLists.zipIdx do
+              IO.println s!"case|awDetail|{message}|{kind}|{ri}|{incident}|{scope}|{di}|{Moment.awDetail message kind roles incident scope dependencies}"
+  for present in [false,true] do
+    for same in [false,true] do
+      for incident in [false,true] do
+        IO.println s!"case|awMessageVisible|{present}|{same}|{incident}|{Moment.awMessageVisible present same incident}"
+  for retained in [0,4095,4096] do
+    for bytes in [0,8192,8193,4294967296] do
+      for incident in [false,true] do
+        for scope in [false,true] do
+          for live in [false,true] do
+            IO.println s!"case|awMessage|{retained}|{bytes}|{incident}|{scope}|{live}|{Moment.awMessage retained bytes incident scope live}"
+  for kind in ["request","notice","response"] do
+    for code in List.range 18 do
+      IO.println s!"case|awReply|{kind}|{code}|{Moment.awReply kind "i" "actor" "recipient" (awParents code)}"
+  for owner in [false,true] do
+    for size in List.range 5 do
+      for code in List.range (2^size) do
+        let grants := fromCode ["actor","other"] size code
+        let label := (Moment.awRecipients owner grants).map (fun indices => String.intercalate "," (indices.map toString)) |>.getD "owner"
+        IO.println s!"case|awRecipients|{owner}|{size}|{code}|{label}"
+  for includeAck in [false,true] do
+    for acknowledged in [false,true] do
+      IO.println s!"case|awSelected|{includeAck}|{acknowledged}|{Moment.awSelected includeAck acknowledged}"
+  for left in budgetValues do
+    for right in budgetValues do
+      for rightId in ["a","b","0"] do
+        IO.println s!"case|awMessageCompare|{left}|{right}|{rightId}|{Moment.awMessageCompare left "a" right rightId}"
+  for atom in [false,true] do
+    for schema in [false,true] do
+      for current in [false,true] do
+        IO.println s!"case|awTemplate|{atom}|{schema}|{current}|{Moment.awTemplate atom schema current}"
+  for size in List.range 4 do
+    for code in List.range (6^size) do
+      for owner in [false,true] do
+        IO.println s!"case|awSupported|{size}|{code}|{owner}|{Moment.awSupported (fromCode awSupports size code) "t" (if owner then ["owner"] else [])}"
+  for count in [0,1,2,32] do
+    for declared in List.range 4 do
+      for optional in List.range 8 do
+        for markers in List.range 8 do
+          for malformed in [false,true] do
+            IO.println s!"case|awSlots|{count}|{declared}|{optional}|{markers}|{malformed}|{Moment.awSlots count (chooseMask ["a","b"] declared) (chooseMask ["a","b","x"] optional) (chooseMask ["a","b","x"] markers) malformed}"
+  for reversed in [false,true] do
+    for declared in List.range 8 do
+      for optional in List.range 8 do
+        let slots := chooseMask ["a","b","c"] declared
+        IO.println s!"case|awPromptCandidates|{reversed}|{declared}|{optional}|{String.intercalate "," (Moment.awPromptCandidates (if reversed then slots.reverse else slots) (chooseMask ["a","b","c"] optional))}"
+  for (candidates,index) in [[],["a"],["a","b"],["b","a"]].zipIdx do
+    for used in [0,1,2,4,1000,9007199254740991] do
+      for ceiling in [0,1,4,1000,9007199254740991] do
+        IO.println s!"case|awPromptStep|{index}|{used}|{ceiling}|{Moment.awPromptStep candidates used ceiling}"
+  for isLocal in [false,true] do
+    for message in [false,true] do
+      for readable in [false,true] do
+        for incident in [false,true] do
+          for execution in [false,true] do
+            for schedule in [false,true] do
+              IO.println s!"case|awRoute|{isLocal}|{message}|{readable}|{incident}|{execution}|{schedule}|{Moment.awRoute isLocal message readable incident execution schedule}"
+  for items in [0,1,1000] do
+    for ceiling in [1,1000] do
+      for scanned in [0,255,256,4095,4096,5000] do
+        IO.println s!"case|awScan|{items}|{ceiling}|{scanned}|{Moment.awScan items ceiling scanned}"
+  for size in List.range 3 do
+    for mask in List.range (2^(size*size)) do
+      for missing in List.range (2^size) do
+        for foreign in List.range (2^size) do
+          for readable in List.range 4 do
+            for group in List.range 7 do
+              for operator in [false,true] do
+                IO.println s!"case|awVisibility|{size}|{mask}|{missing}|{foreign}|{readable}|{group}|{operator}|{operator || Moment.awWalk (awGraph size mask missing foreign group) (chooseMask ["r0","r1"] readable) 64 ["e0"] []}"

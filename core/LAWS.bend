@@ -7,6 +7,7 @@ import ./scheduler.bend as Sched
 import ./capability.bend as Cap
 import ./policy-query.bend as PQ
 import ./control.bend as Control
+import ./awareness.bend as Aware
 
 law deny_precedence:
   for permits: Core.Truth
@@ -367,3 +368,106 @@ law empty_reaction_has_no_candidate:
 
 law high_sequence_order_stays_exact:
   {Core.resource_compare(Budget.BudgetCount{1, 0}, Budget.BudgetCount{0, 4294967295}) == GT{} : Cmp}
+
+law mailbox_body_is_not_generic_detail:
+  for kind: String
+  for roles: +List<Bool>
+  for incident: Bool
+  for scope: Bool
+  for dependencies: +List<Bool>
+  {Core.awareness_detail(True{}, kind, roles, incident, scope, dependencies) == Aware.DetailMailbox{} : Aware.Detail}
+
+law absent_incident_hides_message:
+  for recipient: String
+  for principal: String
+  {Core.awareness_message_visible(True{}, recipient, principal, False{}) == False{} : Bool}
+
+law summary_last_byte_is_usable:
+  {Core.awareness_message(0, Budget.BudgetCount{0, 8192}, True{}, True{}, True{}) == Aware.MessageAllowed{} : Aware.MessageAdmission}
+
+law full_mailbox_refuses_new_message:
+  for bytes: Budget.Count
+  for incident: Bool
+  for scope: Bool
+  for live: Bool
+  {Core.awareness_message(4096, bytes, incident, scope, live) == Aware.MessageRetention{} : Aware.MessageAdmission}
+
+law response_requires_named_request:
+  for incident: String
+  for principal: String
+  for recipient: String
+  {Core.awareness_reply("response", incident, principal, recipient, Aware.NoParent{}) == Aware.ReplyRequired{} : Aware.Reply}
+
+law matching_reply_still_needs_visibility:
+  {Core.awareness_reply("response", "i", "b", "a", Aware.ReplyParent{"request", "i", "b", "a"}) == Aware.ReplyNeedsVisibility{} : Aware.Reply}
+
+law acknowledged_mail_is_not_implicitly_selected:
+  {Core.awareness_selected(False{}, True{}) == False{} : Bool}
+
+law unacknowledged_mail_is_selected:
+  for include_acknowledged: Bool
+  {Core.awareness_selected(include_acknowledged, False{}) == True{} : Bool}
+
+law empty_template_support_is_not_authority:
+  for record: String
+  for issuers: +List<String>
+  {Core.awareness_supported(Nil{}, record, issuers) == False{} : Bool}
+
+law withdrawn_template_is_not_instruction:
+  for visible: +List<Bool>
+  {Core.awareness_supported(Con{Aware.TemplateSupport{"t", "owner", "withdrawn", visible}, Nil{}}, "t", Con{"owner", Nil{}}) == False{} : Bool}
+
+law current_template_support_is_usable:
+  {Core.awareness_supported(Con{Aware.TemplateSupport{"t", "owner", "asserted", Nil{}}, Nil{}}, "t", Con{"owner", Nil{}}) == True{} : Bool}
+
+law malformed_template_slots_refuse:
+  for count: U32
+  for expected: U32
+  for declared: +List<String>
+  for optional: +List<String>
+  for markers: +List<String>
+  {Core.awareness_slots(count, expected, declared, optional, markers, True{}) == False{} : Bool}
+
+law fitting_prompt_keeps_required_evidence:
+  for candidates: +List<String>
+  {Core.awareness_prompt_step(candidates, Budget.BudgetCount{0, 0}, Budget.BudgetCount{0, 0}) == Aware.PromptFits{} : Aware.PromptStep}
+
+law prompt_omits_last_declared_optional_first:
+  {Core.awareness_prompt_candidates(Con{"a", Con{"b", Con{"c", Nil{}}}}, Con{"a", Con{"c", Nil{}}}) == Con{"c", Con{"a", Nil{}}} : +List<String>}
+
+law mailbox_reference_keeps_recipient_boundary:
+  for readable: Bool
+  {Core.awareness_ref_route(True{}, True{}, readable, False{}, False{}, False{}) == Aware.RefMailbox{} : Aware.RefRoute}
+
+law event_scan_stops_at_its_budget:
+  for items: U32
+  for ceiling: U32
+  {Core.awareness_scan_request(items, ceiling, 4096) == 0 : U32}
+
+law empty_visibility_group_is_not_authority:
+  for next: Aware.Walk
+  {Aware.groups(Con{Aware.VisibilityGroup{Nil{}}, Nil{}}, next) == Aware.VisibilityDenied{} : Aware.Visibility}
+
+law exhausted_visibility_pop_refuses:
+  for seen: +List<String>
+  {Core.visibility_demand(Aware.VisibilityWalking{Aware.VisibilityWalk{Con{"root", Nil{}}, seen, 0}}) == Aware.VisibilityComplete{False{}} : Aware.Demand}
+
+law complete_visibility_walk_is_useful:
+  for seen: +List<String>
+  {Core.visibility_demand(Aware.VisibilityWalking{Aware.VisibilityWalk{Nil{}, seen, 0}}) == Aware.VisibilityComplete{True{}} : Aware.Demand}
+
+law missing_visibility_event_refuses:
+  for context: String
+  {Core.visibility_event(Aware.VisibilityWalking{Aware.VisibilityWalk{Con{"root", Nil{}}, Nil{}, 64}}, Aware.VisibilityMissingEvent{}, context) == Aware.VisibilityDenied{} : Aware.Visibility}
+
+law refused_reference_does_not_complete_group:
+  for next: Aware.Walk
+  {Core.visibility_ref(Aware.VisibilityChecking{Con{"ref", Nil{}}, Nil{}, next}, False{}) == Aware.VisibilityDenied{} : Aware.Visibility}
+
+law accepted_reference_keeps_causal_continuation:
+  for next: Aware.Walk
+  {Core.visibility_ref(Aware.VisibilityChecking{Con{"ref", Nil{}}, Nil{}, next}, True{}) == Aware.VisibilityChecking{Nil{}, Nil{}, next} : Aware.Visibility}
+
+law recipient_capacity_does_not_expand:
+  for indices: +List<U32>
+  {Aware.recipient_step("actor", Aware.RecipientGrant{0, "actor"}, Aware.RecipientCollect{4096, indices}) == Aware.RecipientExhausted{} : Aware.RecipientBag}

@@ -25,3 +25,11 @@ test('prompt envelope keeps exact large context/grant minima and the earliest de
  assert.equal(result.ok,true,JSON.stringify(result));const envelope=JSON.parse(result.value.content).context.limits;
  assert.equal(envelope.cpuMillis,2**32);assert.equal(envelope.outputBytes,2**48+1);assert.equal(envelope.deadline,'2060-01-01T00:00:00Z');assert.equal(envelope.currency,'USD');
 });
+
+test('actual prompt omission follows reverse declaration order even when optional names are supplied in another order',t=>{
+ const f=setup(t),incidentId=randomUUID();assert.equal(f.write('incident.create',{id:incidentId,incident}).ok,true);
+ const s=schema(f),records=['first','middle','last'].map(label=>({...atom(s),value:label+'🐈'.repeat(1000)})),template={id:randomUUID(),kind:'atom',schema:promptSchema,value:{text:'{{first}} {{middle}} {{last}}',sourceSlots:['first','middle','last'],optionalSlots:['last','first']}},ref=id=>f.kernel.ref(f.contextId,id);
+ assert.equal(f.write('graph.transact',{changes:[...records,template].map(record=>({kind:'record.put',record})).concat([{kind:'assertion.put',assertion:{id:randomUUID(),record:ref(template.id),evidence:{sources:[],method:'Accepted multi-source template',artifactDigests:[]}}}])}).ok,true);
+ const input={contextId:f.contextId,incidentId,template:ref(template.id),sourceRefs:records.map(record=>ref(record.id)),outputSchema:s,maximumInputBytes:262144},full=f.call('prompt.compose',input);assert.equal(full.ok,true);
+ const bounded=f.call('prompt.compose',{...input,maximumInputBytes:Buffer.byteLength(full.value.content)-1});assert.equal(bounded.ok,true,JSON.stringify(bounded));assert.deepEqual(bounded.value.omittedRefs,[ref(records[2].id)]);assert.equal(JSON.parse(bounded.value.content).quotedEvidence.rendered.endsWith('[omitted]'),true);
+});

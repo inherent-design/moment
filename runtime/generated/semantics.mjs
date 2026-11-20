@@ -2131,6 +2131,310 @@ function $control_binding_names(_names_0) {
   return $collections_subset(_names_0, {$: "Con", "head": "occurrence.id", "tail": {$: "Con", "head": "occurrence.eventIds", "tail": {$: "Con", "head": "schedule.id", "tail": {$: "Con", "head": "contextId", "tail": {$: "Con", "head": "principalId", "tail": {$: "Con", "head": "incidentId", "tail": {$: "Con", "head": "action", "tail": {$: "Con", "head": "resourceRefs", "tail": {$: "Con", "head": "contextRevision", "tail": {$: "Con", "head": "now", "tail": {$: "Con", "head": "event.id", "tail": {$: "Con", "head": "event.ids", "tail": {$: "Con", "head": "event.type", "tail": {$: "Con", "head": "event.subjectRefs", "tail": {$: "Nil"}}}}}}}}}}}}}}});
 }
 
+function $awareness_all_fold($0, $1) {
+  for (;;) {
+    {
+      const _values_0 = $0;
+      const _accepted_0 = $1;
+      if (_values_0.$ === "Nil") {
+        return _accepted_0;
+      } else {
+        const _head_0 = _values_0["head"];
+        const _tail_0 = _values_0["tail"];
+        $0 = _tail_0;
+        $1 = $$Bool_and(_accepted_0, _head_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $awareness_all(_values_0) {
+  return $awareness_all_fold(_values_0, true);
+}
+
+function $awareness_detail(_message_0, _kind_0, _roles_0, _incident_0, _scope_0, _dependencies_0) {
+  return $Bool_pick(_message_0, {$: "DetailMailbox"}, $$Bool_pick($$Bool_and($$String_eq(_kind_0, "relation"), $$Bool_not($$awareness_all(_roles_0))), {$: "DetailRelation"}, $$Bool_pick($$Bool_and(_incident_0, $$Bool_not(_scope_0)), {$: "DetailIncident"}, $$Bool_pick($$awareness_all(_dependencies_0), {$: "DetailAllowed"}, {$: "DetailDependencies"}))));
+}
+
+function $awareness_message_visible(_present_0, _recipient_0, _principal_0, _incident_0) {
+  return $Bool_and($$Bool_and(_present_0, _incident_0), $$String_eq(_recipient_0, _principal_0));
+}
+
+function $awareness_message(_count_0, _bytes_0, _incident_0, _scope_0, _live_0) {
+  return $Bool_pick((_count_0 >= 4096), {$: "MessageRetention"}, $$Bool_pick($$accounting_le(_bytes_0, {$: "BudgetCount", "high": 0, "low": 8192}), $$Bool_pick($$Bool_and(_incident_0, _scope_0), $$Bool_pick(_live_0, {$: "MessageAllowed"}, {$: "MessageExpired"}), {$: "MessageIncident"}), {$: "MessageSummary"}));
+}
+
+function $awareness_reply(_kind_0, _incident_0, _principal_0, _recipient_0, _parent_0) {
+  if (_parent_0.$ === "NoParent") {
+    return $Bool_pick($$String_eq(_kind_0, "response"), {$: "ReplyRequired"}, {$: "ReplyReady"});
+  } else if (_parent_0.$ === "MissingParent") {
+    return {$: "ReplyUnavailable"};
+  } else {
+    const _parent_kind_0 = _parent_0["kind"];
+    const _parent_incident_0 = _parent_0["incident"];
+    const _parent_recipient_0 = _parent_0["recipient"];
+    const _parent_sender_0 = _parent_0["sender"];
+    return $Bool_pick($$Bool_and($$Bool_and($$String_eq(_parent_kind_0, "request"), $$String_eq(_incident_0, _parent_incident_0)), $$Bool_and($$String_eq(_parent_recipient_0, _principal_0), $$String_eq(_parent_sender_0, _recipient_0))), {$: "ReplyNeedsVisibility"}, {$: "ReplyUnavailable"});
+  }
+}
+
+function $awareness_recipient_step(_principal_0, _grant_0, _bag_0) {
+  const _index_0 = _grant_0["index"];
+  const _actor_0 = _grant_0["principal"];
+  if (_bag_0.$ === "RecipientExhausted") {
+    return {$: "RecipientExhausted"};
+  } else {
+    const _count_0 = _bag_0["count"];
+    const _reversed_0 = _bag_0["reversed"];
+    return $Bool_pick($$String_eq(_actor_0, _principal_0), $$Bool_pick((_count_0 >= 4096), {$: "RecipientExhausted"}, {$: "RecipientCollect", "count": ((_count_0 + 1) >>> 0), "reversed": {$: "Con", "head": _index_0, "tail": _reversed_0}}), {$: "RecipientCollect", "count": _count_0, "reversed": _reversed_0});
+  }
+}
+
+function $awareness_recipient_fold($0, $1, $2) {
+  for (;;) {
+    {
+      const _grants_0 = $0;
+      const _principal_0 = $1;
+      const _bag_0 = $2;
+      if (_grants_0.$ === "Nil") {
+        return _bag_0;
+      } else {
+        const _head_0 = _grants_0["head"];
+        const _tail_0 = _grants_0["tail"];
+        $0 = _tail_0;
+        $1 = _principal_0;
+        $2 = $$awareness_recipient_step(_principal_0, _head_0, _bag_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $awareness_recipient_mode(_principal_0, _owner_0) {
+  return $String_eq(_principal_0, _owner_0);
+}
+
+function $awareness_recipient_result(_result_0) {
+  if (_result_0.$ === "RecipientExhausted") {
+    return {$: "RecipientFull"};
+  } else {
+    const _reversed_0 = _result_0["reversed"];
+    return {$: "RecipientCandidates", "indices": $$List_reverse(_reversed_0)};
+  }
+}
+
+function $awareness_recipients(_grants_0, _principal_0) {
+  return $awareness_recipient_result($$awareness_recipient_fold(_grants_0, _principal_0, {$: "RecipientCollect", "count": 0, "reversed": {$: "Nil"}}));
+}
+
+function $awareness_selected(_include_acknowledged_0, _acknowledged_0) {
+  const _x_0 = $$Bool_not(_acknowledged_0);
+  return (_include_acknowledged_0 || _x_0);
+}
+
+function $awareness_message_compare(_left_0, _left_id_0, _right_0, _right_id_0) {
+  return $Bool_pick($$accounting_equal(_left_0, _right_0), $$String_order(_left_id_0, _right_id_0), $$Bool_pick($$accounting_le(_left_0, _right_0), {$: "LT"}, {$: "GT"}));
+}
+
+function $awareness_template(_kind_0, _schema_0, _expected_0, _selected_0, _current_0) {
+  return $Bool_and($$String_eq(_kind_0, "atom"), $$Bool_and($$String_eq(_schema_0, _expected_0), $$String_eq(_selected_0, _current_0)));
+}
+
+function $awareness_supported_fold($0, $1, $2, $3) {
+  for (;;) {
+    {
+      const _items_0 = $0;
+      const _accepted_0 = $1;
+      const _record_0 = $2;
+      const _issuers_0 = $3;
+      if (_items_0.$ === "Nil") {
+        if (_accepted_0) {
+          return true;
+        } else {
+          return false;
+        }
+      } else {
+        const _t_0 = _items_0["head"];
+        const _target_0 = _t_0["record"];
+        const _issuer_0 = _t_0["issuer"];
+        const _status_0 = _t_0["status"];
+        const _sources_0 = _t_0["sources"];
+        const _tail_0 = _items_0["tail"];
+        if (_accepted_0) {
+          return true;
+        } else {
+          $0 = _tail_0;
+          $1 = $$Bool_and($$Bool_and($$String_eq(_target_0, _record_0), $$String_eq(_status_0, "asserted")), $$Bool_and($$collections_contains(_issuers_0, _issuer_0), $$awareness_all(_sources_0)));
+          $2 = _record_0;
+          $3 = _issuers_0;
+          continue;
+        }
+      }
+    }
+  }
+}
+
+function $awareness_supported(_items_0, _record_0, _issuers_0) {
+  return $awareness_supported_fold(_items_0, false, _record_0, _issuers_0);
+}
+
+function $awareness_slots(_count_0, _expected_0, _declared_0, _optional_0, _markers_0, _malformed_0) {
+  return $Bool_pick(_malformed_0, false, $$Bool_and((_count_0 === _expected_0), $$Bool_and($$collections_subset(_optional_0, _declared_0), $$Bool_and($$collections_subset(_markers_0, _declared_0), $$collections_subset(_declared_0, _markers_0)))));
+}
+
+function $awareness_prompt_candidates(_declared_0, _optional_0) {
+  return $List_reverse($$collections_intersection(_declared_0, _optional_0));
+}
+
+function $awareness_prompt_large(_candidates_0) {
+  if (_candidates_0.$ === "Nil") {
+    return {$: "PromptRequired"};
+  } else {
+    const _slot_0 = _candidates_0["head"];
+    const _tail_0 = _candidates_0["tail"];
+    return {$: "PromptOmit", "slot": _slot_0, "remaining": _tail_0};
+  }
+}
+
+function $awareness_prompt_step(_candidates_0, _used_0, _ceiling_0) {
+  return $Bool_pick($$accounting_le(_used_0, _ceiling_0), {$: "PromptFits"}, $$awareness_prompt_large(_candidates_0));
+}
+
+function $awareness_ref_route(_local_0, _message_0, _readable_0, _incident_0, _execution_0, _schedule_0) {
+  return $Bool_pick($$Bool_and(_local_0, _message_0), {$: "RefMailbox"}, $$Bool_pick(_readable_0, {$: "RefAllowed"}, $$Bool_pick(_local_0, $$Bool_pick(_incident_0, {$: "RefIncident"}, $$Bool_pick(_execution_0, {$: "RefExecution"}, $$Bool_pick(_schedule_0, {$: "RefSchedule"}, {$: "RefDenied"}))), {$: "RefDenied"})));
+}
+
+function $awareness_scan_request(_items_0, _ceiling_0, _scanned_0) {
+  return $Bool_pick((_scanned_0 >= 4096), 0, $$Bool_pick((_items_0 >= _ceiling_0), 0, $$U32_min(256, ((4096 - _scanned_0) >>> 0))));
+}
+
+function $awareness_visibility_start(_operator_0, _root_0) {
+  return $Bool_pick(_operator_0, {$: "VisibilityAllowed"}, {$: "VisibilityWalking", "walk": {$: "VisibilityWalk", "todo": {$: "Con", "head": _root_0, "tail": {$: "Nil"}}, "seen": {$: "Nil"}, "fuel": 64}});
+}
+
+function $awareness_walk_demand(_todo_0, _seen_0, _fuel_0) {
+  if (_todo_0.$ === "Nil") {
+    return {$: "VisibilityComplete", "visible": true};
+  } else {
+    const _head_0 = _todo_0["head"];
+    const _tail_0 = _todo_0["tail"];
+    return $Bool_pick((_fuel_0 === 0), {$: "VisibilityComplete", "visible": false}, $$Bool_pick($$collections_contains(_seen_0, _head_0), {$: "VisibilityContinue", "state": {$: "VisibilityWalking", "walk": {$: "VisibilityWalk", "todo": _tail_0, "seen": _seen_0, "fuel": ((_fuel_0 - 1) >>> 0)}}}, {$: "VisibilityNeedEvent", "id": _head_0}));
+  }
+}
+
+function $awareness_check_demand(_refs_0, _alternatives_0, _next_0) {
+  if (_refs_0.$ === "Nil") {
+    return {$: "VisibilityContinue", "state": {$: "VisibilityWalking", "walk": _next_0}};
+  } else {
+    const _key_0 = _refs_0["head"];
+    return {$: "VisibilityNeedRef", "key": _key_0};
+  }
+}
+
+function $awareness_visibility_demand(_state_0) {
+  if (_state_0.$ === "VisibilityAllowed") {
+    return {$: "VisibilityComplete", "visible": true};
+  } else if (_state_0.$ === "VisibilityDenied") {
+    return {$: "VisibilityComplete", "visible": false};
+  } else if (_state_0.$ === "VisibilityWalking") {
+    const _t_0 = _state_0["walk"];
+    const _todo_0 = _t_0["todo"];
+    const _seen_0 = _t_0["seen"];
+    const _fuel_0 = _t_0["fuel"];
+    return $awareness_walk_demand(_todo_0, _seen_0, _fuel_0);
+  } else {
+    const _refs_0 = _state_0["refs"];
+    const _alternatives_0 = _state_0["alternatives"];
+    const _next_0 = _state_0["next"];
+    return $awareness_check_demand(_refs_0, _alternatives_0, _next_0);
+  }
+}
+
+function $awareness_groups($0, $1) {
+  for (;;) {
+    {
+      const _items_0 = $0;
+      const _next_0 = $1;
+      if (_items_0.$ === "Nil") {
+        return {$: "VisibilityDenied"};
+      } else {
+        const _t_0 = _items_0["head"];
+        const _t_1 = _t_0["refs"];
+        if (_t_1.$ === "Nil") {
+          const _tail_0 = _items_0["tail"];
+          $0 = _tail_0;
+          $1 = _next_0;
+          continue;
+        } else {
+          const _head_0 = _t_1["head"];
+          const _rest_0 = _t_1["tail"];
+          const _tail_1 = _items_0["tail"];
+          return {$: "VisibilityChecking", "refs": {$: "Con", "head": _head_0, "tail": _rest_0}, "alternatives": _tail_1, "next": _next_0};
+        }
+      }
+    }
+  }
+}
+
+function $awareness_observed_event(_event_0, _expected_0, _tail_0, _seen_0, _fuel_0, _context_0) {
+  if (_event_0.$ === "VisibilityMissingEvent") {
+    return {$: "VisibilityDenied"};
+  } else {
+    const _id_0 = _event_0["id"];
+    const _owner_0 = _event_0["context"];
+    const _alternatives_0 = _event_0["groups"];
+    const _causes_0 = _event_0["causes"];
+    return $Bool_pick($$Bool_and($$String_eq(_id_0, _expected_0), $$String_eq(_owner_0, _context_0)), $$awareness_groups(_alternatives_0, {$: "VisibilityWalk", "todo": $$List_append($$collections_unseen_fold(_causes_0, {$: "Con", "head": _id_0, "tail": _seen_0}, {$: "Nil"}), _tail_0), "seen": {$: "Con", "head": _id_0, "tail": _seen_0}, "fuel": ((_fuel_0 - 1) >>> 0)}), {$: "VisibilityDenied"});
+  }
+}
+
+function $awareness_walk_event(_todo_0, _seen_0, _fuel_0, _event_0, _context_0) {
+  if (_todo_0.$ === "Nil") {
+    return {$: "VisibilityDenied"};
+  } else {
+    const _head_0 = _todo_0["head"];
+    const _tail_0 = _todo_0["tail"];
+    return $Bool_pick((_fuel_0 === 0), {$: "VisibilityDenied"}, $$awareness_observed_event(_event_0, _head_0, _tail_0, _seen_0, _fuel_0, _context_0));
+  }
+}
+
+function $awareness_visibility_event(_state_0, _event_0, _context_0) {
+  if (_state_0.$ === "VisibilityWalking") {
+    const _t_0 = _state_0["walk"];
+    const _todo_0 = _t_0["todo"];
+    const _seen_0 = _t_0["seen"];
+    const _fuel_0 = _t_0["fuel"];
+    return $awareness_walk_event(_todo_0, _seen_0, _fuel_0, _event_0, _context_0);
+  } else {
+    return {$: "VisibilityDenied"};
+  }
+}
+
+function $awareness_checked_ref(_refs_0, _alternatives_0, _next_0, _visible_0) {
+  if (_refs_0.$ === "Nil") {
+    return {$: "VisibilityDenied"};
+  } else {
+    const _tail_0 = _refs_0["tail"];
+    if (_visible_0) {
+      return {$: "VisibilityChecking", "refs": _tail_0, "alternatives": _alternatives_0, "next": _next_0};
+    } else {
+      return $awareness_groups(_alternatives_0, _next_0);
+    }
+  }
+}
+
+function $awareness_visibility_ref(_state_0, _visible_0) {
+  if (_state_0.$ === "VisibilityChecking") {
+    const _refs_0 = _state_0["refs"];
+    const _alternatives_0 = _state_0["alternatives"];
+    const _next_0 = _state_0["next"];
+    return $awareness_checked_ref(_refs_0, _alternatives_0, _next_0, _visible_0);
+  } else {
+    return {$: "VisibilityDenied"};
+  }
+}
+
 function $execution_step_1(_state_0, _action_0) {
   return $execution_step(_state_0, _action_0);
 }
@@ -3142,6 +3446,82 @@ function $resource_compare(_left_0, _right_0) {
   return $Bool_pick($$accounting_equal(_left_0, _right_0), {$: "EQ"}, $$Bool_pick($$accounting_le(_left_0, _right_0), {$: "LT"}, {$: "GT"}));
 }
 
+function $awareness_detail_1(_message_0, _kind_0, _roles_0, _incident_0, _scope_0, _dependencies_0) {
+  return $awareness_detail(_message_0, _kind_0, _roles_0, _incident_0, _scope_0, _dependencies_0);
+}
+
+function $awareness_message_visible_1(_present_0, _recipient_0, _principal_0, _incident_0) {
+  return $awareness_message_visible(_present_0, _recipient_0, _principal_0, _incident_0);
+}
+
+function $awareness_message_1(_count_0, _bytes_0, _incident_0, _scope_0, _live_0) {
+  return $awareness_message(_count_0, _bytes_0, _incident_0, _scope_0, _live_0);
+}
+
+function $awareness_reply_1(_kind_0, _incident_0, _principal_0, _recipient_0, _parent_0) {
+  return $awareness_reply(_kind_0, _incident_0, _principal_0, _recipient_0, _parent_0);
+}
+
+function $awareness_recipient_mode_1(_principal_0, _owner_0) {
+  return $awareness_recipient_mode(_principal_0, _owner_0);
+}
+
+function $awareness_recipients_1(_grants_0, _principal_0) {
+  return $awareness_recipients(_grants_0, _principal_0);
+}
+
+function $awareness_selected_1(_include_acknowledged_0, _acknowledged_0) {
+  return $awareness_selected(_include_acknowledged_0, _acknowledged_0);
+}
+
+function $awareness_message_compare_1(_left_0, _left_id_0, _right_0, _right_id_0) {
+  return $awareness_message_compare(_left_0, _left_id_0, _right_0, _right_id_0);
+}
+
+function $awareness_template_1(_kind_0, _schema_0, _expected_0, _selected_0, _current_0) {
+  return $awareness_template(_kind_0, _schema_0, _expected_0, _selected_0, _current_0);
+}
+
+function $awareness_supported_1(_items_0, _record_0, _issuers_0) {
+  return $awareness_supported(_items_0, _record_0, _issuers_0);
+}
+
+function $awareness_slots_1(_count_0, _expected_0, _declared_0, _optional_0, _markers_0, _malformed_0) {
+  return $awareness_slots(_count_0, _expected_0, _declared_0, _optional_0, _markers_0, _malformed_0);
+}
+
+function $awareness_prompt_candidates_1(_declared_0, _optional_0) {
+  return $awareness_prompt_candidates(_declared_0, _optional_0);
+}
+
+function $awareness_prompt_step_1(_candidates_0, _used_0, _ceiling_0) {
+  return $awareness_prompt_step(_candidates_0, _used_0, _ceiling_0);
+}
+
+function $awareness_ref_route_1(_local_0, _message_0, _readable_0, _incident_0, _execution_0, _schedule_0) {
+  return $awareness_ref_route(_local_0, _message_0, _readable_0, _incident_0, _execution_0, _schedule_0);
+}
+
+function $awareness_scan_request_1(_items_0, _ceiling_0, _scanned_0) {
+  return $awareness_scan_request(_items_0, _ceiling_0, _scanned_0);
+}
+
+function $visibility_start(_operator_0, _root_0) {
+  return $awareness_visibility_start(_operator_0, _root_0);
+}
+
+function $visibility_demand(_state_0) {
+  return $awareness_visibility_demand(_state_0);
+}
+
+function $visibility_event(_state_0, _event_0, _context_0) {
+  return $awareness_visibility_event(_state_0, _event_0, _context_0);
+}
+
+function $visibility_ref(_state_0, _visible_0) {
+  return $awareness_visibility_ref(_state_0, _visible_0);
+}
+
 function $Bool_not(_b_0) {
   if (!_b_0) {
     return true;
@@ -3215,6 +3595,10 @@ function $List_is_empty(_xs_0) {
 
 function $String_order(_a_0, _b_0) {
   return $String_order_go(_a_0, _b_0, {$: "EQ"});
+}
+
+function $U32_min(_a_0, _b_0) {
+  return $Bool_pick((_a_0 < _b_0), _a_0, _b_0);
 }
 
 function $List_filter_put(_h_0, _r_0, _keep_0) {
@@ -3487,6 +3871,13 @@ const $$control_aliases = $control_aliases;
 const $$control_declared = $control_declared;
 const $$control_executions = $control_executions;
 const $$control_namespace = $control_namespace;
+const $$awareness_all = $awareness_all;
+const $$awareness_recipient_step = $awareness_recipient_step;
+const $$awareness_recipient_fold = $awareness_recipient_fold;
+const $$awareness_prompt_large = $awareness_prompt_large;
+const $$U32_min = $U32_min;
+const $$awareness_groups = $awareness_groups;
+const $$awareness_observed_event = $awareness_observed_event;
 const $$truth_all = $truth_all;
 const $$truth_any = $truth_any;
 const $$same_scope = $same_scope;
@@ -3698,6 +4089,38 @@ const $$Char_is_eq = $Char_is_eq;export default {
   "control:actions": run_lib((a0,a1,a2) => run_loop($control_actions(a0,a1,a2)), 3),
   "control:schema": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($control_schema(str_in(a0),a1,str_in(a2),str_in(a3),a4,str_in(a5))), 6),
   "control:binding_names": run_lib((a0) => run_loop($control_binding_names(a0)), 1),
+  "awareness:all_fold": run_lib((a0,a1) => run_loop($awareness_all_fold(a0,a1)), 2),
+  "awareness:all": run_lib((a0) => run_loop($awareness_all(a0)), 1),
+  "awareness:detail": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($awareness_detail(a0,str_in(a1),a2,a3,a4,a5)), 6),
+  "awareness:message_visible": run_lib((a0,a1,a2,a3) => run_loop($awareness_message_visible(a0,str_in(a1),str_in(a2),a3)), 4),
+  "awareness:message": run_lib((a0,a1,a2,a3,a4) => run_loop($awareness_message(a0,a1,a2,a3,a4)), 5),
+  "awareness:reply": run_lib((a0,a1,a2,a3,a4) => run_loop($awareness_reply(str_in(a0),str_in(a1),str_in(a2),str_in(a3),a4)), 5),
+  "awareness:recipient_step": run_lib((a0,a1,a2) => run_loop($awareness_recipient_step(str_in(a0),a1,a2)), 3),
+  "awareness:recipient_fold": run_lib((a0,a1,a2) => run_loop($awareness_recipient_fold(a0,str_in(a1),a2)), 3),
+  "awareness:recipient_mode": run_lib((a0,a1) => run_loop($awareness_recipient_mode(str_in(a0),str_in(a1))), 2),
+  "awareness:recipient_result": run_lib((a0) => run_loop($awareness_recipient_result(a0)), 1),
+  "awareness:recipients": run_lib((a0,a1) => run_loop($awareness_recipients(a0,str_in(a1))), 2),
+  "awareness:selected": run_lib((a0,a1) => run_loop($awareness_selected(a0,a1)), 2),
+  "awareness:message_compare": run_lib((a0,a1,a2,a3) => run_loop($awareness_message_compare(a0,str_in(a1),a2,str_in(a3))), 4),
+  "awareness:template": run_lib((a0,a1,a2,a3,a4) => run_loop($awareness_template(str_in(a0),str_in(a1),str_in(a2),str_in(a3),str_in(a4))), 5),
+  "awareness:supported_fold": run_lib((a0,a1,a2,a3) => run_loop($awareness_supported_fold(a0,a1,str_in(a2),a3)), 4),
+  "awareness:supported": run_lib((a0,a1,a2) => run_loop($awareness_supported(a0,str_in(a1),a2)), 3),
+  "awareness:slots": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($awareness_slots(a0,a1,a2,a3,a4,a5)), 6),
+  "awareness:prompt_candidates": run_lib((a0,a1) => run_loop($awareness_prompt_candidates(a0,a1)), 2),
+  "awareness:prompt_large": run_lib((a0) => run_loop($awareness_prompt_large(a0)), 1),
+  "awareness:prompt_step": run_lib((a0,a1,a2) => run_loop($awareness_prompt_step(a0,a1,a2)), 3),
+  "awareness:ref_route": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($awareness_ref_route(a0,a1,a2,a3,a4,a5)), 6),
+  "awareness:scan_request": run_lib((a0,a1,a2) => run_loop($awareness_scan_request(a0,a1,a2)), 3),
+  "awareness:visibility_start": run_lib((a0,a1) => run_loop($awareness_visibility_start(a0,str_in(a1))), 2),
+  "awareness:walk_demand": run_lib((a0,a1,a2) => run_loop($awareness_walk_demand(a0,a1,a2)), 3),
+  "awareness:check_demand": run_lib((a0,a1,a2) => run_loop($awareness_check_demand(a0,a1,a2)), 3),
+  "awareness:visibility_demand": run_lib((a0) => run_loop($awareness_visibility_demand(a0)), 1),
+  "awareness:groups": run_lib((a0,a1) => run_loop($awareness_groups(a0,a1)), 2),
+  "awareness:observed_event": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($awareness_observed_event(a0,str_in(a1),a2,a3,a4,str_in(a5))), 6),
+  "awareness:walk_event": run_lib((a0,a1,a2,a3,a4) => run_loop($awareness_walk_event(a0,a1,a2,a3,str_in(a4))), 5),
+  "awareness:visibility_event": run_lib((a0,a1,a2) => run_loop($awareness_visibility_event(a0,a1,str_in(a2))), 3),
+  "awareness:checked_ref": run_lib((a0,a1,a2,a3) => run_loop($awareness_checked_ref(a0,a1,a2,a3)), 4),
+  "awareness:visibility_ref": run_lib((a0,a1) => run_loop($awareness_visibility_ref(a0,a1)), 2),
   "execution_step": run_lib((a0,a1) => run_loop($execution_step_1(a0,a1)), 2),
   "execution_terminal": run_lib((a0) => run_loop($execution_terminal_1(a0)), 1),
   "topology_check": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($topology_check_1(a0,a1,a2,a3,a4,a5,a6)), 7),
@@ -3853,4 +4276,23 @@ const $$Char_is_eq = $Char_is_eq;export default {
   "reaction_observe": run_lib((a0,a1) => run_loop($reaction_observe(a0,a1)), 2),
   "reaction_finish": run_lib((a0) => run_loop($reaction_finish(a0)), 1),
   "resource_compare": run_lib((a0,a1) => run_loop($resource_compare(a0,a1)), 2),
+  "awareness_detail": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($awareness_detail_1(a0,str_in(a1),a2,a3,a4,a5)), 6),
+  "awareness_message_visible": run_lib((a0,a1,a2,a3) => run_loop($awareness_message_visible_1(a0,str_in(a1),str_in(a2),a3)), 4),
+  "awareness_message": run_lib((a0,a1,a2,a3,a4) => run_loop($awareness_message_1(a0,a1,a2,a3,a4)), 5),
+  "awareness_reply": run_lib((a0,a1,a2,a3,a4) => run_loop($awareness_reply_1(str_in(a0),str_in(a1),str_in(a2),str_in(a3),a4)), 5),
+  "awareness_recipient_mode": run_lib((a0,a1) => run_loop($awareness_recipient_mode_1(str_in(a0),str_in(a1))), 2),
+  "awareness_recipients": run_lib((a0,a1) => run_loop($awareness_recipients_1(a0,str_in(a1))), 2),
+  "awareness_selected": run_lib((a0,a1) => run_loop($awareness_selected_1(a0,a1)), 2),
+  "awareness_message_compare": run_lib((a0,a1,a2,a3) => run_loop($awareness_message_compare_1(a0,str_in(a1),a2,str_in(a3))), 4),
+  "awareness_template": run_lib((a0,a1,a2,a3,a4) => run_loop($awareness_template_1(str_in(a0),str_in(a1),str_in(a2),str_in(a3),str_in(a4))), 5),
+  "awareness_supported": run_lib((a0,a1,a2) => run_loop($awareness_supported_1(a0,str_in(a1),a2)), 3),
+  "awareness_slots": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($awareness_slots_1(a0,a1,a2,a3,a4,a5)), 6),
+  "awareness_prompt_candidates": run_lib((a0,a1) => run_loop($awareness_prompt_candidates_1(a0,a1)), 2),
+  "awareness_prompt_step": run_lib((a0,a1,a2) => run_loop($awareness_prompt_step_1(a0,a1,a2)), 3),
+  "awareness_ref_route": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($awareness_ref_route_1(a0,a1,a2,a3,a4,a5)), 6),
+  "awareness_scan_request": run_lib((a0,a1,a2) => run_loop($awareness_scan_request_1(a0,a1,a2)), 3),
+  "visibility_start": run_lib((a0,a1) => run_loop($visibility_start(a0,str_in(a1))), 2),
+  "visibility_demand": run_lib((a0) => run_loop($visibility_demand(a0)), 1),
+  "visibility_event": run_lib((a0,a1,a2) => run_loop($visibility_event(a0,a1,str_in(a2))), 3),
+  "visibility_ref": run_lib((a0,a1) => run_loop($visibility_ref(a0,a1)), 2),
 };

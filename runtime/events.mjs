@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { canonical, fail, DomainError } from './json.mjs';
 import { sealCursor,openCursor } from './cursors.mjs';
+import * as core from './semantic-core.mjs';
 
 /** Private visibility requirements are stored with the event, never returned on the wire. */
 export function mutationEvents(kernel,method,input,snapshot,batch,firstId,causeIds=[]) {
@@ -29,30 +30,19 @@ export function mutationEvents(kernel,method,input,snapshot,batch,firstId,causeI
 export class Events {
   constructor(kernel) { this.k=kernel; }
   canRef(snapshot,ref,principal,access) {
-    if (snapshot.controlState.messages?.[ref.id] && ref.systemId===snapshot.context.systemId && ref.contextId===snapshot.context.id) return this.k.awareness.visible(snapshot,snapshot.controlState.messages[ref.id],principal,access);
-    if (access.canRead(ref)) return true;
-    if (ref.systemId!==snapshot.context.systemId || ref.contextId!==snapshot.context.id) return false;
-    if (snapshot.controlState.incidents?.[ref.id]) return access.canIncident(ref.id);
-    if (snapshot.controlState.executions?.[ref.id]) {
+    const route=core.eventRefRoute(core.sameScope(ref,{systemId:snapshot.context.systemId,contextId:snapshot.context.id}),!!snapshot.controlState.messages?.[ref.id],access.canRead(ref),!!snapshot.controlState.incidents?.[ref.id],!!snapshot.controlState.executions?.[ref.id],!!snapshot.controlState.schedules?.[ref.id]&&!!this.k.scheduler);
+    if(route==='RefMailbox')return this.k.awareness.visible(snapshot,snapshot.controlState.messages[ref.id],principal,access);
+    if(route==='RefAllowed')return true;
+    if(route==='RefIncident')return access.canIncident(ref.id);
+    if(route==='RefExecution') {
       try { this.k.executions.get(snapshot,ref.id,principal,access);return true; }
       catch (error) { if (!(error instanceof DomainError)) throw error;return false; }
     }
-    if (snapshot.controlState.schedules?.[ref.id] && this.k.scheduler) return this.k.scheduler.canRead(snapshot,ref.id,principal,access);
+    if(route==='RefSchedule')return this.k.scheduler.canRead(snapshot,ref.id,principal,access);
     return false;
   }
   visible(snapshot,event,principal,access) {
-    if (access.operator) return true;
-    let budget=64;const queue=[event],seen=new Set();
-    while (queue.length) {
-      const current=queue.pop();
-      if (--budget<0 || !current) return false;
-      if (seen.has(current.id)) continue;
-      seen.add(current.id);
-      const alternatives=current.visibilityAlternatives ?? [current.visibilityRefs ?? current.subjectRefs];
-      if (!alternatives.some(requirements=>requirements.length && requirements.every(ref=>this.canRef(snapshot,ref,principal,access)))) return false;
-      for (const id of current.causeIds) if (!seen.has(id)) queue.push(this.k.store.event(snapshot.context.id,id));
-    }
-    return true;
+    return core.eventVisible(access.operator,event,snapshot.context.id,id=>this.k.store.event(snapshot.context.id,id),ref=>this.canRef(snapshot,ref,principal,access));
   }
   public(event) {
     const { visibilityRefs,visibilityAlternatives,...result }=event;return result;
@@ -66,11 +56,12 @@ export class Events {
       sequence=cursor.sequence;
     }
     const items=[];let scanned=0,atEnd=false;
-    while (items.length<input.limit && scanned<4096) {
-      const events=this.k.store.events(input.contextId,sequence,Math.min(256,4096-scanned));
+    for (;;) {
+      const requested=core.eventScanRequest(items.length,input.limit,scanned);if(!requested)break;
+      const events=this.k.store.events(input.contextId,sequence,requested);
       if (!events.length) { atEnd=true;break; }
       for (const event of events) {
-        if (event.revision>snapshot.context.revision) { atEnd=true;break; }
+        if (core.reactionSource(event,snapshot.context.revision)==='ReactionSourceMissing') { atEnd=true;break; }
         sequence=event.sequence;scanned++;
         if (this.visible(snapshot,event,principal,access)) items.push(this.public(event));
         if (items.length===input.limit) break;

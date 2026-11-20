@@ -410,3 +410,66 @@ export function reactionObserve(progress,value) {
 }
 export const reactionFinish=progress=>controlTag(Core.reaction_finish(reactionProgress(progress)),['ReactionEligible','ReactionIndeterminate','ReactionIneligible']);
 export function resourceCompare(left,right) {const result=Core.resource_compare(count(left),count(right));controlTag(result,['LT','EQ','GT']);return {LT:-1,EQ:0,GT:1}[result.$];}
+
+const awarenessTag=(value,tags)=>{if(!tags.includes(value?.$))fail('INTERNAL','Invalid core awareness decision');return value.$;};
+export function awarenessDetail(stored,message,incident,scope,access) {
+ const value=stored.value,roles=Object.values(value.roles??{}).flat(),sources=[...(stored.evidence?.sources??[]),...(value.evidence?.sources??[]),...(value.continuation??[])];
+ return awarenessTag(Core.awareness_detail(!!message,codecText(value.kind??''),list(roles.map(ref=>coreBoolean(access.canRead(ref)))),!!incident,!!scope,list(sources.map(ref=>coreBoolean(access.canRead(ref))))),['DetailAllowed','DetailMailbox','DetailRelation','DetailIncident','DetailDependencies']);
+}
+export const messageVisible=(stored,principal,incident)=>coreBoolean(Core.awareness_message_visible(!!stored,codecText(stored?.value.recipientId??''),codecText(principal),!!incident));
+export const messageAdmission=(retained,bytes,incident,scope,live)=>awarenessTag(Core.awareness_message(size(retained),count(bytes),!!incident,!!scope,!!live),['MessageAllowed','MessageRetention','MessageSummary','MessageIncident','MessageExpired']);
+export function messageReply(message,principal,parent) {
+ const encoded=message.inReplyTo===undefined?{$:'NoParent'}:!parent?{$:'MissingParent'}:{$:'ReplyParent',kind:codecText(parent.value.kind),incident:codecText(parent.value.incidentId),recipient:codecText(parent.value.recipientId),sender:codecText(parent.recordedBy)};
+ return awarenessTag(Core.awareness_reply(codecText(message.kind),codecText(message.incidentId),codecText(principal),codecText(message.recipientId),encoded),['ReplyReady','ReplyRequired','ReplyUnavailable','ReplyNeedsVisibility']);
+}
+export function recipientCandidates(snapshot,principal,owner) {
+ if(coreBoolean(Core.awareness_recipient_mode(codecText(principal),codecText(owner))))return [undefined];
+ const grants=Object.values(snapshot.controlState.grants??{});size(grants.length);
+ const result=Core.awareness_recipients(list(grants.map((grant,index)=>({$:'RecipientGrant',index,principal:codecText(grant.value.principalId)}))),principal);
+ awarenessTag(result,['RecipientCandidates','RecipientFull']);if(result.$==='RecipientFull')fail('LIMIT_EXCEEDED','Recipient grant lookup exceeds its bound');
+ return indexValues(result.indices,grants.length).map(index=>grants[index].ref);
+}
+export const messageSelected=(include,acknowledged)=>coreBoolean(Core.awareness_selected(!!include,!!acknowledged));
+export function messageCompare(left,right) {const result=Core.awareness_message_compare(count(left.revision),codecText(left.ref.id),count(right.revision),codecText(right.ref.id));awarenessTag(result,['LT','EQ','GT']);return {LT:-1,EQ:0,GT:1}[result.$];}
+export const promptTemplate=(template,current,expected)=>coreBoolean(Core.awareness_template(codecText(template.value.kind??''),canonical(template.value.schema??null),canonical(expected),resourceKey(template.ref),resourceKey(current.ref)));
+export function templateSupported(assertions,template,issuers,access) {
+ const items=list(assertions.map(item=>({$:'TemplateSupport',record:resourceKey(item.assertion.value.record),issuer:codecText(item.assertion.recordedBy),status:codecText(item.status),sources:list(item.assertion.value.evidence.sources.map(ref=>coreBoolean(access.canRead(ref))))})));
+ return coreBoolean(Core.awareness_supported(items,resourceKey(template),codecTexts(issuers)));
+}
+export const promptSlots=(count,declared,optional,markers,malformed)=>coreBoolean(Core.awareness_slots(size(count),size(declared.length),codecTexts(declared),codecTexts(optional),codecTexts(markers),!!malformed));
+export const promptCandidates=(declared,optional)=>textValues(Core.awareness_prompt_candidates(codecTexts(declared),codecTexts(optional)),32);
+export function promptStep(candidates,used,maximum) {
+ const result=Core.awareness_prompt_step(codecTexts(candidates),count(used),count(maximum));awarenessTag(result,['PromptFits','PromptRequired','PromptOmit']);
+ if(result.$!=='PromptOmit')return {kind:result.$};return {kind:result.$,slot:codecText(result.slot),remaining:textValues(result.remaining,32)};
+}
+export const eventRefRoute=(local,message,readable,incident,execution,schedule)=>awarenessTag(Core.awareness_ref_route(!!local,!!message,!!readable,!!incident,!!execution,!!schedule),['RefMailbox','RefAllowed','RefDenied','RefIncident','RefExecution','RefSchedule']);
+export function eventScanRequest(items,limit,scanned) {const result=Core.awareness_scan_request(size(items),size(limit),size(scanned));if(!Number.isInteger(result)||result<0||result>256)fail('INTERNAL','Invalid event scan request');return result;}
+
+export function eventVisible(operator,event,context,fetch,canRef) {
+ const root=codecText(event?.id??''),events=new Map([[root,event]]),encodedEvents=new Map(),refs=new Map();let state=Core.visibility_start(!!operator,root),limit=129;
+ // The core owns traversal, repeated pops, alternative groups and short-circuit
+ // reference demands. This loop supplies observations and a representation-bound
+ // sanity limit, not another visibility algorithm.
+ for(let step=0;step<=limit;step++) {
+  const demand=Core.visibility_demand(state);awarenessTag(demand,['VisibilityComplete','VisibilityContinue','VisibilityNeedEvent','VisibilityNeedRef']);
+  if(demand.$==='VisibilityComplete')return coreBoolean(demand.visible);
+  if(demand.$==='VisibilityContinue'){state=demand.state;continue;}
+  if(demand.$==='VisibilityNeedRef') {
+   const key=codecText(demand.key);if(!refs.has(key))fail('INTERNAL','Core requested an unobserved reference');
+   state=Core.visibility_ref(state,coreBoolean(canRef(refs.get(key))));continue;
+  }
+  const id=codecText(demand.id);if(!events.has(id))events.set(id,fetch(id));const value=events.get(id);let encoded=encodedEvents.get(id)??{$:'VisibilityMissingEvent'};
+  if(value&&!encodedEvents.has(id)) {
+   const alternatives=value.visibilityAlternatives??[value.visibilityRefs??value.subjectRefs];if(!Array.isArray(alternatives))fail('INVALID_ARGUMENT','Visibility alternatives require a reference collection');
+   let slots=0;
+   const groups=list(alternatives.map(group=>{if(!Array.isArray(group))fail('INVALID_ARGUMENT','Visibility requirements require a reference collection');size(group.length);slots+=group.length;return {$:'VisibilityGroup',refs:list(group.map(ref=>{if(!scoped(ref)||typeof ref.id!=='string')fail('INVALID_ARGUMENT','Visibility requires scoped reference identities');const key=resourceKey(ref);refs.set(key,ref);return key;}))};}));
+   // Every admitted node consumes one core pop, so this allowance is added at
+   // most64 times. Repeated/cached observations cannot enlarge it again.
+   limit=resourceAdd(limit,slots);if(limit===Infinity)fail('INTERNAL','Visibility observation bound is not representable');
+   encoded={$:'VisibilityEvent',id:codecText(value.id),context:codecText(value.contextId),groups,causes:codecTexts(value.causeIds)};
+   encodedEvents.set(id,encoded);
+  }
+  state=Core.visibility_event(state,encoded,codecText(context));
+ }
+ fail('INTERNAL','Core visibility traversal exceeded its observed representation bound');
+}

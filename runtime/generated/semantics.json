@@ -8,15 +8,19 @@
   "sources": [
     {
       "path": "core/LAWS.bend",
-      "digest": "sha256:971e698636d99a5d499b0feaa3b1f5dd9e6c931c6a1d73f3d8a183db9ad07211"
+      "digest": "sha256:e7817124c92eb8f5f572c31a144f214b39e839602fa3c01d574a24f79692b25e"
     },
     {
       "path": "core/PROOF.bend",
-      "digest": "sha256:80daa9c0257b99820ab3521d24b97a6d6b8282012bab70d8529dc1338ba3a574"
+      "digest": "sha256:c7c006c5fa87207d3ecab8d4e044f3711541e799628292c563823028b84fbeab"
     },
     {
       "path": "core/accounting.bend",
       "digest": "sha256:0a683445f112f68240e4670fadd5a6016ac6252f15389af1f449253aaad91456"
+    },
+    {
+      "path": "core/awareness.bend",
+      "digest": "sha256:996b1ba279517f1c687ac1c90c34dc62314167f9ffc2ec433b514a6aa5d40484"
     },
     {
       "path": "core/capability.bend",
@@ -44,7 +48,7 @@
     },
     {
       "path": "core/semantics.bend",
-      "digest": "sha256:a4c3afb0c9df6d3079779265aac16923bfc2e894e8e4a4a993cec96abf72abf2"
+      "digest": "sha256:a4f36ebe53535d63c1cf5e8406090451bfd1cca91416631e5476cdf6092f7b30"
     },
     {
       "path": "core/topology.bend",
@@ -52,7 +56,7 @@
     },
     {
       "path": "proof/Moment.lean",
-      "digest": "sha256:c51ca054ff65fee61ccf8c4eb22c6a10602a95bab12a69844c3495eb2d946e78"
+      "digest": "sha256:d0995854946b947b5b1fae26df1a9055efd2946506a41056ab2f95fdc9b9395b"
     },
     {
       "path": "runtime/json.mjs",
@@ -64,7 +68,7 @@
     },
     {
       "path": "runtime/semantic-core.mjs",
-      "digest": "sha256:05c09b44c136b3594ba0beb2730b7f6707edae2ba2fca5648758b252be3c8145"
+      "digest": "sha256:21a96af3d6723501ed082b5243291bce443a77a5934f6208e2242414723cee64"
     },
     {
       "path": "runtime/semantic-manifest.mjs",
@@ -76,7 +80,7 @@
     },
     {
       "path": "scripts/core-correspondence.mjs",
-      "digest": "sha256:cf8660974b2809aec636ebec76173f70df23d72a5fc930f90553d56007cde1cd"
+      "digest": "sha256:7273901f3edae23a97b5dd4bee30baefd2a90575a1424888b848612702452396"
     },
     {
       "path": "scripts/core-tools.mjs",
@@ -97,7 +101,7 @@
   ],
   "output": {
     "path": "runtime/generated/semantics.mjs",
-    "digest": "sha256:b6dd8fa953bf5a0884dcedbb8ce2ef1b57f673fedc631e8c2c973c142c358e84"
+    "digest": "sha256:d5fb1ef6847c8b1f49dfbc89d27579f969b72f931f84a878b6ae1768c7571640"
   },
   "claim": "Compiled executable core; proof verdict and native correspondence are separately qualified evidence"
 }

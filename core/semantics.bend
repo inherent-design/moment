@@ -7,6 +7,7 @@ import ./scheduler.bend as Sched
 import ./capability.bend as Cap
 import ./policy-query.bend as PQ
 import ./control.bend as Control
+import ./awareness.bend as Aware
 
 def execution_step(state: Run.State, action: Run.Action) -> Run.Step:
   Run.step(state, action)
@@ -880,3 +881,60 @@ def reaction_finish(progress: ReactionProgress) -> ReactionEnd:
 
 def resource_compare(+left: Budget.Count, +right: Budget.Count) -> Cmp:
   Bool.pick(Cmp, Budget.equal(left, right), EQ{}, Bool.pick(Cmp, Budget.le(left, right), LT{}, GT{}))
+
+def awareness_detail(message: Bool, kind: String, roles: +List<Bool>, incident: Bool, scope: Bool, dependencies: +List<Bool>) -> Aware.Detail:
+  Aware.detail(message, kind, roles, incident, scope, dependencies)
+
+def awareness_message_visible(present: Bool, recipient: String, principal: String, incident: Bool) -> Bool:
+  Aware.message_visible(present, recipient, principal, incident)
+
+def awareness_message(count: U32, bytes: Budget.Count, incident: Bool, scope: Bool, live: Bool) -> Aware.MessageAdmission:
+  Aware.message(count, bytes, incident, scope, live)
+
+def awareness_reply(kind: String, incident: String, principal: String, recipient: String, parent: Aware.Parent) -> Aware.Reply:
+  Aware.reply(kind, incident, principal, recipient, parent)
+
+def awareness_recipient_mode(principal: String, owner: String) -> Bool:
+  Aware.recipient_mode(principal, owner)
+
+def awareness_recipients(grants: +List<Aware.RecipientGrant>, principal: String) -> Aware.Recipient:
+  Aware.recipients(grants, principal)
+
+def awareness_selected(include_acknowledged: Bool, acknowledged: Bool) -> Bool:
+  Aware.selected(include_acknowledged, acknowledged)
+
+def awareness_message_compare(left: Budget.Count, left_id: String, right: Budget.Count, right_id: String) -> Cmp:
+  Aware.message_compare(left, left_id, right, right_id)
+
+def awareness_template(kind: String, schema: String, expected: String, selected: String, current: String) -> Bool:
+  Aware.template(kind, schema, expected, selected, current)
+
+def awareness_supported(items: +List<Aware.TemplateSupport>, record: String, issuers: +List<String>) -> Bool:
+  Aware.supported(items, record, issuers)
+
+def awareness_slots(count: U32, expected: U32, declared: +List<String>, optional: +List<String>, markers: +List<String>, malformed: Bool) -> Bool:
+  Aware.slots(count, expected, declared, optional, markers, malformed)
+
+def awareness_prompt_candidates(declared: +List<String>, optional: +List<String>) -> +List<String>:
+  Aware.prompt_candidates(declared, optional)
+
+def awareness_prompt_step(candidates: +List<String>, used: Budget.Count, ceiling: Budget.Count) -> Aware.PromptStep:
+  Aware.prompt_step(candidates, used, ceiling)
+
+def awareness_ref_route(local: Bool, message: Bool, readable: Bool, incident: Bool, execution: Bool, schedule: Bool) -> Aware.RefRoute:
+  Aware.ref_route(local, message, readable, incident, execution, schedule)
+
+def awareness_scan_request(items: U32, ceiling: U32, scanned: U32) -> U32:
+  Aware.scan_request(items, ceiling, scanned)
+
+def visibility_start(operator: Bool, root: String) -> Aware.Visibility:
+  Aware.visibility_start(operator, root)
+
+def visibility_demand(state: Aware.Visibility) -> Aware.Demand:
+  Aware.visibility_demand(state)
+
+def visibility_event(state: Aware.Visibility, event: Aware.EventObservation, context: String) -> Aware.Visibility:
+  Aware.visibility_event(state, event, context)
+
+def visibility_ref(state: Aware.Visibility, visible: Bool) -> Aware.Visibility:
+  Aware.visibility_ref(state, visible)

@@ -316,3 +316,76 @@ def Laws.empty_reaction_has_no_candidate():
 
 def Laws.high_sequence_order_stays_exact():
   {==}
+
+def Laws.mailbox_body_is_not_generic_detail(kind, roles, incident, scope, dependencies):
+  {==}
+
+def Laws.absent_incident_hides_message(recipient, principal):
+  {==}
+
+def Laws.summary_last_byte_is_usable():
+  {==}
+
+def Laws.full_mailbox_refuses_new_message(bytes, incident, scope, live):
+  {==}
+
+def Laws.response_requires_named_request(incident, principal, recipient):
+  {==}
+
+def Laws.matching_reply_still_needs_visibility():
+  {==}
+
+def Laws.acknowledged_mail_is_not_implicitly_selected():
+  {==}
+
+def Laws.unacknowledged_mail_is_selected(include_acknowledged):
+  match include_acknowledged:
+    case False{}:
+      {==}
+    case True{}:
+      {==}
+
+def Laws.empty_template_support_is_not_authority(record, issuers):
+  {==}
+
+def Laws.withdrawn_template_is_not_instruction(visible):
+  {==}
+
+def Laws.current_template_support_is_usable():
+  {==}
+
+def Laws.malformed_template_slots_refuse(count, expected, declared, optional, markers):
+  {==}
+
+def Laws.fitting_prompt_keeps_required_evidence(candidates):
+  {==}
+
+def Laws.prompt_omits_last_declared_optional_first():
+  {==}
+
+def Laws.mailbox_reference_keeps_recipient_boundary(readable):
+  {==}
+
+def Laws.event_scan_stops_at_its_budget(items, ceiling):
+  {==}
+
+def Laws.empty_visibility_group_is_not_authority(next):
+  {==}
+
+def Laws.exhausted_visibility_pop_refuses(seen):
+  {==}
+
+def Laws.complete_visibility_walk_is_useful(seen):
+  {==}
+
+def Laws.missing_visibility_event_refuses(context):
+  {==}
+
+def Laws.refused_reference_does_not_complete_group(next):
+  {==}
+
+def Laws.accepted_reference_keeps_causal_continuation(next):
+  {==}
+
+def Laws.recipient_capacity_does_not_expand(indices):
+  {==}
