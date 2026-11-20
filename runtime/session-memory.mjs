@@ -1,3 +1,4 @@
+import {sqliteOrdinal,sqliteOrdinalValue} from './sqlite-ordinal.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, openSync, closeSync, lstatSync, constants } from 'node:fs';
 import { dirname } from 'node:path';
@@ -587,23 +588,23 @@ export class SessionMemory {
         }
         return packet;
       }
-      const binding=digest({key,limit,maximumBytes});let before=Number.MAX_SAFE_INTEGER,cutoff=Number.MAX_SAFE_INTEGER;
+      const binding=digest({key,limit,maximumBytes});let before,cutoff;
       if(input.cursor){
         text(input.cursor,'assessment cursor',1024);let cursor;
         try{cursor=JSON.parse(Buffer.from(input.cursor,'base64url').toString('utf8'));}catch{fail('INVALID_ARGUMENT','Invalid assessment cursor');}
         exact(cursor,['binding','before','cutoff']);if(cursor.binding!==binding)fail('INVALID_ARGUMENT','Assessment cursor belongs to another selection');
-        before=integer(cursor.before,1,Number.MAX_SAFE_INTEGER,'cursor position');cutoff=integer(cursor.cutoff,0,Number.MAX_SAFE_INTEGER,'cursor cutoff');
-      }else cutoff=this.db.prepare('SELECT coalesce(max(rowid),0) AS value FROM memory_assessments WHERE session_key=?').get(key).value;
-      const rows=this.db.prepare('SELECT rowid,* FROM memory_assessments WHERE session_key=? AND rowid<=? AND rowid<? ORDER BY rowid DESC LIMIT ?').all(key,cutoff,before,limit+1);
+        before=sqliteOrdinal(cursor.before);cutoff=sqliteOrdinal(cursor.cutoff);
+      }else cutoff=sqliteOrdinal(this.db.prepare('SELECT CAST(coalesce(max(rowid),0) AS TEXT) AS value FROM memory_assessments WHERE session_key=?').get(key).value);
+      const rows=this.db.prepare('SELECT CAST(rowid AS TEXT) AS ordinal,* FROM memory_assessments WHERE session_key=? AND rowid<=?'+(before===undefined?'':' AND rowid<?')+' ORDER BY rowid DESC LIMIT ?').all(key,cutoff,...(before===undefined?[]:[before]),limit+1);
       let consumed=0;
       for(const row of rows.slice(0,limit)){
         const manifest=this.continuity.manifest(row.id),summary=this.continuity.summary(manifest);packet.assessments.push(summary);
         const more=consumed+1<rows.length;
-        if(more)packet.nextCursor=Buffer.from(canonical({binding,before:row.rowid,cutoff})).toString('base64url');else delete packet.nextCursor;
+        if(more)packet.nextCursor=Buffer.from(canonical({binding,before:sqliteOrdinalValue(row.ordinal),cutoff:sqliteOrdinalValue(cutoff)})).toString('base64url');else delete packet.nextCursor;
         if(!fits()){
           packet.assessments.pop();
           if(!consumed)fail('LIMIT_EXCEEDED','One assessment summary exceeds the response bound');
-          const last=rows[consumed-1];packet.nextCursor=Buffer.from(canonical({binding,before:last.rowid,cutoff})).toString('base64url');break;
+          const last=rows[consumed-1];packet.nextCursor=Buffer.from(canonical({binding,before:sqliteOrdinalValue(last.ordinal),cutoff:sqliteOrdinalValue(cutoff)})).toString('base64url');break;
         }
         consumed++;
       }

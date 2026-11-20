@@ -1,3 +1,4 @@
+import {sqliteOrdinal} from './sqlite-ordinal.mjs';
 import {canonical,fail} from './json.mjs';
 import {tokens} from './pointers.mjs';
 import {fileURLToPath} from 'node:url';
@@ -545,13 +546,7 @@ export const memoryAutomation=(subscription,issue)=>memoryTag(Core.memory_automa
 export const memoryObservation=authorship=>memoryTag(Core.memory_observation(codecText(authorship)),['MemoryObservationReject','MemoryObservationSkip','MemoryObservationQueue']);
 export const memoryHeadDue=(status,sequence,processed)=>coreBoolean(Core.memory_head_due(codecText(status),count(sequence),count(processed)));
 const memoryOrdinal=value=>{
- let integer;
- if(typeof value==='bigint')integer=value;
- else if(typeof value==='number'&&Number.isSafeInteger(value))integer=BigInt(value);
- else if(typeof value==='string'&&/^-?(?:0|[1-9][0-9]*)$/.test(value))integer=BigInt(value);
- else fail('INVALID_ARGUMENT','Memory input order requires an exact SQLite ordinal');
- if(integer<-(1n<<63n)||integer>=(1n<<63n))fail('INVALID_ARGUMENT','Memory input order is outside signed SQLite ordinals');
- const biased=integer+(1n<<63n);return {$:'MemoryOrdinal',high:Number(biased>>32n),low:Number(biased&0xffffffffn)};
+ const biased=sqliteOrdinal(value)+(1n<<63n);return {$:'MemoryOrdinal',high:Number(biased>>32n),low:Number(biased&0xffffffffn)};
 };
 export function memoryNextHead(heads) {
  const value=Core.memory_next_head(list(heads.map((head,index)=>({$:'MemoryHead',index:size(index),order:memoryOrdinal(head.order),status:codecText(head.input.status),sequence:count(head.input.sequence),processed:count(head.processedThrough)}))));

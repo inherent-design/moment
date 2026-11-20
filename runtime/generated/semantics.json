@@ -84,11 +84,15 @@
     },
     {
       "path": "runtime/semantic-core.mjs",
-      "digest": "sha256:6177682b12492e3a19ed84f1aaaf0ddda5dc84dba1f83eef80752ac5318ee119"
+      "digest": "sha256:371c3728701e78065a6794711159935d8860d4c78fb4985adbdce48454602b7c"
     },
     {
       "path": "runtime/semantic-manifest.mjs",
-      "digest": "sha256:5e6530dbf0b4f7bcd25baaf4de93a72cc0729191b8f7ecd4e8112913607f040a"
+      "digest": "sha256:674622fa9af93fd9e191c83820ecae37eb9c8ed93f20c5343e959cd4fb5c339a"
+    },
+    {
+      "path": "runtime/sqlite-ordinal.mjs",
+      "digest": "sha256:d876fdf89e467751af22e07abafd9ccec2abff947ce7020f1385940e7350b6fc"
     },
     {
       "path": "scripts/build-core.mjs",

@@ -61,3 +61,23 @@ test('actual detail retirement follows exact signed SQLite order rather than rou
  memory.transaction(()=>{memory.db.prepare('UPDATE memory_assessments SET rowid=? WHERE id=?').run(9223372036854775807n,ids[0]);memory.db.prepare('UPDATE memory_assessments SET rowid=? WHERE id=?').run(-9223372036854775808n,ids[1]);assert.equal(memory.continuity.retireOldest(),true);});
  assert.ok(memory.continuity.manifest(ids[0]).basis);assert.equal(memory.continuity.manifest(ids[1]).basisAvailability,'retired');assert.ok(memory.continuity.manifest(ids[2]).basis);
 });
+
+test('assessment pages preserve full signed SQLite order and continue across exact text cursors',t=>{
+ const memory=fixture(t),session={runtimeId:'owned-cursor',sessionId:randomUUID()},ids=[];
+ for(let i=0;i<3;i++){memory.observe({session,deliveryId:randomUUID(),message:{text:'Paged original '+i,authorship:'human'}});const dispatch=memory.claim({id:'owned-fixture',model:'scripted-output'});memory.finish(dispatch.id,{kind:'unchanged',explanation:'Keep page evidence.'});ids.push(dispatch.id);}
+ memory.transaction(()=>{for(const [index,ordinal] of [9223372036854775807n,9007199254740991n,-9223372036854775808n].entries())memory.db.prepare('UPDATE memory_assessments SET rowid=? WHERE id=?').run(ordinal,ids[index]);});
+ let cursor;const actual=[];
+ do{const page=memory.readAssessments({session,limit:1,...(cursor?{cursor}:{})});actual.push(...page.assessments.map(x=>x.assessmentId));cursor=page.nextCursor;if(actual.length===1){const decoded=JSON.parse(Buffer.from(cursor,'base64url'));assert.equal(decoded.before,'9223372036854775807');assert.equal(decoded.cutoff,'9223372036854775807');}assert.ok(actual.length<=3);}while(cursor);
+ assert.deepEqual(actual,ids);
+ const single=fixture(t),onlySession={runtimeId:'owned-cursor',sessionId:randomUUID()};single.observe({session:onlySession,deliveryId:randomUUID(),message:{text:'A negative-only page.',authorship:'human'}});const dispatch=single.claim({id:'owned-fixture',model:'scripted-output'});single.finish(dispatch.id,{kind:'unchanged',explanation:'Keep the minimum row visible.'});single.db.prepare('UPDATE memory_assessments SET rowid=?').run(-9223372036854775808n);
+ assert.equal(single.readAssessments({session:onlySession,limit:1}).assessments[0].assessmentId,dispatch.id);
+});
+
+test('existing numeric assessment cursors remain readable and malformed ordinals cannot change state',t=>{
+ const memory=fixture(t),session={runtimeId:'owned-cursor',sessionId:randomUUID()},ids=[];
+ for(let i=0;i<2;i++){memory.observe({session,deliveryId:randomUUID(),message:{text:'Legacy page '+i,authorship:'human'}});const dispatch=memory.claim({id:'owned-fixture',model:'scripted-output'});memory.finish(dispatch.id,{kind:'unchanged',explanation:'Keep the existing page encoding.'});ids.push(dispatch.id);}
+ const first=memory.readAssessments({session,limit:1}),legacy=JSON.parse(Buffer.from(first.nextCursor,'base64url'));assert.equal(legacy.before,2);assert.equal(legacy.cutoff,2);
+ assert.equal(memory.readAssessments({session,limit:1,cursor:first.nextCursor}).assessments[0].assessmentId,ids[0]);const before=rows(memory);
+ for(const invalid of ['9223372036854775808','-9223372036854775809','1.5','01','+1','',1.5,9007199254740992])for(const field of ['before','cutoff']){const cursor=Buffer.from(canonical({...legacy,[field]:invalid})).toString('base64url');assert.throws(()=>memory.readAssessments({session,limit:1,cursor}),{code:'INVALID_ARGUMENT'});}
+ assert.equal(rows(memory),before);
+});

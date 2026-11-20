@@ -74,7 +74,7 @@ Topology indices and ranks use unsigned words. Logical node/edge counts stay bel
 
 Conditions distinguish true, false and unknown evidence. Malformed query output remains unknown, and an unresolved deny blocks a matching permit. The native traversal retains ordered observations and applies the bounded core decision before invoking a query. A missing observation cannot become authority through negation.
 
-Memory input row order is an opaque signed SQLite 64-bit ordinal, encoded with a sign bias in two unsigned words. Its comparison reuses the limb-order primitive without resource arithmetic. Public revisions and quantities retain their separate safe-integer bounds. Native database reads preserve exact decimal ordinals, and actual SQLite tests cover both signed extremes alongside ordinary ordering and uncertain custody.
+Memory input row order is an opaque signed SQLite 64-bit ordinal, encoded with a sign bias in two unsigned words. Its comparison reuses the limb-order primitive without resource arithmetic. Public revisions and quantities retain their separate safe-integer bounds. Native database reads preserve exact decimal ordinals using one shared signed-64-bit codec. Assessment cursors preserve existing safe numeric fields and encode larger ordinals as exact decimal text; native SQL binds the decoded integers. Actual SQLite tests cover both signed extremes, page continuation, existing numeric cursors, ordinary ordering and uncertain custody.
 
 ## Qualification
 
