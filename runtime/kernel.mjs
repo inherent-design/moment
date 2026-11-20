@@ -1,5 +1,6 @@
 import { sealCursor, openCursor } from './cursors.mjs';
 import { randomUUID } from 'node:crypto';
+import packageMetadata from '../package.json' with {type:'json'};
 import { canonical, digest, fail, DomainError, resultError } from './json.mjs';
 import { validateInput, compileDocument } from './validation.mjs';
 import { boundLimits, attenuates, grantChain, limitedPolicy, sameRef, includesRef } from './authority.mjs';
@@ -124,7 +125,7 @@ export class Kernel {
       if (!principalId) fail('UNAUTHENTICATED', 'Authenticated principal required');
       if (!methods.includes(method)) fail('INVALID_ARGUMENT', 'Method is not implemented');
       validateInput(method, input);
-      if (method === 'system.describe') return ok({ systemId: this.store.systemId, protocolVersion: '0.1', methods: [...methods], implementationVersion: '0.1.0', ...(this.catalog?{catalog:this.catalog}:{}), ...(this.instanceId?{instanceId:this.instanceId}:{}) });
+      if (method === 'system.describe') return ok({ systemId: this.store.systemId, protocolVersion: '0.1', methods: [...methods], implementationVersion: packageMetadata.version, ...(this.catalog?{catalog:this.catalog}:{}), ...(this.instanceId?{instanceId:this.instanceId}:{}) });
       if (method === 'context.create') return this.create(input, principalId);
       if (principalId!==this.ownerId && !boundGrant) fail('NOT_FOUND','Context is not accessible');
       this.executions.maintain(input.contextId);

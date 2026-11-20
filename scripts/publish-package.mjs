@@ -11,6 +11,7 @@ export function verifyPackage(directory) {
  if(pkg.name!=='@inherent.design/moment'||pkg.license!=='Apache-2.0'||pkg.private||!/^\d+\.\d+\.\d+(?:-[\da-z.-]+)?$/.test(pkg.version))throw Error('Release identity or version is not qualified');
  const archive='dist/inherent.design-moment-'+pkg.version+'.tgz';
  if(report.name!==pkg.name||report.version!==pkg.version||report.archive!==archive||JSON.stringify(report.catalog)!==JSON.stringify(catalog.identity)||report.sourceCount!==catalog.sources.length)throw Error('Release receipt disagrees with the source/catalog');
+ if(report.qualifierDigest!=='sha256:'+hash(regular(join(directory,'scripts/check-package.mjs'))))throw Error('Package qualification changed; requalify the exact archive before publishing');
  const bytes=regular(join(directory,archive));
  if(report.sha256!==hash(bytes)||report.integrity!=='sha512-'+hash(bytes,'sha512')||report.bytes!==bytes.length)throw Error('Release archive differs from the qualified bytes');
  return {name:pkg.name,version:pkg.version,archive,sha256:report.sha256,integrity:report.integrity,platform:report.platform,arch:report.arch};

@@ -53,7 +53,7 @@ try {
  const module=await import(pathToFileURL(join(recipient,'node_modules',...pkg.name.split('/'),'runtime/client.mjs')));
  const domain=module.createClient(home);
  const described=await domain.call('system.describe',{protocolVersion:'0.1'});
- assert.equal(described.ok,true,JSON.stringify(described));assert.equal(described.value.catalog.digest,catalog.identity.digest);
+ assert.equal(described.ok,true,JSON.stringify(described));assert.equal(described.value.catalog.digest,catalog.identity.digest);assert.equal(described.value.implementationVersion,pkg.version,'Installed domain reports the actual qualified package version');
  const read=await domain.call('context.get',{contextId});assert.equal(read.ok,true,JSON.stringify(read));assert.equal(read.value.id,contextId);
  await client.close();client=null;
  assert.equal((await domain.call('context.get',{contextId})).ok,true,'Closing bridge stopped shared service');
@@ -63,7 +63,7 @@ try {
  writeFileSync(consumer,`import {createClient} from '${pkg.name}/client';\nimport type {Input} from '${pkg.name}/contracts';\nconst input:Input<'system.describe'>={protocolVersion:'0.1'};\nconst result=await createClient('/test-owned/example').call('system.describe',input);\nif(result.ok) result.value.systemId satisfies string;\n`);
  run('pnpm',['exec','tsc','--ignoreConfig','--noEmit','--strict','--module','NodeNext','--moduleResolution','NodeNext','--target','ES2022',consumer]);
  checks.push('Independent TypeScript client/contract exports');
- const bytes=readFileSync(archive),report={name:pkg.name,version:pkg.version,archive:archive.slice(root.length),sha256:hash(bytes),integrity:'sha512-'+hash(bytes,'sha512'),bytes:bytes.length,catalog:catalog.identity,sourceCount:catalog.sources.length,platform:process.platform,arch:process.arch,node:process.version,pnpm:run('pnpm',['--version']).trim(),checks,inventory,limitations:['No inference, primary Codex or real personal store exercised','Optional Darwin COW helper not exercised','Qualification applies to this source/catalog, artifact and platform']};
+ const bytes=readFileSync(archive),report={name:pkg.name,version:pkg.version,archive:archive.slice(root.length),sha256:hash(bytes),integrity:'sha512-'+hash(bytes,'sha512'),bytes:bytes.length,catalog:catalog.identity,sourceCount:catalog.sources.length,qualifierDigest:'sha256:'+hash(readFileSync(fileURLToPath(import.meta.url))),platform:process.platform,arch:process.arch,node:process.version,pnpm:run('pnpm',['--version']).trim(),checks,inventory,limitations:['No inference, primary Codex or real personal store exercised','Optional Darwin COW helper not exercised','Qualification applies to this source/catalog, artifact and platform']};
  writeFileSync(join(dist,'package-verification.json'),JSON.stringify(report,null,2)+'\n');
  console.log(JSON.stringify({name:report.name,version:report.version,archive:report.archive,sha256:report.sha256,integrity:report.integrity,bytes:report.bytes,sourceCount:report.sourceCount,checks}));
 } finally {

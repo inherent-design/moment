@@ -32,7 +32,7 @@ The runtime verifies exact source bytes. Use `pnpm pack --skip-manifest-obfuscat
 
 `checks.yml` owns fresh Linux/macOS runtime/package/native qualification, Linux formal rebuild/proofs and security/dependency checks. PR jobs have read-only repository permissions and no publication credentials. `security.yml` also runs independently on its schedule. Quick checks are diagnostic subsets; workflow validation does not establish runner success.
 
-The release workflow calls that complete qualification once, then downloads its exact Linux-qualified archive and receipt. `scripts/publish-package.mjs --check` binds package name/version/license, catalog, inventory count, SHA-256, SHA-512 and byte length. It refuses stale or substituted inputs and never rebuilds the artifact. Source tags must be immutable and equal `v<package-version>`.
+The release workflow calls that complete qualification once, then downloads its exact Linux-qualified archive and receipt. `scripts/publish-package.mjs --check` binds package name/version/license, catalog, inventory count, SHA-256, SHA-512, byte length and the actual qualification-script digest. A changed check requires requalification even when archive bytes match. It refuses stale or substituted inputs and never rebuilds the artifact. Source tags must be immutable and equal `v<package-version>`.
 
 A manual branch dispatch qualifies without publishing. After actual required checks pass and publication is authorized, publish source and create the matching tag. Only the publisher job has OIDC provenance permission; npm authentication is passed only at its publishing step. Fork/ordinary PR jobs never receive publishing credentials. A normal update or green dependency PR grants no publication authority.
 
