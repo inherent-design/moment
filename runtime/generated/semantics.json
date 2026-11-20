@@ -8,11 +8,15 @@
   "sources": [
     {
       "path": "core/LAWS.bend",
-      "digest": "sha256:88d6f0ce7f5386404b932ae3bb2b74e29b0228579d91393285d642c01346880d"
+      "digest": "sha256:feee5c33d16c373087b71d0356649166cb03e8ee204ab8f0aa9acf314084dbd3"
     },
     {
       "path": "core/PROOF.bend",
-      "digest": "sha256:cd49fb8e9a61f705fd705be1e504803652d43b873f31f40cea8d6a4716e939c1"
+      "digest": "sha256:820398332475a35f20f53b56c988992fccb1224295afb54219e068ef856c86f0"
+    },
+    {
+      "path": "core/accounting.bend",
+      "digest": "sha256:4b632d605885264e23eb29209daad980ae749ad342477f2d74decc56fc014360"
     },
     {
       "path": "core/execution.bend",
@@ -20,7 +24,7 @@
     },
     {
       "path": "core/semantics.bend",
-      "digest": "sha256:d6c9e23e217cd9aed89edfaa190b48d7476d92bbb1b1aa6f6161bf4803fd6242"
+      "digest": "sha256:525b86dcda8f9a1238662d70194354fc9fbb8316eb000377885a69135c1fba63"
     },
     {
       "path": "core/topology.bend",
@@ -28,7 +32,7 @@
     },
     {
       "path": "proof/Moment.lean",
-      "digest": "sha256:91c9cb5333ab5d561dd66c74647acd7341b1a158dacd6343d5878e03560d5239"
+      "digest": "sha256:e20bd3dfdf1a046f24ab450fb0bd0d0f0a416209e5ba1c104bb2395646cd3932"
     },
     {
       "path": "runtime/json.mjs",
@@ -36,7 +40,7 @@
     },
     {
       "path": "runtime/semantic-core.mjs",
-      "digest": "sha256:52f749664b38f637a58ca91a65a97eb1c4b05dab295527dfe78edd0277039b97"
+      "digest": "sha256:ddfd837567db9f3a113fb3defda5a4ab5e69ff49f3d6b5e27f67c51a1e718668"
     },
     {
       "path": "runtime/semantic-manifest.mjs",
@@ -48,7 +52,7 @@
     },
     {
       "path": "scripts/core-correspondence.mjs",
-      "digest": "sha256:2545e529be1bd9704c2f023a0d225f6f3d9b930a2feb73ec3aaaa448e98cab1f"
+      "digest": "sha256:7445952d97158136c3a2f0d1993c02ece581f76188bbb5537f5ed3c1440ae85a"
     },
     {
       "path": "scripts/core-tools.mjs",
@@ -69,7 +73,7 @@
   ],
   "output": {
     "path": "runtime/generated/semantics.mjs",
-    "digest": "sha256:192c5abb321c7eff535b5c008bd269f977b470cf24e8271919fcc28ff7e6c506"
+    "digest": "sha256:158cb361e0404bd14a11b84521ba027850649fe6bdc6215094645210d9333a4b"
   },
   "claim": "Compiled executable core; proof verdict and native correspondence are separately qualified evidence"
 }

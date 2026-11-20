@@ -95,26 +95,13 @@ export class Executions {
     return { cap,access };
   }
   totals(snapshot,grantId) {
-    const result={ ...zeroUsage(),concurrentExecutions:0 };
-    for (const [id,stored] of Object.entries(snapshot.controlState.executions ?? {})) {
-      if (grantId && !snapshot.controlState.executionOrigins[id].grantIds.includes(grantId)) continue;
-      const value=stored.value,active=!terminal(value.state);
-      for (const key of cumulative) {
-        const reserved=active || value.usage.unmeasured?.includes(key);
-        const sum=result[key]+(reserved?Math.max(value.intent.limits[key],value.usage[key]):value.usage[key]);
-        result[key]=Number.isSafeInteger(sum)?sum:Infinity;
-      }
-      const memory=result.memoryBytes+(active?Math.max(value.intent.limits.memoryBytes,value.usage.memoryBytes):0);
-      result.memoryBytes=Number.isSafeInteger(memory)?memory:Infinity;
-      result.concurrentExecutions+=active?1:0;
-    }
-    return result;
+    return core.resourceTotals(Object.entries(snapshot.controlState.executions??{}).map(([id,stored])=>({value:stored.value,origin:snapshot.controlState.executionOrigins[id]})),grantId);
   }
   capacity(snapshot,intent,chain) {
     if (Object.values(snapshot.controlState.executions ?? {}).some(item=>item.value.limitViolations?.length)) fail('LIMIT_EXCEEDED','Observed resource overrun blocks further context dispatch');
     for (const [grantId,limits] of [[undefined,snapshot.context.limits],[undefined,this.k.lookup(snapshot,snapshot.context.policy).value.limits],...chain.map(grant=>[grant.id,grant.limits])]) {
       const totals=this.totals(snapshot,grantId);
-      for (const key of [...cumulative,'memoryBytes','concurrentExecutions']) if (totals[key]>limits[key]-intent.limits[key]) fail('LIMIT_EXCEEDED','Aggregate execution reservation exceeds its envelope');
+      if(!core.resourceCapacity(totals,intent.limits,limits))fail('LIMIT_EXCEEDED','Aggregate execution reservation exceeds its envelope');
     }
   }
   prepare(snapshot,intent,actor,access,requester=actor) {
@@ -142,9 +129,9 @@ export class Executions {
     if (!value.lease || value.lease.holderId!==principal || value.lease.id!==input.leaseId || value.lease.fencingToken!==input.fencingToken || this.expired(value,snapshot.controlState.executionLeases?.[value.intent.id])) fail('LEASE_STALE','Execution lease is stale','reconcile');
   }
   usage(value,usage,outcome,observed=false) {
-    for (const key of [...cumulative,'memoryBytes']) if (usage[key]<value.usage[key] || (!observed && usage[key]>value.intent.limits[key])) fail('LIMIT_EXCEEDED','Cumulative execution usage is outside its reservation');
+    if(!core.resourceUsage(value.usage,usage,value.intent.limits,observed))fail('LIMIT_EXCEEDED','Cumulative execution usage is outside its reservation');
     const bytes=outcome?.kind==='succeeded'?Buffer.byteLength(canonical(outcome.output)):outcome?.detail?Buffer.byteLength(outcome.detail):0;
-    if (usage.outputBytes<bytes) fail('INVALID_ARGUMENT','Reported output usage does not cover the outcome');
+    if(!core.resourceLessOrEqual(bytes,usage.outputBytes))fail('INVALID_ARGUMENT','Reported output usage does not cover the outcome');
   }
   outcome(snapshot,value,outcome,usage,access,state) {
     this.evidence(snapshot,outcome.evidence,access);
@@ -154,7 +141,7 @@ export class Executions {
       if (!this.k.compiled(this.k.schema(snapshot,cap.outputSchema))(outcome.output)) fail('INVALID_ARGUMENT','Outcome does not satisfy capability output schema');
     }
     value.state=state;value.outcome=outcome;value.usage=usage;delete value.lease;
-    const violations=[...cumulative,'memoryBytes'].filter(key=>usage[key]>value.intent.limits[key]);
+    const violations=[...cumulative,'memoryBytes'].filter(key=>!core.resourceLessOrEqual(usage[key],value.intent.limits[key]));
     if (violations.length) value.limitViolations=violations;
   }
   update(snapshot,method,input,principal,access) {

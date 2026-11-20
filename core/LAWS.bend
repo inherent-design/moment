@@ -2,6 +2,7 @@ import Base
 import ./semantics.bend as Core
 import ./execution.bend as Run
 import ./topology.bend as Top
+import ./accounting.bend as Budget
 
 law deny_precedence:
   for permits: Core.Truth
@@ -82,3 +83,15 @@ law terminal_incident_cannot_reopen:
 
 law closed_context_can_reconcile:
   {Core.mutation_basis("1", "1", "closed", "execution.reconcile") == Core.MutationAllowed{} : Core.MutationAdmission}
+
+law word_carry_is_exact:
+  {Budget.add(Budget.BudgetCount{0, 4294967295}, Budget.one()) == Budget.BudgetFinite{Budget.BudgetCount{1, 0}} : Budget.Amount}
+
+law unsafe_sum_is_overflow:
+  {Budget.add(Budget.BudgetCount{2097151, 4294967295}, Budget.one()) == Budget.BudgetOverflow{} : Budget.Amount}
+
+law overflow_never_fits:
+  {Budget.fits(Budget.BudgetOverflow{}, Budget.BudgetCount{2097151, 4294967295}) == False{} : Bool}
+
+law empty_balance_is_usable:
+  {Budget.within(Budget.empty(), Budget.BudgetQuantities{Budget.zero(), Budget.zero(), Budget.zero(), Budget.zero(), Budget.zero(), Budget.zero()}) == True{} : Bool}

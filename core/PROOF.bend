@@ -70,3 +70,15 @@ def Laws.terminal_incident_cannot_reopen():
 
 def Laws.closed_context_can_reconcile():
   {==}
+
+def Laws.word_carry_is_exact():
+  {==}
+
+def Laws.unsafe_sum_is_overflow():
+  {==}
+
+def Laws.overflow_never_fits():
+  {==}
+
+def Laws.empty_balance_is_usable():
+  {==}

@@ -8,7 +8,7 @@ import { builtinSchemas, installedSchema, validateTopology } from './builtins.mj
 import { applyGraph } from './graph.mjs';
 import { select, tokens, bindInput } from './pointers.mjs';
 import { evaluate, evaluatePolicy } from './conditions.mjs';
-import { Executions, executionMethods } from './executions.mjs';
+import { Executions, executionMethods, zeroUsage } from './executions.mjs';
 import { Events,mutationEvents } from './events.mjs';
 import { Scheduler } from './scheduler.mjs';
 import { Awareness } from './awareness.mjs';
@@ -174,7 +174,7 @@ export class Kernel {
         case 'context.limits': {
           const totals=this.executions.totals(current);
           if (input.limits.currency!==current.context.limits.currency) fail('FORBIDDEN','A resource revision cannot redenominate retained accounting');
-          for (const key of Object.keys(totals)) if (totals[key]>input.limits[key]) fail('LIMIT_EXCEEDED','Resource revision is below retained usage or reservations');
+          if(!core.resourceCapacity(totals,{...zeroUsage(),concurrentExecutions:0},input.limits))fail('LIMIT_EXCEEDED','Resource revision is below retained usage or reservations');
           // Existing policy/grants can be broader after a reduction, but every new
           // request is still bounded by all three. Preserve actual unknown work.
           if (input.limits.deadline) for (const stored of Object.values(current.controlState.executions ?? {})) {

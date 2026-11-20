@@ -1,6 +1,7 @@
 import Base
 import ./execution.bend as Run
 import ./topology.bend as Top
+import ./accounting.bend as Budget
 
 def execution_step(state: Run.State, action: Run.Action) -> Run.Step:
   Run.step(state, action)
@@ -13,6 +14,21 @@ def topology_check(exclusive: Bool, size: U32, edges: +List<Top.Edge>, degree: A
 
 def topology_certify(edges: +List<Top.Edge>, rank: Array<U32>) -> Top.Verdict:
   Top.certify(edges, rank, True{})
+
+def resource_add(left: Budget.Count, right: Budget.Count) -> Budget.Amount:
+  Budget.add(left, right)
+
+def resource_le(left: Budget.Count, right: Budget.Count) -> Bool:
+  Budget.le(left, right)
+
+def resource_totals(entries: +List<Budget.Reservation>) -> Budget.Balance:
+  Budget.total(entries)
+
+def resource_capacity(balance: Budget.Balance, requested: Budget.Quantities, ceiling: Budget.Quantities) -> Bool:
+  Budget.capacity(balance, requested, ceiling)
+
+def resource_usage(previous: Budget.Quantities, usage: Budget.Quantities, ceiling: Budget.Quantities, observed: Bool) -> Bool:
+  Budget.usage_allowed(previous, usage, ceiling, observed)
 
 # These values describe observations. Authority is a separate decision.
 type Truth is Data:

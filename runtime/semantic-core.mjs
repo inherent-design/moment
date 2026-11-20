@@ -129,3 +129,20 @@ export function queryRelated(record,role,target) {
  const roles=list(Object.entries(record.roles??{}).map(([name,refs])=>({$:'QueryRole',name,members:list(refs.map(resourceKey))})));
  return coreBoolean(Core.query_related(record.kind,roles,role!==undefined,role??'',resourceKey(target)));
 }
+
+const accountingFields={cpuMillis:'cpu',memoryBytes:'memory',outputBytes:'output',modelTokens:'tokens',apiSpendMicrounits:'spend',concurrentExecutions:'concurrent'};
+const count=value=>{if(!Number.isSafeInteger(value)||value<0)fail('INVALID_ARGUMENT','Resource quantities require safe nonnegative integers');return {$:'BudgetCount',high:Math.floor(value/2**32),low:value>>>0};};
+const countValue=value=>{if(value?.$!=='BudgetCount'||!Number.isInteger(value.high)||value.high<0||value.high>0x1fffff||!Number.isInteger(value.low)||value.low<0||value.low>0xffffffff)fail('INTERNAL','Invalid core resource count');return value.high*2**32+value.low;};
+const amountValue=value=>{if(value?.$==='BudgetOverflow')return Infinity;if(value?.$!=='BudgetFinite')fail('INTERNAL','Invalid core resource amount');return countValue(value.count);};
+const quantities=value=>({$:'BudgetQuantities',...Object.fromEntries(Object.entries(accountingFields).map(([key,field])=>[field,count(key==='concurrentExecutions'?(value[key]??0):value[key])]))});
+const balance=value=>({$:'BudgetBalance',...Object.fromEntries(Object.entries(accountingFields).map(([key,field])=>[field,value[key]===Infinity?{$:'BudgetOverflow'}:{$:'BudgetFinite',count:count(value[key])}]))});
+export const resourceAdd=(a,b)=>amountValue(Core.resource_add(count(a),count(b)));
+export const resourceLessOrEqual=(a,b)=>coreBoolean(Core.resource_le(count(a),count(b)));
+export function resourceTotals(entries,grantId) {
+ const scoped=entries.filter(({origin})=>grantId===undefined||Core.text_contains(list(origin.grantIds),grantId));
+ const encoded=scoped.map(({value})=>({$:'BudgetReservation',state:runState(value.state),ceiling:quantities(value.intent.limits),usage:quantities(value.usage),...Object.fromEntries([['cpu_unknown','cpuMillis'],['output_unknown','outputBytes'],['tokens_unknown','modelTokens'],['spend_unknown','apiSpendMicrounits']].map(([flag,key])=>[flag,Core.text_contains(list(value.usage.unmeasured??[]),key)]))}));
+ const result=Core.resource_totals(list(encoded));if(result?.$!=='BudgetBalance')fail('INTERNAL','Invalid core resource balance');
+ return Object.fromEntries(Object.entries(accountingFields).map(([key,field])=>[key,amountValue(result[field])]));
+}
+export const resourceCapacity=(totals,requested,ceiling)=>coreBoolean(Core.resource_capacity(balance(totals),quantities(requested),quantities(ceiling)));
+export const resourceUsage=(previous,usage,ceiling,observed)=>coreBoolean(Core.resource_usage(quantities(previous),quantities(usage),quantities(ceiling),!!observed));

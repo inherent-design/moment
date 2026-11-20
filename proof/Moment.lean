@@ -356,6 +356,49 @@ def queryRelated (kind : String) (roles : List (String × List String)) (role : 
 theorem empty_id_selection_matches_nothing (id schema status : String) (support : List String)
     (schemas related : Option (List String)) : queryMatch id schema support (some []) schemas status related = false := by simp [queryMatch]
 
+def budgetMaximum : Nat := 9007199254740991
+def budgetAdd (a b : Nat) : Option Nat := if a+b ≤ budgetMaximum then some (a+b) else none
+def budgetAccumulate (total : Option Nat) (charge : Nat) : Option Nat := total.bind (fun n => budgetAdd n charge)
+def budgetCapacity (total : Option Nat) (requested ceiling : Nat) : Bool :=
+  total.any (fun n => n+requested ≤ ceiling)
+theorem safe_sum_is_exact (a b n : Nat) (h : budgetAdd a b = some n) : n = a+b ∧ n ≤ budgetMaximum := by
+  unfold budgetAdd at h
+  split at h
+  · simp_all
+  · contradiction
+theorem overflow_stays_overflow (charge : Nat) : budgetAccumulate none charge = none := rfl
+theorem capacity_respects_ceiling (total requested ceiling : Nat)
+    (h : budgetCapacity (some total) requested ceiling = true) : total+requested ≤ ceiling := by
+  simpa [budgetCapacity] using h
+theorem wrapped_low_carry (a b : Nat) (ha : a < 4294967296) (hb : b < 4294967296) :
+    (if (a+b)%4294967296 < a then 1 else 0) = (a+b)/4294967296 := by
+  split <;> omega
+theorem limb_sum_is_exact (a b c d : Nat) :
+    (a+c+(b+d)/4294967296)*4294967296 + (b+d)%4294967296 = (a*4294967296+b)+(c*4294967296+d) := by
+  omega
+
+def budgetCharge (state : RunState) (key : String) (unmeasured : Bool) (ceiling usage : Nat) : Nat :=
+  if key == "memoryBytes" then if runTerminal state then 0 else max ceiling usage
+  else if !runTerminal state || unmeasured then max ceiling usage else usage
+theorem terminal_memory_released (state : RunState) (h : runTerminal state = true) (unknown : Bool) (ceiling usage : Nat) :
+    budgetCharge state "memoryBytes" unknown ceiling usage = 0 := by simp [budgetCharge, h]
+theorem unknown_cumulative_preserves_reservation (state : RunState) (ceiling usage : Nat) :
+    ceiling ≤ budgetCharge state "cpuMillis" true ceiling usage := by simp [budgetCharge, Nat.le_max_left]
+def budgetUsage (previous usage ceiling : Nat) (observed : Bool) : Bool :=
+  previous ≤ usage && (observed || usage ≤ ceiling)
+theorem usage_never_decreases (previous usage ceiling : Nat) (observed : Bool)
+    (h : budgetUsage previous usage ceiling observed = true) : previous ≤ usage := by
+  have first := (Bool.and_eq_true_iff.mp h).1
+  exact of_decide_eq_true first
+
+#print axioms safe_sum_is_exact
+#print axioms overflow_stays_overflow
+#print axioms capacity_respects_ceiling
+#print axioms wrapped_low_carry
+#print axioms limb_sum_is_exact
+#print axioms terminal_memory_released
+#print axioms unknown_cumulative_preserves_reservation
+#print axioms usage_never_decreases
 #print axioms bound_identity_not_operator
 #print axioms admitted_owner_is_operator
 #print axioms empty_chain_has_no_resource
@@ -510,6 +553,20 @@ def mutationLabel : Moment.MutationAdmission → String
 def queryFilters (name : String) : List (Option (List String)) := [none,some [],some [name],some ["other"]]
 def queryRoles : List (List (String × List String)) := [[],[("subject",["one"])],[("object",["two"])],[("subject",["one"]),("object",["two"])]]
 
+def budgetValues : List Nat := [0,1,2,4294967295,4294967296,4294967297,281474976710655,281474976710656,281474976710657,9007199254740990,9007199254740991]
+def budgetCapacityValues : List Nat := [0,1,4294967295,4294967296,9007199254740990,9007199254740991]
+def budgetFields : List String := ["cpuMillis","memoryBytes","outputBytes","modelTokens","apiSpendMicrounits"]
+def budgetLabel : Option Nat → String
+  | none => "overflow"
+  | some n => toString n
+def budgetTrace (stateMask unknownMask code : Nat) (scope : String) : Option Nat × Nat :=
+  ((List.range 2).filter (fun i => scope == "all" || scope == "shared" || (scope == "a" && i == 0))).foldl
+    (fun (amount, concurrent) i =>
+      let active := (stateMask / 2^i) % 2 == 1
+      let unknown := (unknownMask / 2^i) % 2 == 1
+      let ceiling := ([1,2,Moment.budgetMaximum][code / 3^i % 3]?).getD 0
+      (Moment.budgetAccumulate amount (Moment.budgetCharge (if active then .running else .succeeded) "cpuMillis" unknown ceiling 1), concurrent + if active then 1 else 0)) (some 0,0)
+
 /-- Bounded executable correspondence cases; these do not replace theorems. -/
 def main : IO Unit := do
   let values : List Moment.Truth := [.yes,.no,.unknown]
@@ -619,3 +676,30 @@ def main : IO Unit := do
       for target in ["one","two","three"] do
         for (roles, rolesIndex) in queryRoles.zipIdx do
           IO.println s!"case|queryRelated|{kind}|{roleIndex}|{target}|{rolesIndex}|{Moment.queryRelated kind roles role target}"
+  for a in budgetValues do
+    for b in budgetValues do
+      IO.println s!"case|budgetAdd|{a}|{b}|{budgetLabel (Moment.budgetAdd a b)}"
+      IO.println s!"case|budgetLe|{a}|{b}|{decide (a ≤ b)}"
+  for key in budgetFields ++ ["concurrentExecutions"] do
+    for total in budgetCapacityValues do
+      for requested in budgetCapacityValues do
+        for ceiling in budgetCapacityValues do
+          IO.println s!"case|budgetCapacity|{key}|{total}|{requested}|{ceiling}|{Moment.budgetCapacity (some total) requested ceiling}"
+  for state in runStates do
+    for key in budgetFields do
+      for ceiling in [0,1,Moment.budgetMaximum] do
+        for usage in [0,1,Moment.budgetMaximum] do
+          for unknown in (if key == "outputBytes" then [false] else [false,true]) do
+            IO.println s!"case|budgetCharge|{runLabel state}|{key}|{ceiling}|{usage}|{unknown}|{Moment.budgetCharge state key unknown ceiling usage}:{if Moment.runTerminal state then 0 else 1}"
+  for key in budgetFields do
+    for previous in [0,1,Moment.budgetMaximum] do
+      for usage in [0,1,Moment.budgetMaximum] do
+        for ceiling in [0,1,Moment.budgetMaximum] do
+          for observed in [false,true] do
+            IO.println s!"case|budgetUsage|{key}|{previous}|{usage}|{ceiling}|{observed}|{Moment.budgetUsage previous usage ceiling observed}"
+  for stateMask in List.range 4 do
+    for unknownMask in List.range 4 do
+      for code in List.range 9 do
+        for scope in ["all","a","shared","missing"] do
+          let (amount, concurrent) := budgetTrace stateMask unknownMask code scope
+          IO.println s!"case|budgetTrace|{stateMask}|{unknownMask}|{code}|{scope}|{budgetLabel amount}:{concurrent}"

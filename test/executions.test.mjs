@@ -78,6 +78,37 @@ test('shared cumulative envelopes charge completed work and descendants rather t
   assert.equal(f.write('execution.request',{ execution:{ ...f.intent(),grant:replacement.ref } }).error.code,'LIMIT_EXCEEDED');
 });
 
+test('persisted reservations preserve the last safe-integer unit and refuse the next one atomically',t=>{
+  const maximum=Number.MAX_SAFE_INTEGER,f=fixture(t,{limits:{...limits,cpuMillis:maximum}}),first={...f.intent(),limits:{...budget,cpuMillis:maximum-1}};
+  assert.equal(f.write('execution.request',{execution:first}).ok,true);
+  const running=f.running(first.id);
+  assert.equal(f.write('execution.finish',{...f.leaseInput(running),outcome,usage:{...usage,cpuMillis:maximum-1}}).ok,true);
+  f.reopen();const revision=f.store.read(f.contextId).context.revision,outbox=f.store.outbox(f.contextId).length;
+  const tooMuch={...f.intent(),limits:{...budget,cpuMillis:2}};
+  assert.equal(f.write('execution.request',{execution:tooMuch}).error.code,'LIMIT_EXCEEDED');
+  assert.equal(f.store.read(f.contextId).context.revision,revision);assert.equal(f.store.outbox(f.contextId).length,outbox);
+  const exact={...f.intent(),limits:{...budget,cpuMillis:1}};
+  assert.equal(f.write('execution.request',{execution:exact}).ok,true);
+  f.reopen();assert.equal(f.kernel.executions.totals(f.store.read(f.contextId)).cpuMillis,maximum);
+  const evidence=f.proof(),before=f.store.read(f.contextId).context.revision;
+  assert.equal(f.write('context.limits',{limits:{...limits,cpuMillis:maximum-1},evidence}).error.code,'LIMIT_EXCEEDED');
+  assert.equal(f.store.read(f.contextId).context.revision,before);
+  assert.equal(f.write('execution.cancel',{executionId:exact.id,reason:'undispatched reservation released'}).ok,true);
+  assert.equal(f.kernel.executions.totals(f.store.read(f.contextId)).cpuMillis,maximum-1);
+});
+
+test('independently reported overruns retain exact persisted observations and saturate aggregate accounting',t=>{
+  const maximum=Number.MAX_SAFE_INTEGER,f=fixture(t,{limits:{...limits,concurrentExecutions:2,cpuMillis:maximum}}),a=f.request(),b=f.request();
+  const left=f.running(a.intent.id),right=f.running(b.intent.id);
+  for(const running of [left,right])assert.equal(f.write('execution.finish',{...f.leaseInput(running),outcome,usage:{...usage,cpuMillis:maximum}}).ok,true);
+  f.reopen();const snapshot=f.store.read(f.contextId),total=f.kernel.executions.totals(snapshot);
+  assert.equal(total.cpuMillis,Infinity);assert.equal(total.concurrentExecutions,0);assert.equal(total.memoryBytes,0);
+  for(const id of [a.intent.id,b.intent.id])assert.equal(snapshot.controlState.executions[id].value.usage.cpuMillis,maximum);
+  const revision=snapshot.context.revision;
+  assert.equal(f.write('execution.request',{execution:f.intent()}).error.code,'LIMIT_EXCEEDED');
+  assert.equal(f.store.read(f.contextId).context.revision,revision);
+});
+
 test('monotonic lease expiry remains effective when wall time moves backwards',t=>{
   let wall=Date.now(),elapsed=0;const clock={ wall:()=>wall,monotonic:()=>elapsed,bootId:randomUUID() };
   const f=fixture(t,{ clock }),q=f.request();f.running(q.intent.id);wall-=60000;elapsed+=15001;

@@ -667,6 +667,173 @@ function $topology_combine(_results_0) {
   return $topology_combine_fold(_results_0, {$: "TopGood"});
 }
 
+function $accounting_zero() {
+  return {$: "BudgetCount", "high": 0, "low": 0};
+}
+
+function $accounting_one() {
+  return {$: "BudgetCount", "high": 0, "low": 1};
+}
+
+function $accounting_le(_left_0, _right_0) {
+  const _a_0 = _left_0["high"];
+  const _b_0 = _left_0["low"];
+  const _c_0 = _right_0["high"];
+  const _d_0 = _right_0["low"];
+  const _x_0 = (_a_0 < _c_0);
+  const _x_1 = $$Bool_and((_a_0 === _c_0), $$Bool_not((_d_0 < _b_0)));
+  return (_x_0 || _x_1);
+}
+
+function $accounting_maximum(_left_0, _right_0) {
+  return $Bool_pick($$accounting_le(_left_0, _right_0), _right_0, _left_0);
+}
+
+function $accounting_added(_high_0, _low_0) {
+  return $Bool_pick($$Bool_not((2097151 < _high_0)), {$: "BudgetFinite", "count": {$: "BudgetCount", "high": _high_0, "low": _low_0}}, {$: "BudgetOverflow"});
+}
+
+function $accounting_add(_left_0, _right_0) {
+  const _a_0 = _left_0["high"];
+  const _b_0 = _left_0["low"];
+  const _c_0 = _right_0["high"];
+  const _d_0 = _right_0["low"];
+  const _low_0 = ((_b_0 + _d_0) >>> 0);
+  const _x_0 = ((_a_0 + _c_0) >>> 0);
+  const _x_1 = $$Bool_pick((_low_0 < _b_0), 1, 0);
+  return $accounting_added(((_x_0 + _x_1) >>> 0), _low_0);
+}
+
+function $accounting_accumulate(_value_0, _extra_0) {
+  if (_value_0.$ === "BudgetOverflow") {
+    return {$: "BudgetOverflow"};
+  } else {
+    const _count_0 = _value_0["count"];
+    return $accounting_add(_count_0, _extra_0);
+  }
+}
+
+function $accounting_fits(_value_0, _ceiling_0) {
+  if (_value_0.$ === "BudgetOverflow") {
+    return false;
+  } else {
+    const _count_0 = _value_0["count"];
+    return $accounting_le(_count_0, _ceiling_0);
+  }
+}
+
+function $accounting_empty() {
+  return {$: "BudgetBalance", "cpu": {$: "BudgetFinite", "count": $$accounting_zero()}, "memory": {$: "BudgetFinite", "count": $$accounting_zero()}, "output": {$: "BudgetFinite", "count": $$accounting_zero()}, "tokens": {$: "BudgetFinite", "count": $$accounting_zero()}, "spend": {$: "BudgetFinite", "count": $$accounting_zero()}, "concurrent": {$: "BudgetFinite", "count": $$accounting_zero()}};
+}
+
+function $accounting_include(_balance_0, _extra_0) {
+  const _a_0 = _balance_0["cpu"];
+  const _b_0 = _balance_0["memory"];
+  const _c_0 = _balance_0["output"];
+  const _d_0 = _balance_0["tokens"];
+  const _e_0 = _balance_0["spend"];
+  const _f_0 = _balance_0["concurrent"];
+  const _u_0 = _extra_0["cpu"];
+  const _v_0 = _extra_0["memory"];
+  const _w_0 = _extra_0["output"];
+  const _x_0 = _extra_0["tokens"];
+  const _y_0 = _extra_0["spend"];
+  const _z_0 = _extra_0["concurrent"];
+  return {$: "BudgetBalance", "cpu": $$accounting_accumulate(_a_0, _u_0), "memory": $$accounting_accumulate(_b_0, _v_0), "output": $$accounting_accumulate(_c_0, _w_0), "tokens": $$accounting_accumulate(_d_0, _x_0), "spend": $$accounting_accumulate(_e_0, _y_0), "concurrent": $$accounting_accumulate(_f_0, _z_0)};
+}
+
+function $accounting_within(_balance_0, _ceiling_0) {
+  const _a_0 = _balance_0["cpu"];
+  const _b_0 = _balance_0["memory"];
+  const _c_0 = _balance_0["output"];
+  const _d_0 = _balance_0["tokens"];
+  const _e_0 = _balance_0["spend"];
+  const _f_0 = _balance_0["concurrent"];
+  const _u_0 = _ceiling_0["cpu"];
+  const _v_0 = _ceiling_0["memory"];
+  const _w_0 = _ceiling_0["output"];
+  const _x_0 = _ceiling_0["tokens"];
+  const _y_0 = _ceiling_0["spend"];
+  const _z_0 = _ceiling_0["concurrent"];
+  return $Bool_and($$accounting_fits(_a_0, _u_0), $$Bool_and($$accounting_fits(_b_0, _v_0), $$Bool_and($$accounting_fits(_c_0, _w_0), $$Bool_and($$accounting_fits(_d_0, _x_0), $$Bool_and($$accounting_fits(_e_0, _y_0), $$accounting_fits(_f_0, _z_0))))));
+}
+
+function $accounting_capacity(_balance_0, _requested_0, _ceiling_0) {
+  return $accounting_within($$accounting_include(_balance_0, _requested_0), _ceiling_0);
+}
+
+function $accounting_quantities_le(_left_0, _right_0) {
+  const _a_0 = _left_0["cpu"];
+  const _b_0 = _left_0["memory"];
+  const _c_0 = _left_0["output"];
+  const _d_0 = _left_0["tokens"];
+  const _e_0 = _left_0["spend"];
+  const _f_0 = _left_0["concurrent"];
+  const _u_0 = _right_0["cpu"];
+  const _v_0 = _right_0["memory"];
+  const _w_0 = _right_0["output"];
+  const _x_0 = _right_0["tokens"];
+  const _y_0 = _right_0["spend"];
+  const _z_0 = _right_0["concurrent"];
+  return $Bool_and($$accounting_le(_a_0, _u_0), $$Bool_and($$accounting_le(_b_0, _v_0), $$Bool_and($$accounting_le(_c_0, _w_0), $$Bool_and($$accounting_le(_d_0, _x_0), $$Bool_and($$accounting_le(_e_0, _y_0), $$accounting_le(_f_0, _z_0))))));
+}
+
+function $accounting_usage_allowed(_previous_0, _usage_0, _ceiling_0, _observed_0) {
+  const _x_0 = $$accounting_quantities_le(_usage_0, _ceiling_0);
+  return $Bool_and($$accounting_quantities_le(_previous_0, _usage_0), (_observed_0 || _x_0));
+}
+
+function $accounting_cumulative(_active_0, _unmeasured_0, _ceiling_0, _usage_0) {
+  return $Bool_pick((_active_0 || _unmeasured_0), $$accounting_maximum(_ceiling_0, _usage_0), _usage_0);
+}
+
+function $accounting_charges(_active_0, _ceiling_0, _usage_0, _cpu_unknown_0, _output_unknown_0, _tokens_unknown_0, _spend_unknown_0) {
+  const _a_0 = _ceiling_0["cpu"];
+  const _b_0 = _ceiling_0["memory"];
+  const _c_0 = _ceiling_0["output"];
+  const _d_0 = _ceiling_0["tokens"];
+  const _e_0 = _ceiling_0["spend"];
+  const _u_0 = _usage_0["cpu"];
+  const _v_0 = _usage_0["memory"];
+  const _w_0 = _usage_0["output"];
+  const _x_0 = _usage_0["tokens"];
+  const _y_0 = _usage_0["spend"];
+  return {$: "BudgetQuantities", "cpu": $$accounting_cumulative(_active_0, _cpu_unknown_0, _a_0, _u_0), "memory": $$Bool_pick(_active_0, $$accounting_maximum(_b_0, _v_0), $$accounting_zero()), "output": $$accounting_cumulative(_active_0, _output_unknown_0, _c_0, _w_0), "tokens": $$accounting_cumulative(_active_0, _tokens_unknown_0, _d_0, _x_0), "spend": $$accounting_cumulative(_active_0, _spend_unknown_0, _e_0, _y_0), "concurrent": $$Bool_pick(_active_0, $$accounting_one(), $$accounting_zero())};
+}
+
+function $accounting_charge(_entry_0) {
+  const _state_0 = _entry_0["state"];
+  const _ceiling_0 = _entry_0["ceiling"];
+  const _usage_0 = _entry_0["usage"];
+  const _cpu_unknown_0 = _entry_0["cpu_unknown"];
+  const _output_unknown_0 = _entry_0["output_unknown"];
+  const _tokens_unknown_0 = _entry_0["tokens_unknown"];
+  const _spend_unknown_0 = _entry_0["spend_unknown"];
+  return $accounting_charges($$Bool_not($$execution_terminal(_state_0)), _ceiling_0, _usage_0, _cpu_unknown_0, _output_unknown_0, _tokens_unknown_0, _spend_unknown_0);
+}
+
+function $accounting_total_fold($0, $1) {
+  for (;;) {
+    {
+      const _entries_0 = $0;
+      const _accumulated_0 = $1;
+      if (_entries_0.$ === "Nil") {
+        return _accumulated_0;
+      } else {
+        const _head_0 = _entries_0["head"];
+        const _tail_0 = _entries_0["tail"];
+        $0 = _tail_0;
+        $1 = $$accounting_include(_accumulated_0, $$accounting_charge(_head_0));
+        continue;
+      }
+    }
+  }
+}
+
+function $accounting_total(_entries_0) {
+  return $accounting_total_fold(_entries_0, $$accounting_empty());
+}
+
 function $execution_step_1(_state_0, _action_0) {
   return $execution_step(_state_0, _action_0);
 }
@@ -681,6 +848,26 @@ function $topology_check_1(_exclusive_0, _size_0, _edges_0, _degree_0, _next_0, 
 
 function $topology_certify_1(_edges_0, _rank_0) {
   return $topology_certify(_edges_0, _rank_0, true);
+}
+
+function $resource_add(_left_0, _right_0) {
+  return $accounting_add(_left_0, _right_0);
+}
+
+function $resource_le(_left_0, _right_0) {
+  return $accounting_le(_left_0, _right_0);
+}
+
+function $resource_totals(_entries_0) {
+  return $accounting_total(_entries_0);
+}
+
+function $resource_capacity(_balance_0, _requested_0, _ceiling_0) {
+  return $accounting_capacity(_balance_0, _requested_0, _ceiling_0);
+}
+
+function $resource_usage(_previous_0, _usage_0, _ceiling_0, _observed_0) {
+  return $accounting_usage_allowed(_previous_0, _usage_0, _ceiling_0, _observed_0);
 }
 
 function $truth_not(_value_0) {
@@ -1334,6 +1521,18 @@ const $$topology_walk = (a0,a1,a2,a3,a4,a5) => run_loop($topology_walk(a0,a1,a2,
 const $$topology_prepare = $topology_prepare;
 const $$Bool_pick = $Bool_pick;
 const $$topology_combine_child = $topology_combine_child;
+const $$accounting_le = $accounting_le;
+const $$accounting_zero = $accounting_zero;
+const $$accounting_accumulate = $accounting_accumulate;
+const $$accounting_fits = $accounting_fits;
+const $$accounting_include = $accounting_include;
+const $$accounting_quantities_le = $accounting_quantities_le;
+const $$accounting_maximum = $accounting_maximum;
+const $$accounting_cumulative = $accounting_cumulative;
+const $$accounting_one = $accounting_one;
+const $$execution_terminal = $execution_terminal;
+const $$accounting_charge = $accounting_charge;
+const $$accounting_empty = $accounting_empty;
 const $$truth_all = $truth_all;
 const $$truth_any = $truth_any;
 const $$String_eq = $String_eq;
@@ -1386,10 +1585,34 @@ const $$List_append = $List_append;export default {
   "topology:combine_child": run_lib((a0,a1) => run_loop($topology_combine_child(a0,a1)), 2),
   "topology:combine_fold": run_lib((a0,a1) => run_loop($topology_combine_fold(a0,a1)), 2),
   "topology:combine": run_lib((a0) => run_loop($topology_combine(a0)), 1),
+  "accounting:zero": run_lib(() => run_loop($accounting_zero()), 0),
+  "accounting:one": run_lib(() => run_loop($accounting_one()), 0),
+  "accounting:le": run_lib((a0,a1) => run_loop($accounting_le(a0,a1)), 2),
+  "accounting:maximum": run_lib((a0,a1) => run_loop($accounting_maximum(a0,a1)), 2),
+  "accounting:added": run_lib((a0,a1) => run_loop($accounting_added(a0,a1)), 2),
+  "accounting:add": run_lib((a0,a1) => run_loop($accounting_add(a0,a1)), 2),
+  "accounting:accumulate": run_lib((a0,a1) => run_loop($accounting_accumulate(a0,a1)), 2),
+  "accounting:fits": run_lib((a0,a1) => run_loop($accounting_fits(a0,a1)), 2),
+  "accounting:empty": run_lib(() => run_loop($accounting_empty()), 0),
+  "accounting:include": run_lib((a0,a1) => run_loop($accounting_include(a0,a1)), 2),
+  "accounting:within": run_lib((a0,a1) => run_loop($accounting_within(a0,a1)), 2),
+  "accounting:capacity": run_lib((a0,a1,a2) => run_loop($accounting_capacity(a0,a1,a2)), 3),
+  "accounting:quantities_le": run_lib((a0,a1) => run_loop($accounting_quantities_le(a0,a1)), 2),
+  "accounting:usage_allowed": run_lib((a0,a1,a2,a3) => run_loop($accounting_usage_allowed(a0,a1,a2,a3)), 4),
+  "accounting:cumulative": run_lib((a0,a1,a2,a3) => run_loop($accounting_cumulative(a0,a1,a2,a3)), 4),
+  "accounting:charges": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($accounting_charges(a0,a1,a2,a3,a4,a5,a6)), 7),
+  "accounting:charge": run_lib((a0) => run_loop($accounting_charge(a0)), 1),
+  "accounting:total_fold": run_lib((a0,a1) => run_loop($accounting_total_fold(a0,a1)), 2),
+  "accounting:total": run_lib((a0) => run_loop($accounting_total(a0)), 1),
   "execution_step": run_lib((a0,a1) => run_loop($execution_step_1(a0,a1)), 2),
   "execution_terminal": run_lib((a0) => run_loop($execution_terminal_1(a0)), 1),
   "topology_check": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($topology_check_1(a0,a1,a2,a3,a4,a5,a6)), 7),
   "topology_certify": run_lib((a0,a1) => run_loop($topology_certify_1(a0,a1)), 2),
+  "resource_add": run_lib((a0,a1) => run_loop($resource_add(a0,a1)), 2),
+  "resource_le": run_lib((a0,a1) => run_loop($resource_le(a0,a1)), 2),
+  "resource_totals": run_lib((a0) => run_loop($resource_totals(a0)), 1),
+  "resource_capacity": run_lib((a0,a1,a2) => run_loop($resource_capacity(a0,a1,a2)), 3),
+  "resource_usage": run_lib((a0,a1,a2,a3) => run_loop($resource_usage(a0,a1,a2,a3)), 4),
   "truth.not": run_lib((a0) => run_loop($truth_not(a0)), 1),
   "truth.and": run_lib((a0,a1) => run_loop($truth_and(a0,a1)), 2),
   "truth.or": run_lib((a0,a1) => run_loop($truth_or(a0,a1)), 2),
