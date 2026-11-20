@@ -24,7 +24,7 @@ import { start, stop, cli } from './daemon-fixture.mjs';
 import { limits, incident } from './helpers.mjs';
 
 function cliResult(root,operation,input) {
-  const reply=spawnSync(process.execPath,[cli.pathname,'call',operation,'--file','-'],{env:{PATH:process.env.PATH,MOMENT_HOME:root},input:JSON.stringify(input),encoding:'utf8',timeout:15000,maxBuffer:2097152});
+  const reply=spawnSync(process.execPath,[cli.pathname,'call',operation,'--file','-'],{env:{...process.env,MOMENT_HOME:root},input:JSON.stringify(input),encoding:'utf8',timeout:15000,maxBuffer:2097152});
   assert.equal(reply.stderr,'');const wire=JSON.parse(reply.stdout);
   // The raw operator CLI retains the JSON-RPC envelope. Compare its explicit
   // pre-dispatch refusal to the typed clients' domain projection.
@@ -42,7 +42,7 @@ async function connect(t,root,version='2025-11-25',profile='continuity',credenti
       return super.send(message);
     }
   }
-  const transport=new VersionTransport({command:process.execPath,args:[cli.pathname,'mcp','--profile',profile],env:{PATH:process.env.PATH,MOMENT_HOME:root,...(credentialFile?{MOMENT_CREDENTIAL_FILE:credentialFile}:{})},stderr:'pipe',maxBufferSize:1048576});
+  const transport=new VersionTransport({command:process.execPath,args:[cli.pathname,'mcp','--profile',profile],env:{...process.env,MOMENT_HOME:root,...(credentialFile?{MOMENT_CREDENTIAL_FILE:credentialFile}:{})},stderr:'pipe',maxBufferSize:1048576});
   let diagnostics='';transport.stderr.on('data',bytes=>{diagnostics=(diagnostics+bytes).slice(-8192);});
   const client=new Client({name:'moment-conformance',version:'1'},{...(version==='2026-07-28'?{versionNegotiation:{mode:{pin:version}}}:{})});
   t.after(()=>client.close());
@@ -137,7 +137,7 @@ test('actual SDK bridge shares admitted kernel results and preserves its service
 test('strict framing refuses duplicates, malformed UTF-8, oversized and incomplete input before SDK decode',async t=>{
   const parent=mkdtempSync(join(tmpdir(),'moment-mcp-frame-'));t.after(()=>rmSync(parent,{recursive:true,force:true}));
   for(const bytes of [Buffer.from('{"jsonrpc":"2.0","id":1,"id":2,"method":"ping"}\n'),Buffer.from('{"a":1,"\\u0061":2}\n'),Buffer.from([123,34,120,34,58,34,255,34,125,10]),Buffer.alloc(1048578,32),Buffer.from('{')]) {
-    const root=join(parent,randomUUID()),child=spawn(process.execPath,[cli.pathname,'mcp'],{env:{PATH:process.env.PATH,MOMENT_HOME:root},stdio:['pipe','pipe','pipe']});
+    const root=join(parent,randomUUID()),child=spawn(process.execPath,[cli.pathname,'mcp'],{env:{...process.env,MOMENT_HOME:root},stdio:['pipe','pipe','pipe']});
     let stdout='',stderr='';child.stdout.on('data',bytes=>stdout+=bytes);child.stderr.on('data',bytes=>stderr+=bytes);
     const exit=once(child,'exit');child.stdin.on('error',()=>{});child.stdin.end(bytes);
     const timer=setTimeout(()=>child.kill('SIGKILL'),5000);const [code]=await exit;clearTimeout(timer);

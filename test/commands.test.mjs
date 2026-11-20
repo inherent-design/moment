@@ -11,7 +11,7 @@ import { catalogIdentity,validateSurface } from '../runtime/bindings.mjs';
 import { limits,incident } from './helpers.mjs';
 import { start,stop,cli } from './daemon-fixture.mjs';
 
-const run=(root,args,env={})=>spawnSync(process.execPath,[cli.pathname,...args],{env:{PATH:process.env.PATH,MOMENT_HOME:root,...env},encoding:'utf8',timeout:15000,maxBuffer:1048576});
+const run=(root,args,env={})=>spawnSync(process.execPath,[cli.pathname,...args],{env:{...process.env,MOMENT_HOME:root,...env},encoding:'utf8',timeout:15000,maxBuffer:1048576});
 test('offline agents/status/stop/help are bounded and observational with clean machine stdout',t=>{
   const parent=mkdtempSync(join(tmpdir(),'moment-co-'));t.after(()=>rmSync(parent,{recursive:true,force:true}));const root=join(parent,'s');
   const summary=run(root,['agents','--limit','2']);assert.equal(summary.status,0,summary.stderr);

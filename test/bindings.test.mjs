@@ -66,7 +66,7 @@ test('the actual generator refuses stale sources, missing dispatch coverage and 
   const run=()=>execFileSync(process.execPath,[join(directory,'scripts/generate-bindings.mjs'),'--check'],{encoding:'utf8',stdio:'pipe',timeout:10000});
   assert.match(run(),/Checked deterministic/);
   const lock=join(directory,'pnpm-lock.yaml'),copy=join(directory,'runtime/generated/source-lock.yaml'),lockBytes=readFileSync(lock);
-  const discover=()=>spawnSync(process.execPath,[join(directory,'runtime/cli.mjs'),'agents','workspace.read'],{env:{PATH:process.env.PATH,MOMENT_HOME:join(directory,'absent-state')},encoding:'utf8',timeout:10000});
+  const discover=()=>spawnSync(process.execPath,[join(directory,'runtime/cli.mjs'),'agents','workspace.read'],{env:{...process.env,MOMENT_HOME:join(directory,'absent-state')},encoding:'utf8',timeout:10000});
   assert.deepEqual(readFileSync(copy),lockBytes);
   writeFileSync(lock,Buffer.concat([lockBytes,Buffer.from('\n')]));
   assert.notEqual(discover().status,0,'A checkout cannot bypass its changed root lockfile');
@@ -78,7 +78,7 @@ test('the actual generator refuses stale sources, missing dispatch coverage and 
   writeFileSync(copy,lockBytes);renameSync(lock+'.retained',lock);
   const directive=join(directory,'runtime/directives.mjs'),before=readFileSync(directive,'utf8');writeFileSync(directive,before+'\n');
   assert.throws(run,/Bindings are stale/);
-  const refused=spawnSync(process.execPath,[join(directory,'runtime/cli.mjs'),'agents'],{env:{PATH:process.env.PATH,MOMENT_HOME:join(directory,'absent-state')},encoding:'utf8',timeout:10000});
+  const refused=spawnSync(process.execPath,[join(directory,'runtime/cli.mjs'),'agents'],{env:{...process.env,MOMENT_HOME:join(directory,'absent-state')},encoding:'utf8',timeout:10000});
   assert.equal(refused.status,1);assert.equal(refused.stdout,'');assert.match(refused.stderr,/Bindings are stale/);
   writeFileSync(directive,before);
   const captureContract=join(directory,'contracts/captures.ts'),captureBefore=readFileSync(captureContract,'utf8');writeFileSync(captureContract,captureBefore+'\n');assert.throws(run,/Bindings are stale/);writeFileSync(captureContract,captureBefore);

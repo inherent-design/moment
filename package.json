@@ -1,6 +1,6 @@
 {
   "name": "@inherent.design/moment",
-  "version": "0.1.0-preview.2",
+  "version": "0.1.0-preview.3",
   "description": "Local contextual memory, evidence and governed coordination for agents",
   "type": "module",
   "license": "Apache-2.0",

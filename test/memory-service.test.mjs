@@ -18,7 +18,7 @@ const input=(s,text)=>({session:s,deliveryId:randomUUID(),message:{text,authorsh
 const output=dispatch=>({kind:'replace',explanation:'Scripted fixture assessment.',entries:[{sourceId:dispatch.request.incomingSourceIds.at(-1),weight:0.8,note:'Scripted fixture selection; no semantic model claim.'}]});
 function run(root,args,stdin,t) {
   return new Promise((resolve,reject)=>{
-    const child=spawn(process.execPath,[new URL('../runtime/cli.mjs',import.meta.url).pathname,...args],{env:{PATH:process.env.PATH,MOMENT_HOME:root},stdio:['pipe','pipe','pipe']});
+    const child=spawn(process.execPath,[new URL('../runtime/cli.mjs',import.meta.url).pathname,...args],{env:{...process.env,MOMENT_HOME:root},stdio:['pipe','pipe','pipe']});
     let stdout='',stderr='';child.stdout.on('data',chunk=>stdout+=chunk);child.stderr.on('data',chunk=>stderr+=chunk);child.once('error',reject);
     const timer=setTimeout(()=>{child.kill();reject(Error('Owned memory CLI timed out: '+stderr));},10000);
     child.once('exit',code=>{clearTimeout(timer);resolve({code,stdout,stderr});});child.stdin.end(stdin??'');
@@ -28,7 +28,7 @@ function run(root,args,stdin,t) {
 function nativeHook(root,s,event,t){
   const command=memoryHookDefinitions(s.runtimeId,join(root,'native'),root).hooks[event.hook_event_name][0].hooks[0].command;
   return new Promise((resolve,reject)=>{
-    const child=spawn('/bin/sh',['-c',command],{env:{PATH:process.env.PATH,MOMENT_HOME:root},stdio:['pipe','pipe','pipe']});let stdout='',stderr='';
+    const child=spawn('/bin/sh',['-c',command],{env:{...process.env,MOMENT_HOME:root},stdio:['pipe','pipe','pipe']});let stdout='',stderr='';
     child.stdout.on('data',part=>stdout+=part);child.stderr.on('data',part=>stderr+=part);child.once('error',reject);child.once('exit',code=>resolve({code,stdout,stderr}));child.stdin.end(JSON.stringify(event));
     t.after(()=>{if(child.exitCode===null && child.signalCode===null)child.kill();});
   });
