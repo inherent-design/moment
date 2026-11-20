@@ -1048,6 +1048,104 @@ theorem aw_zero_pop_budget_refuses (events : List AwEvent) (readable : List Stri
 theorem aw_finished_walk_is_useful (events : List AwEvent) (readable : List String) (count : Nat) (seen : List String) :
     awWalk events readable count [] seen = true := by cases count <;> rfl
 
+def guiComponents : List String → List String → Bool
+  | [],_ => true
+  | _::_,[] => false
+  | a::tail,b::rest => a == b && guiComponents tail rest
+def guiPath (rootHost : String) (root : List String) (pathHost : String) (selected : List String) : Bool := rootHost == pathHost && guiComponents root selected
+def guiRegistration (normalized present : Bool) (count : Nat) (same : Bool) : String :=
+  if !normalized then "GuidanceInvalidPaths" else if present then if same then "GuidanceSameSource" else "GuidanceChangedSource"
+  else if count ≥ 256 then "GuidanceRegistryFull" else "GuidanceNewSource"
+def guiRefresh (active storage : Bool) : String := if !active then "GuidanceWithdrawn" else if !storage then "GuidanceNoStorage" else "GuidanceObserve"
+def guiRetained (retained maximumCount total extra maximumBytes : Nat) : Bool := retained < maximumCount && total + extra ≤ maximumBytes
+def guiError (code : String) (domain : Bool) : String :=
+  if domain && !(["FORBIDDEN","LIMIT_EXCEEDED","IDENTITY_CONFLICT","INVALID_ARGUMENT"].contains code) then "GuidanceRethrow"
+  else if code == "ENOENT" then "GuidanceMissing" else if ["EACCES","EPERM","FORBIDDEN"].contains code then "GuidanceDenied"
+  else if code == "LIMIT_EXCEEDED" then "GuidanceTooLarge" else if code == "IDENTITY_CONFLICT" then "GuidanceChanged" else "GuidanceUnsupported"
+def guiSelected (explicit active located : Bool) (locations : List Bool) : Bool := (explicit || active) && (!located || locations.any id)
+def guiReviewSize (count : Nat) : String := if count == 0 then "GuidanceNoSources" else if count > 32 then "GuidanceSourceBound" else "GuidanceSourcesReady"
+def guiReviewSource (active : Bool) (observation : String) : Bool := active && observation == "ready"
+def guiReviewBytes (values : List Nat) : Bool := values.sum ≤ 131072
+def guiCurrent (present active : Bool) (definition capturedDefinition observation latest capture : String) : Bool :=
+  present && active && definition == capturedDefinition && observation == "ready" && latest == capture
+def guiBasis (present : Bool) (actual expected : String) : String := if !present then "GuidanceBasisUnavailable" else if actual == expected then "GuidanceBasisCurrent" else "GuidanceBasisChanged"
+def guiPolicy (currentRef expectedRef currentDigest expectedDigest : String) : Bool := currentRef == expectedRef && currentDigest == expectedDigest
+def guiProfile (actual expected : List String) : Bool := actual == expected
+def guiAvailable (compatible readable : Bool) (expiry now : Nat) : Bool := compatible && readable && expiry > now
+def guiGrant (principal candidatePrincipal : String) (actions resources : List String) (capability : String) (operator : Bool) (candidate bound : String) : Bool :=
+  principal == candidatePrincipal && actions.contains "local.moment.guidance" && actions.contains "guidance.review" && resources.contains capability && (operator || candidate == bound)
+def guiCandidate (state : RunState) (blocked settlement : Bool) : Bool :=
+  !blocked && (state == .queued || state == .uncertain || runTerminal state && settlement)
+def guiSettlement (state : RunState) (blocked : Bool) : Bool := !blocked && runTerminal state
+def guiCompare (left : RunState) (leftKey : String) (right : RunState) (rightKey : String) : Int :=
+  if left == .uncertain && right != .uncertain then -1 else if right == .uncertain && left != .uncertain then 1
+  else if leftKey < rightKey then -1 else if leftKey == rightKey then 0 else 1
+def guiResult (kind : String) (failure raw : Bool) : String :=
+  if kind == "not_started" then "GuidanceNotStarted" else if kind == "cancelled" then "GuidanceCancelled"
+  else if kind == "failed" || failure then "GuidanceFailed" else if raw then "GuidanceProject" else "GuidanceUnknownOutput"
+def guiQuote (occurrences : Nat) (editorial : Bool) : String :=
+  if occurrences == 0 then "GuidanceQuoteUnanchored" else if occurrences != 1 then "GuidanceQuoteAmbiguous" else if editorial then "GuidanceQuoteEditorial" else "GuidanceQuoteExact"
+def guiEditorial (present : Bool) (occurrences : Nat) (asciiInitial : Bool) : Bool := present && occurrences == 0 && asciiInitial
+def guiCaptureRoom (count : Nat) : Bool := count < 2048
+
+theorem gui_root_is_useful (selected : List String) : guiPath "/" [] "/" selected = true := rfl
+theorem gui_path_requires_same_host (rootHost pathHost : String) (root selected : List String) (h : guiPath rootHost root pathHost selected = true) : rootHost = pathHost := by
+  simpa [guiPath] using (Bool.and_eq_true_iff.mp h).1
+theorem gui_existing_update_ignores_capacity (count : Nat) : guiRegistration true true count true = "GuidanceSameSource" := rfl
+theorem gui_withdrawn_cannot_observe (storage : Bool) : guiRefresh false storage = "GuidanceWithdrawn" := rfl
+theorem gui_retention_keeps_count_bound (retained maximumCount total extra maximumBytes : Nat) (h : guiRetained retained maximumCount total extra maximumBytes = true) : retained < maximumCount := by
+  simpa [guiRetained] using (Bool.and_eq_true_iff.mp h).1
+theorem gui_retention_keeps_byte_bound (retained maximumCount total extra maximumBytes : Nat) (h : guiRetained retained maximumCount total extra maximumBytes = true) : total + extra ≤ maximumBytes := by
+  simpa [guiRetained] using (Bool.and_eq_true_iff.mp h).2
+theorem gui_implicit_withdrawn_is_absent (located : Bool) (locations : List Bool) : guiSelected false false located locations = false := by simp [guiSelected]
+theorem gui_explicit_history_is_selectable : guiSelected true false false [] = true := rfl
+theorem gui_inactive_source_is_not_assessable (observation : String) : guiReviewSource false observation = false := rfl
+theorem gui_evidence_bound_is_preserved (values : List Nat) (h : guiReviewBytes values = true) : values.sum ≤ 131072 := by simpa [guiReviewBytes] using h
+theorem gui_missing_source_is_historical (active : Bool) (definition capturedDefinition observation latest capture : String) : guiCurrent false active definition capturedDefinition observation latest capture = false := rfl
+theorem gui_withdrawn_source_is_historical (definition capturedDefinition observation latest capture : String) : guiCurrent true false definition capturedDefinition observation latest capture = false := rfl
+theorem gui_current_preserves_definition (present active : Bool) (definition capturedDefinition observation latest capture : String) (h : guiCurrent present active definition capturedDefinition observation latest capture = true) : definition = capturedDefinition := by
+  simpa [guiCurrent] using ((Bool.and_eq_true_iff.mp (Bool.and_eq_true_iff.mp (Bool.and_eq_true_iff.mp h).1).1).2)
+theorem gui_current_preserves_capture (present active : Bool) (definition capturedDefinition observation latest capture : String) (h : guiCurrent present active definition capturedDefinition observation latest capture = true) : latest = capture := by
+  simpa [guiCurrent] using (Bool.and_eq_true_iff.mp h).2
+theorem gui_missing_basis_is_not_current (actual expected : String) : guiBasis false actual expected = "GuidanceBasisUnavailable" := rfl
+theorem gui_policy_preserves_both (currentRef expectedRef currentDigest expectedDigest : String) (h : guiPolicy currentRef expectedRef currentDigest expectedDigest = true) : currentRef = expectedRef ∧ currentDigest = expectedDigest := by
+  simpa [guiPolicy] using h
+theorem gui_profile_preserves_all_fields (actual expected : List String) (h : guiProfile actual expected = true) : actual = expected := by simpa [guiProfile] using h
+theorem gui_blocked_candidate_rests (state : RunState) (settlement : Bool) : guiCandidate state true settlement = false := rfl
+theorem gui_queued_candidate_is_useful (settlement : Bool) : guiCandidate .queued false settlement = true := rfl
+theorem gui_terminal_requires_settlement (state : RunState) (blocked : Bool) (h : runTerminal state = true) : guiCandidate state blocked false = false := by cases state <;> simp_all [runTerminal,guiCandidate]
+theorem gui_uncertain_keeps_priority (a b : String) : guiCompare .uncertain a .queued b = -1 := rfl
+theorem gui_actual_failure_cannot_project (raw : Bool) : guiResult "observed" true raw = "GuidanceFailed" := rfl
+theorem gui_missing_output_stays_uncertain : guiResult "observed" false false = "GuidanceUnknownOutput" := rfl
+theorem gui_quote_ambiguity_preserved (editorial : Bool) : guiQuote 2 editorial = "GuidanceQuoteAmbiguous" := rfl
+theorem gui_editorial_is_explicit : guiQuote 1 true = "GuidanceQuoteEditorial" := rfl
+
+#print axioms gui_root_is_useful
+#print axioms gui_path_requires_same_host
+#print axioms gui_existing_update_ignores_capacity
+#print axioms gui_withdrawn_cannot_observe
+#print axioms gui_retention_keeps_count_bound
+#print axioms gui_retention_keeps_byte_bound
+#print axioms gui_implicit_withdrawn_is_absent
+#print axioms gui_explicit_history_is_selectable
+#print axioms gui_inactive_source_is_not_assessable
+#print axioms gui_evidence_bound_is_preserved
+#print axioms gui_missing_source_is_historical
+#print axioms gui_withdrawn_source_is_historical
+#print axioms gui_current_preserves_definition
+#print axioms gui_current_preserves_capture
+#print axioms gui_missing_basis_is_not_current
+#print axioms gui_policy_preserves_both
+#print axioms gui_profile_preserves_all_fields
+#print axioms gui_blocked_candidate_rests
+#print axioms gui_queued_candidate_is_useful
+#print axioms gui_terminal_requires_settlement
+#print axioms gui_uncertain_keeps_priority
+#print axioms gui_actual_failure_cannot_project
+#print axioms gui_missing_output_stays_uncertain
+#print axioms gui_quote_ambiguity_preserved
+#print axioms gui_editorial_is_explicit
+
 #print axioms aw_mailbox_is_not_detail
 #print axioms aw_no_incident_no_message
 #print axioms aw_summary_byte_bound
@@ -1952,3 +2050,89 @@ def main : IO Unit := do
             for group in List.range 7 do
               for operator in [false,true] do
                 IO.println s!"case|awVisibility|{size}|{mask}|{missing}|{foreign}|{readable}|{group}|{operator}|{operator || Moment.awWalk (awGraph size mask missing foreign group) (chooseMask ["r0","r1"] readable) 64 ["e0"] []}"
+
+  let guiPaths : List (List String) := [[],["a"],["b"],["a","b"],["ab"],["a","b","c"],["é"]]
+  for (root,ri) in guiPaths.zipIdx do
+    for (selected,pi) in guiPaths.zipIdx do
+      for sameHost in [false,true] do
+        IO.println s!"case|guiPath|{ri}|{pi}|{sameHost}|{Moment.guiPath "/" root (if sameHost then "/" else "other") selected}"
+  for normalized in [false,true] do
+    for present in [false,true] do
+      for count in [0,255,256,257,2147483647] do
+        for same in [false,true] do
+          IO.println s!"case|guiRegistration|{normalized}|{present}|{count}|{same}|{Moment.guiRegistration normalized present count same}"
+  for active in [false,true] do
+    for storage in [false,true] do
+      IO.println s!"case|guiRefresh|{active}|{storage}|{Moment.guiRefresh active storage}"
+  for retained in [0,1,2,9007199254740991] do
+    for maximumCount in [0,1,2,9007199254740991] do
+      for total in [0,4294967296,9007199254740990,9007199254740991] do
+        for extra in [0,1,2,4294967296] do
+          for maximumBytes in [0,4294967296,9007199254740991] do
+            IO.println s!"case|guiRetained|{retained}|{maximumCount}|{total}|{extra}|{maximumBytes}|{Moment.guiRetained retained maximumCount total extra maximumBytes}"
+  for code in ["ENOENT","EACCES","EPERM","FORBIDDEN","LIMIT_EXCEEDED","IDENTITY_CONFLICT","INVALID_ARGUMENT","NOT_FOUND","INTERNAL","EIO",""] do
+    for domain in [false,true] do
+      IO.println s!"case|guiError|{code}|{domain}|{Moment.guiError code domain}"
+  for explicit in [false,true] do
+    for active in [false,true] do
+      for located in [false,true] do
+        for (locations,index) in awBoolLists.zipIdx do
+          IO.println s!"case|guiSelected|{explicit}|{active}|{located}|{index}|{Moment.guiSelected explicit active located locations}"
+  for count in [0,1,32,33,2048,2147483647] do
+    IO.println s!"case|guiReviewSize|{count}|{Moment.guiReviewSize count}"
+  for active in [false,true] do
+    for observation in ["","ready","missing","changed"] do
+      IO.println s!"case|guiReviewSource|{active}|{observation}|{Moment.guiReviewSource active observation}"
+  for size in List.range 4 do
+    for code in List.range (6^size) do
+      let lengths := fromCode [0,1,131072,131073,4294967296,9007199254740991] size code
+      IO.println s!"case|guiReviewBytes|{size}|{code}|{Moment.guiReviewBytes lengths}"
+  for present in [false,true] do
+    for active in [false,true] do
+      for sameDefinition in [false,true] do
+        for observation in ["","ready","missing","changed","denied"] do
+          for refCode in List.range 4 do
+            IO.println s!"case|guiCurrent|{present}|{active}|{sameDefinition}|{observation}|{refCode}|{Moment.guiCurrent present active "d" (if sameDefinition then "d" else "other") observation (if refCode == 0 then "capture" else "other") "capture"}"
+  for present in [false,true] do
+    for same in [false,true] do
+      IO.println s!"case|guiBasis|{present}|{same}|{Moment.guiBasis present "d" (if same then "d" else "other")}"
+  for refCode in List.range 4 do
+    for same in [false,true] do
+      IO.println s!"case|guiPolicy|{refCode}|{same}|{Moment.guiPolicy (if refCode == 0 then "policy" else "other") "policy" "d" (if same then "d" else "other")}"
+  let profile := ["provider","profile","1","input","output","process","lookup","a,b"]
+  for mask in List.range 256 do
+    let actual := profile.zipIdx.map (fun (value,index) => if mask / 2^index % 2 == 1 then "other" else value)
+    IO.println s!"case|guiProfile|{mask}|{Moment.guiProfile actual profile}"
+  for compatible in [false,true] do
+    for readable in [false,true] do
+      for expiry in [99,100,101] do
+        IO.println s!"case|guiAvailable|{compatible}|{readable}|{expiry}|{Moment.guiAvailable compatible readable expiry 100}"
+  for samePrincipal in [false,true] do
+    for actions in List.range 4 do
+      for refCode in List.range 5 do
+        for operator in [false,true] do
+          for bound in [false,true] do
+            IO.println s!"case|guiGrant|{samePrincipal}|{actions}|{refCode}|{operator}|{bound}|{Moment.guiGrant "actor" (if samePrincipal then "actor" else "other") (chooseMask ["local.moment.guidance","guidance.review"] actions) (if refCode == 0 then ["cap"] else if refCode == 4 then [] else ["other"]) "cap" operator "g" (if bound then "g" else "other")}"
+  for state in runStates do
+    for blocked in [false,true] do
+      IO.println s!"case|guiSettlement|{runLabel state}|{blocked}|{Moment.guiSettlement state blocked}"
+      for settlement in [false,true] do
+        IO.println s!"case|guiCandidate|{runLabel state}|{blocked}|{settlement}|{Moment.guiCandidate state blocked settlement}"
+  for left in runStates do
+    for right in runStates do
+      for leftKey in ["a","b"] do
+        for rightKey in ["a","b"] do
+          IO.println s!"case|guiCompare|{runLabel left}|{leftKey}|{runLabel right}|{rightKey}|{Moment.guiCompare left leftKey right rightKey}"
+  for kind in ["not_started","cancelled","failed","observed",""] do
+    for failure in [false,true] do
+      for raw in [false,true] do
+        IO.println s!"case|guiResult|{kind}|{failure}|{raw}|{Moment.guiResult kind failure raw}"
+  for occurrences in [0,1,2,32,2147483647] do
+    for editorial in [false,true] do
+      IO.println s!"case|guiQuote|{occurrences}|{editorial}|{Moment.guiQuote occurrences editorial}"
+  for present in [false,true] do
+    for occurrences in [0,1,2] do
+      for asciiInitial in [false,true] do
+        IO.println s!"case|guiEditorial|{present}|{occurrences}|{asciiInitial}|{Moment.guiEditorial present occurrences asciiInitial}"
+  for count in [0,2047,2048,2147483647] do
+    IO.println s!"case|guiCaptureRoom|{count}|{Moment.guiCaptureRoom count}"

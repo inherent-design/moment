@@ -97,3 +97,42 @@ test('one captured source can supply several distinct task-scoped guidance candi
  assert.equal(decodeGuidanceOutput(JSON.stringify(output),dispatch).candidates.length,2);
  assert.throws(()=>decodeGuidanceOutput(JSON.stringify({...output,candidates:[{...candidate,captureId:randomUUID()}]}),dispatch),{code:'INVALID_ARGUMENT'});
 });
+
+test('profile discovery rechecks current grant revocation and the exact expiry boundary without dispatching',async t=>{
+ const x=await fixture(t),read=()=>{const result=x.f.call('guidance.read',{contextId:x.f.contextId,sourceIds:[]});assert.equal(result.ok,true,JSON.stringify(result));return result.value;};
+ assert.equal(read().profile.capability.id,x.request.capability.id);
+ assert.equal(x.f.write('grant.revoke',{grant:x.request.grant,reason:'Profile discovery must use current authority'}).ok,true);
+ assert.equal(read().profile,undefined);
+ grant(x.f,x.f.ownerId,{actions:['execution.request','guidance.review',guidanceCapabilityName],limits:envelope,resourceRefs:[x.request.capability]});
+ assert.equal(read().profile.capability.id,x.request.capability.id);
+ const expiry=Date.parse(x.f.store.read(x.f.contextId).controlState.capabilities[x.request.capability.id].value.expiresAt);
+ x.f.kernel.clock.wall=()=>expiry-1;assert.equal(read().profile.capability.id,x.request.capability.id);
+ x.f.kernel.clock.wall=()=>expiry;assert.equal(read().profile,undefined);
+ assert.equal(readdirSync(x.runtime.directory).length,0);assert.equal(x.slot.holder,undefined);
+});
+
+test('dispatch retention charges the actual on-disk newline before creating a new journal',async t=>{
+ const x=await fixture(t),admitted=x.f.call('guidance.review',x.request);assert.equal(admitted.ok,true,JSON.stringify(admitted));
+ const execution=admitted.value,xpath=x.runtime.path(execution);
+ x.runtime.dispatch(x.f.contextId,execution);const length=readFileSync(xpath).length;rmSync(xpath);
+ // Owned, unselected JSON objects supply measured byte pressure, not receipts.
+ let remaining=16777216-(length-1);
+ while(remaining) {
+  let size=Math.min(200000,remaining);if(remaining-size===1)size--;
+  const bytes=Buffer.alloc(size,32);bytes[0]=123;bytes[size-1]=125;
+  writeFileSync(join(x.runtime.directory,randomUUID()+'.json'),bytes,{mode:0o600});remaining-=size;
+ }
+ assert.throws(()=>x.runtime.dispatch(x.f.contextId,execution),{code:'LIMIT_EXCEEDED'});
+ assert.equal(existsSync(xpath),false);assert.equal(x.slot.holder,undefined);
+});
+
+test('malformed retained dispatch identities refuse as conflicts without rewriting the recovery bytes',async t=>{
+ const x=await fixture(t),admitted=x.f.call('guidance.review',x.request);assert.equal(admitted.ok,true,JSON.stringify(admitted));
+ const path=x.runtime.path(admitted.value);
+ for(const bytes of ['{}','null','[]']) {
+  writeFileSync(path,bytes,{mode:0o600});
+  assert.throws(()=>x.runtime.dispatch(x.f.contextId,admitted.value),{code:'IDENTITY_CONFLICT'});
+  assert.equal(readFileSync(path,'utf8'),bytes);
+ }
+ assert.equal(x.slot.holder,undefined);
+});

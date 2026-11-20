@@ -1,12 +1,14 @@
 import {mkdirSync,lstatSync,readdirSync,openSync,closeSync,readSync,fstatSync,constants,realpathSync,statSync} from 'node:fs';
-import {join,isAbsolute,resolve,sep} from 'node:path';
+import {join,isAbsolute,resolve,sep,parse} from 'node:path';
 import {canonical,digest,bytesDigest,fail,DomainError} from './json.mjs';
 import {publishPrivate} from './private-files.mjs';
 import {sealCursor,openCursor} from './cursors.mjs';
 import {select,tokens} from './pointers.mjs';
+import * as core from './semantic-core.mjs';
 
 export const guidanceProfile='moment-guidance/1';
-const within=(root,path)=>path===root || path.startsWith(root+sep);
+const pathParts=path=>{const host=parse(path).root;return {host,parts:path.slice(host.length).split(sep).filter(Boolean)};};
+const within=(root,path)=>{const a=pathParts(root),b=pathParts(path);return core.guidancePath(a.host,a.parts,b.host,b.parts);};
 const identity=hash=>{const v=hash.slice(7,39);return `${v.slice(0,8)}-${v.slice(8,12)}-${v.slice(12,16)}-${v.slice(16,20)}-${v.slice(20)}`;};
 const utf8=bytes=>{try{return new TextDecoder('utf8',{fatal:true}).decode(bytes);}catch{fail('INVALID_ARGUMENT','Selected source is not valid UTF-8');}};
 
@@ -29,13 +31,13 @@ export class GuidanceBodies {
   }
   put(bytes) {
     const body=Buffer.isBuffer(bytes)?bytes:Buffer.from(bytes),hash=bytesDigest(body);
-    if(body.length>this.maximumBodyBytes)fail('LIMIT_EXCEEDED','Guidance body exceeds its component bound');
+    if(!core.resourceLessOrEqual(body.length,this.maximumBodyBytes))fail('LIMIT_EXCEEDED','Guidance body exceeds its component bound');
     try{this.get(hash);return hash;}catch(error){if(error.code!=='ENOENT')throw error;}
     let total=0,count=0;for(const name of readdirSync(this.directory)) {
       if(!/^[0-9a-f]{64}$/.test(name))fail('IDENTITY_CONFLICT','Unexpected component file; inspect retained bytes');
-      const stat=lstatSync(join(this.directory,name));if(!stat.isFile() || stat.isSymbolicLink() || stat.uid!==process.getuid() || stat.mode&0o077)fail('IDENTITY_CONFLICT','Invalid retained component custody');total+=stat.size;count++;
+      const stat=lstatSync(join(this.directory,name));if(!stat.isFile() || stat.isSymbolicLink() || stat.uid!==process.getuid() || stat.mode&0o077)fail('IDENTITY_CONFLICT','Invalid retained component custody');total=core.counterAdd(total,stat.size,'Guidance retained bytes');count=core.counterNext(count,'Guidance retained bodies');
     }
-    if(total+body.length>this.maximumBytes || count>=this.maximumBodies)fail('LIMIT_EXCEEDED','Guidance byte retention is full; preserve referenced and recovery bytes before pruning');
+    if(!core.guidanceRetained(count,this.maximumBodies,total,body.length,this.maximumBytes))fail('LIMIT_EXCEEDED','Guidance byte retention is full; preserve referenced and recovery bytes before pruning');
     try{publishPrivate(this.path(hash),body);}catch(error){if(error.code!=='EEXIST')throw error;this.get(hash);}return hash;
   }
 }
@@ -49,6 +51,7 @@ export function selectSource(bytes,selection) {
     selected=bytes.subarray(selection.offset,selection.offset+selection.byteLength);
   } else if(selection.kind==='lines') {
     const lines=text.match(/[^\n]*\n|[^\n]+$/g)??[];
+    if(text.endsWith('\n'))lines.push('');
     if(selection.first<1 || selection.last<selection.first || selection.last>lines.length)fail('INVALID_ARGUMENT','Source line range is unavailable');
     selected=Buffer.from(lines.slice(selection.first-1,selection.last).join(''));
   } else if(selection.kind==='json-pointer') {
@@ -70,7 +73,7 @@ export class Guidance {
   }
   checkSource(snapshot,stored,access) {
     const d=stored.value.definition,refs=[stored.ref,...d.evidence.sources,...(d.locator.kind==='record'?[d.locator.ref]:[])];
-    if(refs.some(ref=>!access.canRead(ref)))fail('NOT_FOUND','Source or its dependencies are inaccessible');
+    if(core.all(refs.map(ref=>access.canRead(ref)))!==true)fail('NOT_FOUND','Source or its dependencies are inaccessible');
     for(const ref of refs.slice(1))this.k.lookup(snapshot,ref);
   }
   capture(snapshot,id,access) {
@@ -93,10 +96,13 @@ export class Guidance {
   }
   register(snapshot,input,principal,access,control) {
     const d=input.definition;
-    if(d.locations.some(path=>!isAbsolute(path) || resolve(path)!==path) || d.locator.kind==='file' && (!isAbsolute(d.locator.path) || resolve(d.locator.path)!==d.locator.path))fail('INVALID_ARGUMENT','Source paths and associations must be normalized absolute paths');
-    const previous=snapshot.controlState.guidanceSources?.[input.id];
-    if(!previous) {this.k.ensureNewId(snapshot,input.id);if(Object.keys(snapshot.controlState.guidanceSources??{}).length>=256)fail('LIMIT_EXCEEDED','Source registry capacity reached');}
-    const definitionDigest=digest(d),same=previous?.value.definitionDigest===definitionDigest;
+    const paths=[...d.locations,...(d.locator.kind==='file'?[d.locator.path]:[])],normalized=paths.every(path=>isAbsolute(path) && resolve(path)===path);
+    const previous=snapshot.controlState.guidanceSources?.[input.id],definitionDigest=digest(d);
+    const decision=core.guidanceRegistration(normalized,previous,Object.keys(snapshot.controlState.guidanceSources??{}).length,definitionDigest);
+    if(decision==='GuidanceInvalidPaths')fail('INVALID_ARGUMENT','Source paths and associations must be normalized absolute paths');
+    if(decision==='GuidanceNewSource' || decision==='GuidanceRegistryFull')this.k.ensureNewId(snapshot,input.id);
+    if(decision==='GuidanceRegistryFull')fail('LIMIT_EXCEEDED','Source registry capacity reached');
+    const same=decision==='GuidanceSameSource';
     const value={id:input.id,definition:d,definitionDigest,active:input.active,...(previous?.value.lastCapture?{lastCapture:previous.value.lastCapture}:{}),...(same && previous.value.latest?{latest:previous.value.latest}:{})};
     const stored=this.k.stored(snapshot.context.id,value,snapshot.context.revision+1,principal);
     control('guidanceSources',input.id,stored);return stored;
@@ -119,8 +125,9 @@ export class Guidance {
   }
   refresh(snapshot,input,principal,access,control) {
     const stored=this.source(snapshot,input.sourceId,access),source=stored.value,d=source.definition;
-    if(!source.active)fail('FORBIDDEN','Withdrawn source is ineligible for new observations');
-    if(!this.bodies)fail('CAPABILITY_UNAVAILABLE','Guidance byte storage is not configured');
+    const decision=core.guidanceRefresh(source.active,!!this.bodies);
+    if(decision==='GuidanceWithdrawn')fail('FORBIDDEN','Withdrawn source is ineligible for new observations');
+    if(decision==='GuidanceNoStorage')fail('CAPABILITY_UNAVAILABLE','Guidance byte storage is not configured');
     const observedAt=new Date(this.k.clock.wall()).toISOString();let latest;
     try {
       let whole,origin,locator=d.locator,representation='utf8';
@@ -130,28 +137,31 @@ export class Guidance {
       const value={source:stored.ref,definitionDigest:source.definitionDigest,wholeDigest,wholeByteLength:whole.length,transformation:d.selection.kind==='whole'?representation:selected.transformation,origin,capture:{locator,selection:d.selection,contentDigest,mediaType:(d.selection.kind==='json-pointer' && selected.transformation==='canonical-json' || d.selection.kind==='whole' && representation==='canonical-json')?'application/json':'text/plain; charset=utf-8',classification:d.classification,content:{kind:'stored-bytes',digest:contentDigest,byteLength:selected.bytes.length},observedAt,evidence:{...d.evidence,sources:[...d.evidence.sources,...(d.locator.kind==='record'?[d.locator.ref]:[])]}}};
       const id=identity(digest([stored.ref,source.definitionDigest,wholeDigest,contentDigest,origin.kind==='record'?origin:null]));
       let capture=snapshot.controlState.guidanceCaptures?.[id];
-      if(!capture) {this.k.ensureNewId(snapshot,id);if(Object.keys(snapshot.controlState.guidanceCaptures??{}).length>=2048)fail('LIMIT_EXCEEDED','Guidance capture metadata retention reached');capture=this.k.stored(snapshot.context.id,value,snapshot.context.revision+1,principal,id);control('guidanceCaptures',id,capture);}
+      if(!capture) {this.k.ensureNewId(snapshot,id);if(!core.guidanceCaptureRoom(Object.keys(snapshot.controlState.guidanceCaptures??{}).length))fail('LIMIT_EXCEEDED','Guidance capture metadata retention reached');capture=this.k.stored(snapshot.context.id,value,snapshot.context.revision+1,principal,id);control('guidanceCaptures',id,capture);}
       latest={state:'ready',observedAt,detail:'Whole and selected content captured; applicability remains an agent judgment',capture:capture.ref};
     } catch(error) {
-      if(error instanceof DomainError && !['FORBIDDEN','LIMIT_EXCEEDED','IDENTITY_CONFLICT','INVALID_ARGUMENT'].includes(error.code))throw error;
-      const state=error.code==='ENOENT'?'missing':['EACCES','EPERM','FORBIDDEN'].includes(error.code)?'denied':error.code==='LIMIT_EXCEEDED'?'too_large':error.code==='IDENTITY_CONFLICT'?'changed':'unsupported';
+      const decision=core.guidanceObservationError(error.code,error instanceof DomainError);if(decision==='GuidanceRethrow')throw error;
+      const state={GuidanceMissing:'missing',GuidanceDenied:'denied',GuidanceTooLarge:'too_large',GuidanceChanged:'changed',GuidanceUnsupported:'unsupported'}[decision];
       latest={state,observedAt,detail:error instanceof DomainError?error.message:'Source is unavailable through its selected adapter'};
     }
     const updated=this.k.stored(snapshot.context.id,{...source,latest,...(latest.capture?{lastCapture:latest.capture}:{})},snapshot.context.revision+1,principal,source.id);control('guidanceSources',source.id,updated);return updated;
   }
   selected(snapshot,input,access) {
     if(input.location!==undefined && (!isAbsolute(input.location) || resolve(input.location)!==input.location))fail('INVALID_ARGUMENT','Guidance location must be a normalized absolute path');
-    return (input.sourceIds?input.sourceIds.map(id=>this.source(snapshot,id,access)):Object.values(snapshot.controlState.guidanceSources??{}).filter(s=>{try{this.checkSource(snapshot,s,access);return true;}catch(error){if(error instanceof DomainError)return false;throw error;}})).filter(s=>(input.sourceIds || s.value.active) && (!input.location || s.value.definition.locations.some(path=>within(path,input.location)))).sort((a,b)=>a.ref.id.localeCompare(b.ref.id));
+    return (input.sourceIds?input.sourceIds.map(id=>this.source(snapshot,id,access)):Object.values(snapshot.controlState.guidanceSources??{}).filter(s=>{try{this.checkSource(snapshot,s,access);return true;}catch(error){if(error instanceof DomainError)return false;throw error;}})).filter(s=>core.guidanceSelected(input.sourceIds!==undefined,s.value.active,input.location!==undefined,input.location===undefined?[]:s.value.definition.locations.map(path=>within(path,input.location)))).sort((a,b)=>a.ref.id.localeCompare(b.ref.id));
   }
   review(snapshot,input,principal,access) {
     const sources=this.selected(snapshot,{sourceIds:input.sourceIds,location:input.task.location},access);
-    if(!sources.length)fail('NOT_FOUND','No registered sources match this location; register or select sources first');
-    if(sources.length>32)fail('LIMIT_EXCEEDED','Select at most32 sources for one assessment');
-    let bytes=0;const captures=sources.map(source=>{
-      if(!source.value.active || source.value.latest?.state!=='ready')fail('CAPABILITY_UNAVAILABLE','Assessment requires explicit ready source observations; refresh or select a smaller source set');
-      const stored=this.capture(snapshot,source.value.latest.capture.id,access);bytes+=stored.value.capture.content.byteLength;return {ref:stored.ref,digest:stored.digest};
+    const decision=core.guidanceReviewSize(sources.length);
+    if(decision==='GuidanceNoSources')fail('NOT_FOUND','No registered sources match this location; register or select sources first');
+    if(decision==='GuidanceSourceBound')fail('LIMIT_EXCEEDED','Select at most32 sources for one assessment');
+    const lengths=[],captures=sources.map(source=>{
+      if(!core.guidanceReviewSource(source.value.active,source.value.latest?.state))fail('CAPABILITY_UNAVAILABLE','Assessment requires explicit ready source observations; refresh or select a smaller source set');
+      const stored=this.capture(snapshot,source.value.latest.capture.id,access);
+      if(!core.guidanceCurrent(source,stored))fail('CAPABILITY_UNAVAILABLE','Assessment capture disagrees with the current source observation; refresh or select consistent sources');
+      lengths.push(stored.value.capture.content.byteLength);return {ref:stored.ref,digest:stored.digest};
     });
-    if(bytes>131072)fail('LIMIT_EXCEEDED','Selected evidence exceeds its131072-byte bound; select registered excerpts or fewer sources');
+    if(!core.guidanceReviewBytes(lengths))fail('LIMIT_EXCEEDED','Selected evidence exceeds its131072-byte bound; select registered excerpts or fewer sources');
     const basis=input.task.sourceRefs.map(ref=>{const stored=this.k.lookup(snapshot,ref);return {ref,digest:stored.digest,revision:stored.revision};}),policy=this.k.lookup(snapshot,snapshot.context.policy);
     return {id:input.id,incidentId:input.incidentId,capability:input.capability,grant:input.grant,input:{task:input.task,captures,basis,policy:{ref:policy.ref,digest:policy.digest},profile:guidanceProfile},limits:input.limits};
   }
@@ -161,9 +171,9 @@ export class Guidance {
   }
   stale(snapshot,review) {
     const reasons=[];
-    for(const {ref} of review.captures) {const cap=snapshot.controlState.guidanceCaptures?.[ref.id],source=cap && snapshot.controlState.guidanceSources?.[cap.value.source.id];if(!source?.value.active || source.value.definitionDigest!==cap.value.definitionDigest || source.value.latest?.state!=='ready' || source.value.latest.capture.id!==ref.id)reasons.push('Source registration or latest observation changed: '+ref.id);}
-    for(const basis of review.basis) {try{if(this.k.lookup(snapshot,basis.ref).digest!==basis.digest)reasons.push('Task basis changed: '+basis.ref.id);}catch{reasons.push('Task basis unavailable: '+basis.ref.id);}}
-    if(digest(snapshot.context.policy)!==digest(review.policy.ref) || this.k.lookup(snapshot,snapshot.context.policy).digest!==review.policy.digest)reasons.push('Policy basis changed');return reasons;
+    for(const {ref} of review.captures) {const cap=snapshot.controlState.guidanceCaptures?.[ref.id],source=cap && snapshot.controlState.guidanceSources?.[cap.value.source.id];if(!core.guidanceCurrent(source,cap))reasons.push('Source registration or latest observation changed: '+ref.id);}
+    for(const basis of review.basis) {let stored;try{stored=this.k.lookup(snapshot,basis.ref);}catch{}const decision=core.guidanceBasis(stored,basis.digest);if(decision==='GuidanceBasisChanged')reasons.push('Task basis changed: '+basis.ref.id);if(decision==='GuidanceBasisUnavailable')reasons.push('Task basis unavailable: '+basis.ref.id);}
+    if(!core.guidancePolicy(snapshot.context.policy,review.policy.ref,this.k.lookup(snapshot,snapshot.context.policy).digest,review.policy.digest))reasons.push('Policy basis changed');return reasons;
   }
   read(snapshot,input,principal,access) {
     const maximumBytes=input.maximumBytes??16384,limit=input.limit??32;
@@ -210,8 +220,8 @@ export class Guidance {
     if(size()>maximumBytes)fail('LIMIT_EXCEEDED','Selected response metadata exceeds its budget; select fewer IDs or raise maximumBytes');
     for(const id of ids.slice(0,32)) {
       const omission=omitted.get(id);if(!omission)continue;
-      const stored=this.capture(snapshot,id,access),source=snapshot.controlState.guidanceSources[stored.value.source.id].value;
-      const item={stored,freshness:source.active && source.latest?.state==='ready' && source.latest.capture.id===id && source.definitionDigest===stored.value.definitionDigest?'current-observation':'historical'};
+      const stored=this.capture(snapshot,id,access),source=snapshot.controlState.guidanceSources[stored.value.source.id];
+      const item={stored,freshness:core.guidanceCurrent(source,stored)?'current-observation':'historical'};
       packet.omitted.splice(packet.omitted.indexOf(omission),1);packet.captures.push(item);
       if(size()>maximumBytes) {packet.captures.pop();packet.omitted.push(omission);continue;}
       try {

@@ -8,6 +8,7 @@ import ./capability.bend as Cap
 import ./policy-query.bend as PQ
 import ./control.bend as Control
 import ./awareness.bend as Aware
+import ./guidance.bend as Guide
 
 law deny_precedence:
   for permits: Core.Truth
@@ -471,3 +472,140 @@ law accepted_reference_keeps_causal_continuation:
 law recipient_capacity_does_not_expand:
   for indices: +List<U32>
   {Aware.recipient_step("actor", Aware.RecipientGrant{0, "actor"}, Aware.RecipientCollect{4096, indices}) == Aware.RecipientExhausted{} : Aware.RecipientBag}
+
+
+law guidance_root_matches_descendants:
+  for selected: +List<String>
+  {Core.guidance_path("/", Nil{}, "/", selected) == True{} : Bool}
+
+
+law guidance_component_is_not_text_prefix:
+  {Core.guidance_path("/", Con{"a", Nil{}}, "/", Con{"ab", Nil{}}) == False{} : Bool}
+
+
+law guidance_invalid_registration_refuses:
+  for present: Bool
+  for count: U32
+  for same: Bool
+  {Core.guidance_registration(False{}, present, count, same) == Guide.GuidanceInvalidPaths{} : Guide.Registration}
+
+
+law guidance_existing_registration_survives_capacity:
+  for count: U32
+  {Core.guidance_registration(True{}, True{}, count, True{}) == Guide.GuidanceSameSource{} : Guide.Registration}
+
+
+law guidance_full_new_registry_refuses:
+  {Core.guidance_registration(True{}, False{}, 256, False{}) == Guide.GuidanceRegistryFull{} : Guide.Registration}
+
+
+law guidance_withdrawn_source_cannot_refresh:
+  for storage: Bool
+  {Core.guidance_refresh(False{}, storage) == Guide.GuidanceWithdrawn{} : Guide.Refresh}
+
+
+law guidance_ready_source_can_refresh:
+  {Core.guidance_refresh(True{}, True{}) == Guide.GuidanceObserve{} : Guide.Refresh}
+
+
+law guidance_retention_accepts_last_available_slot:
+  {Core.guidance_retained(Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 2}, Budget.BudgetCount{0, 2}, Budget.BudgetCount{0, 3}, Budget.BudgetCount{0, 5}) == True{} : Bool}
+
+
+law guidance_full_capture_registry_refuses:
+  {Core.guidance_capture_room(2048) == False{} : Bool}
+
+
+law guidance_unknown_domain_error_is_not_missing:
+  {Core.guidance_observation_error("NOT_FOUND", True{}) == Guide.GuidanceRethrow{} : Guide.ObservationError}
+
+
+law guidance_implicit_withdrawn_source_is_absent:
+  for located: Bool
+  for matches: +List<Bool>
+  {Core.guidance_selected(False{}, False{}, located, matches) == False{} : Bool}
+
+
+law guidance_explicit_history_remains_selectable:
+  {Core.guidance_selected(True{}, False{}, False{}, Nil{}) == True{} : Bool}
+
+
+law guidance_empty_assessment_refuses:
+  {Core.guidance_review_size(0) == Guide.GuidanceNoSources{} : Guide.ReviewSize}
+
+
+law guidance_32_source_assessment_is_useful:
+  {Core.guidance_review_size(32) == Guide.GuidanceSourcesReady{} : Guide.ReviewSize}
+
+
+law guidance_evidence_byte_boundary_is_useful:
+  {Core.guidance_review_bytes(Con{Budget.BudgetCount{0, 131072}, Nil{}}) == True{} : Bool}
+
+
+law guidance_evidence_word_overflow_refuses:
+  {Core.guidance_review_bytes(Con{Budget.BudgetCount{1, 0}, Nil{}}) == False{} : Bool}
+
+
+law guidance_withdrawn_capture_is_historical:
+  for definition: String
+  for captured: String
+  for observation: String
+  for latest: String
+  for capture: String
+  {Core.guidance_current(True{}, False{}, definition, captured, observation, latest, capture) == False{} : Bool}
+
+
+law guidance_exact_capture_is_current:
+  {Core.guidance_current(True{}, True{}, "d", "d", "ready", "r", "r") == True{} : Bool}
+
+
+law guidance_missing_basis_is_not_current:
+  for actual: String
+  for expected: String
+  {Core.guidance_basis(False{}, actual, expected) == Guide.GuidanceBasisUnavailable{} : Guide.Basis}
+
+
+law guidance_changed_policy_refuses_current:
+  {Core.guidance_policy("new", "old", "d", "d") == False{} : Bool}
+
+
+law guidance_wrong_principal_cannot_supply_profile:
+  for actions: +List<String>
+  for resources: +List<String>
+  for operator: Bool
+  for candidate: String
+  for bound: String
+  {Core.guidance_grant("owner", "other", actions, resources, "cap", operator, candidate, bound) == False{} : Bool}
+
+
+law guidance_valid_profile_grant_is_useful:
+  {Core.guidance_grant("owner", "owner", Con{"local.moment.guidance", Con{"guidance.review", Nil{}}}, Con{"cap", Nil{}}, "cap", True{}, "g", "") == True{} : Bool}
+
+
+law guidance_blocked_candidate_rests:
+  for settlement: Bool
+  {Core.guidance_candidate(Run.RunQueued{}, True{}, settlement) == False{} : Bool}
+
+
+law guidance_uncertain_receipt_keeps_priority:
+  for a: String
+  for b: String
+  {Core.guidance_candidate_compare(Run.RunUncertain{}, a, Run.RunQueued{}, b) == LT{} : Cmp}
+
+
+law guidance_actual_failure_is_not_projection:
+  for raw: Bool
+  {Core.guidance_result("observed", True{}, raw) == Guide.GuidanceFailed{} : Guide.ReportDecision}
+
+
+law guidance_missing_output_is_uncertain:
+  {Core.guidance_result("observed", False{}, False{}) == Guide.GuidanceUnknownOutput{} : Guide.ReportDecision}
+
+
+law guidance_ambiguous_quotation_stays_ambiguous:
+  for editorial: Bool
+  {Core.guidance_quote(2, editorial) == Guide.GuidanceQuoteAmbiguous{} : Guide.Quote}
+
+
+law guidance_editorial_quotation_is_explicit:
+  {Core.guidance_quote(1, True{}) == Guide.GuidanceQuoteEditorial{} : Guide.Quote}

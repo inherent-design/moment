@@ -389,3 +389,115 @@ def Laws.accepted_reference_keeps_causal_continuation(next):
 
 def Laws.recipient_capacity_does_not_expand(indices):
   {==}
+
+
+def Laws.guidance_root_matches_descendants(selected):
+  {==}
+
+
+def Laws.guidance_component_is_not_text_prefix():
+  {==}
+
+
+def Laws.guidance_invalid_registration_refuses(present, count, same):
+  {==}
+
+
+def Laws.guidance_existing_registration_survives_capacity(count):
+  {==}
+
+
+def Laws.guidance_full_new_registry_refuses():
+  {==}
+
+
+def Laws.guidance_withdrawn_source_cannot_refresh(storage):
+  {==}
+
+
+def Laws.guidance_ready_source_can_refresh():
+  {==}
+
+
+def Laws.guidance_retention_accepts_last_available_slot():
+  {==}
+
+
+def Laws.guidance_full_capture_registry_refuses():
+  {==}
+
+
+def Laws.guidance_unknown_domain_error_is_not_missing():
+  {==}
+
+
+def Laws.guidance_implicit_withdrawn_source_is_absent(located, matches):
+  {==}
+
+
+def Laws.guidance_explicit_history_remains_selectable():
+  {==}
+
+
+def Laws.guidance_empty_assessment_refuses():
+  {==}
+
+
+def Laws.guidance_32_source_assessment_is_useful():
+  {==}
+
+
+def Laws.guidance_evidence_byte_boundary_is_useful():
+  {==}
+
+
+def Laws.guidance_evidence_word_overflow_refuses():
+  {==}
+
+
+def Laws.guidance_withdrawn_capture_is_historical(definition, captured, observation, latest, capture):
+  {==}
+
+
+def Laws.guidance_exact_capture_is_current():
+  {==}
+
+
+def Laws.guidance_missing_basis_is_not_current(actual, expected):
+  {==}
+
+
+def Laws.guidance_changed_policy_refuses_current():
+  {==}
+
+
+def Laws.guidance_wrong_principal_cannot_supply_profile(actions, resources, operator, candidate, bound):
+  {==}
+
+
+def Laws.guidance_valid_profile_grant_is_useful():
+  {==}
+
+
+def Laws.guidance_blocked_candidate_rests(settlement):
+  {==}
+
+
+def Laws.guidance_uncertain_receipt_keeps_priority(a, b):
+  {==}
+
+
+def Laws.guidance_actual_failure_is_not_projection(raw):
+  {==}
+
+
+def Laws.guidance_missing_output_is_uncertain():
+  {==}
+
+
+def Laws.guidance_ambiguous_quotation_stays_ambiguous(editorial):
+  {==}
+
+
+def Laws.guidance_editorial_quotation_is_explicit():
+  {==}

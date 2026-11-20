@@ -8,6 +8,7 @@ import ./capability.bend as Cap
 import ./policy-query.bend as PQ
 import ./control.bend as Control
 import ./awareness.bend as Aware
+import ./guidance.bend as Guide
 
 def execution_step(state: Run.State, action: Run.Action) -> Run.Step:
   Run.step(state, action)
@@ -938,3 +939,72 @@ def visibility_event(state: Aware.Visibility, event: Aware.EventObservation, con
 
 def visibility_ref(state: Aware.Visibility, visible: Bool) -> Aware.Visibility:
   Aware.visibility_ref(state, visible)
+
+
+def guidance_path(root_host: String, root: +List<String>, path_host: String, selected: +List<String>) -> Bool:
+  Guide.path(root_host, root, path_host, selected)
+
+def guidance_registration(normalized: Bool, present: Bool, count: U32, same: Bool) -> Guide.Registration:
+  Guide.registration(normalized, present, count, same)
+
+def guidance_refresh(active: Bool, storage: Bool) -> Guide.Refresh:
+  Guide.refresh(active, storage)
+
+def guidance_retained(count: Budget.Count, maximum_count: Budget.Count, total: Budget.Count, extra: Budget.Count, maximum_bytes: Budget.Count) -> Bool:
+  Guide.retained(count, maximum_count, total, extra, maximum_bytes)
+
+def guidance_observation_error(code: String, domain: Bool) -> Guide.ObservationError:
+  Guide.observation_error(code, domain)
+
+def guidance_selected(explicit: Bool, active: Bool, located: Bool, matches: +List<Bool>) -> Bool:
+  Guide.selected(explicit, active, located, matches)
+
+def guidance_review_size(count: U32) -> Guide.ReviewSize:
+  Guide.review_size(count)
+
+def guidance_review_source(active: Bool, observation: String) -> Bool:
+  Guide.review_source(active, observation)
+
+def guidance_review_bytes(values: +List<Budget.Count>) -> Bool:
+  Guide.review_bytes(values)
+
+def guidance_current(present: Bool, active: Bool, definition: String, captured_definition: String, observation: String, latest: String, capture: String) -> Bool:
+  Guide.current(present, active, definition, captured_definition, observation, latest, capture)
+
+def guidance_basis(present: Bool, actual: String, expected: String) -> Guide.Basis:
+  Guide.basis(present, actual, expected)
+
+def guidance_policy(current_ref: String, expected_ref: String, current_digest: String, expected_digest: String) -> Bool:
+  Guide.policy(current_ref, expected_ref, current_digest, expected_digest)
+
+def guidance_profile(actual: Guide.Profile, expected: Guide.Profile) -> Bool:
+  Guide.profile(actual, expected)
+
+def guidance_profile_available(compatible: Bool, readable: Bool, expiry: Rank, now: Rank) -> Bool:
+  Guide.profile_available(compatible, readable, rank_le(expiry, now))
+
+def guidance_grant(principal: String, candidate_principal: String, actions: +List<String>, resources: +List<String>, capability: String, operator: Bool, candidate: String, bound: String) -> Bool:
+  Guide.grant(principal, candidate_principal, actions, resources, capability, operator, candidate, bound)
+
+def guidance_candidate(state: Run.State, blocked: Bool, settlement: Bool) -> Bool:
+  Guide.candidate(state, blocked, settlement)
+
+def guidance_candidate_compare(left: Run.State, left_key: String, right: Run.State, right_key: String) -> Cmp:
+  Guide.candidate_compare(left, left_key, right, right_key)
+
+def guidance_result(kind: String, failure: Bool, raw: Bool) -> Guide.ReportDecision:
+  Guide.result(kind, failure, raw)
+
+def guidance_quote(matches: U32, editorial: Bool) -> Guide.Quote:
+  Guide.quote(matches, editorial)
+
+def guidance_editorial(present: Bool, matches: U32, ascii_initial: Bool) -> Bool:
+  Guide.editorial(present, matches, ascii_initial)
+
+
+def guidance_capture_room(count: U32) -> Bool:
+  Guide.capture_room(count)
+
+
+def guidance_settlement(state: Run.State, blocked: Bool) -> Bool:
+  Guide.settlement(state, blocked)

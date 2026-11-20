@@ -2435,6 +2435,202 @@ function $awareness_visibility_ref(_state_0, _visible_0) {
   }
 }
 
+function $guidance_components_fold($0, $1, $2) {
+  for (;;) {
+    {
+      const _root_0 = $0;
+      const _path_0 = $1;
+      const _accepted_0 = $2;
+      if (_root_0.$ === "Nil") {
+        return _accepted_0;
+      } else {
+        const _head_0 = _root_0["head"];
+        const _tail_0 = _root_0["tail"];
+        if (_path_0.$ === "Nil") {
+          return false;
+        } else {
+          const _other_0 = _path_0["head"];
+          const _rest_0 = _path_0["tail"];
+          $0 = _tail_0;
+          $1 = _rest_0;
+          $2 = $$Bool_and(_accepted_0, $$String_eq(_head_0, _other_0));
+          continue;
+        }
+      }
+    }
+  }
+}
+
+function $guidance_components(_root_0, _path_0) {
+  return $guidance_components_fold(_root_0, _path_0, true);
+}
+
+function $guidance_path(_root_host_0, _root_0, _path_host_0, _selected_0) {
+  return $Bool_and($$String_eq(_root_host_0, _path_host_0), $$guidance_components(_root_0, _selected_0));
+}
+
+function $guidance_registration(_normalized_0, _present_0, _count_0, _same_0) {
+  return $Bool_pick(_normalized_0, $$Bool_pick(_present_0, $$Bool_pick(_same_0, {$: "GuidanceSameSource"}, {$: "GuidanceChangedSource"}), $$Bool_pick((_count_0 >= 256), {$: "GuidanceRegistryFull"}, {$: "GuidanceNewSource"})), {$: "GuidanceInvalidPaths"});
+}
+
+function $guidance_refresh(_active_0, _storage_0) {
+  return $Bool_pick(_active_0, $$Bool_pick(_storage_0, {$: "GuidanceObserve"}, {$: "GuidanceNoStorage"}), {$: "GuidanceWithdrawn"});
+}
+
+function $guidance_retained(_count_0, _maximum_count_0, _total_0, _extra_0, _maximum_bytes_0) {
+  return $Bool_and($$Bool_not($$accounting_le(_maximum_count_0, _count_0)), $$accounting_fits($$accounting_add(_total_0, _extra_0), _maximum_bytes_0));
+}
+
+function $guidance_observation_error(_code_0, _domain_0) {
+  return $Bool_pick($$Bool_and(_domain_0, $$Bool_not($$collections_contains({$: "Con", "head": "FORBIDDEN", "tail": {$: "Con", "head": "LIMIT_EXCEEDED", "tail": {$: "Con", "head": "IDENTITY_CONFLICT", "tail": {$: "Con", "head": "INVALID_ARGUMENT", "tail": {$: "Nil"}}}}}, _code_0))), {$: "GuidanceRethrow"}, $$Bool_pick($$String_eq(_code_0, "ENOENT"), {$: "GuidanceMissing"}, $$Bool_pick($$collections_contains({$: "Con", "head": "EACCES", "tail": {$: "Con", "head": "EPERM", "tail": {$: "Con", "head": "FORBIDDEN", "tail": {$: "Nil"}}}}, _code_0), {$: "GuidanceDenied"}, $$Bool_pick($$String_eq(_code_0, "LIMIT_EXCEEDED"), {$: "GuidanceTooLarge"}, $$Bool_pick($$String_eq(_code_0, "IDENTITY_CONFLICT"), {$: "GuidanceChanged"}, {$: "GuidanceUnsupported"})))));
+}
+
+function $guidance_some_fold($0, $1) {
+  for (;;) {
+    {
+      const _values_0 = $0;
+      const _accepted_0 = $1;
+      if (_values_0.$ === "Nil") {
+        return _accepted_0;
+      } else {
+        const _head_0 = _values_0["head"];
+        const _tail_0 = _values_0["tail"];
+        $0 = _tail_0;
+        $1 = (_accepted_0 || _head_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $guidance_selected(_explicit_0, _active_0, _located_0, _matches_0) {
+  const _x_0 = $$Bool_not(_located_0);
+  const _x_1 = $$guidance_some_fold(_matches_0, false);
+  return $Bool_and((_explicit_0 || _active_0), (_x_0 || _x_1));
+}
+
+function $guidance_review_size(_count_0) {
+  return $Bool_pick((_count_0 === 0), {$: "GuidanceNoSources"}, $$Bool_pick((32 < _count_0), {$: "GuidanceSourceBound"}, {$: "GuidanceSourcesReady"}));
+}
+
+function $guidance_review_source(_active_0, _observation_0) {
+  return $Bool_and(_active_0, $$String_eq(_observation_0, "ready"));
+}
+
+function $guidance_evidence_fold($0, $1) {
+  for (;;) {
+    {
+      const _values_0 = $0;
+      const _total_0 = $1;
+      if (_values_0.$ === "Nil") {
+        return _total_0;
+      } else {
+        const _head_0 = _values_0["head"];
+        const _tail_0 = _values_0["tail"];
+        $0 = _tail_0;
+        $1 = $$accounting_accumulate(_total_0, _head_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $guidance_review_bytes(_values_0) {
+  return $accounting_fits($$guidance_evidence_fold(_values_0, {$: "BudgetFinite", "count": $$accounting_zero()}), {$: "BudgetCount", "high": 0, "low": 131072});
+}
+
+function $guidance_current(_present_0, _active_0, _definition_0, _captured_definition_0, _observation_0, _latest_0, _capture_0) {
+  return $Bool_and(_present_0, $$Bool_and(_active_0, $$Bool_and($$String_eq(_definition_0, _captured_definition_0), $$Bool_and($$String_eq(_observation_0, "ready"), $$String_eq(_latest_0, _capture_0)))));
+}
+
+function $guidance_basis(_present_0, _actual_0, _expected_0) {
+  return $Bool_pick(_present_0, $$Bool_pick($$String_eq(_actual_0, _expected_0), {$: "GuidanceBasisCurrent"}, {$: "GuidanceBasisChanged"}), {$: "GuidanceBasisUnavailable"});
+}
+
+function $guidance_policy(_current_ref_0, _expected_ref_0, _current_digest_0, _expected_digest_0) {
+  return $Bool_and($$String_eq(_current_ref_0, _expected_ref_0), $$String_eq(_current_digest_0, _expected_digest_0));
+}
+
+function $guidance_profile(_actual_0, _expected_0) {
+  const _a_0 = _actual_0["provider"];
+  const _b_0 = _actual_0["name"];
+  const _c_0 = _actual_0["version"];
+  const _d_0 = _actual_0["input"];
+  const _e_0 = _actual_0["output"];
+  const _f_0 = _actual_0["isolation"];
+  const _g_0 = _actual_0["reconciliation"];
+  const _h_0 = _actual_0["features"];
+  const _u_0 = _expected_0["provider"];
+  const _v_0 = _expected_0["name"];
+  const _w_0 = _expected_0["version"];
+  const _x_0 = _expected_0["input"];
+  const _y_0 = _expected_0["output"];
+  const _z_0 = _expected_0["isolation"];
+  const _r_0 = _expected_0["reconciliation"];
+  const _s_0 = _expected_0["features"];
+  return $Bool_and($$String_eq(_a_0, _u_0), $$Bool_and($$String_eq(_b_0, _v_0), $$Bool_and($$String_eq(_c_0, _w_0), $$Bool_and($$String_eq(_d_0, _x_0), $$Bool_and($$String_eq(_e_0, _y_0), $$Bool_and($$String_eq(_f_0, _z_0), $$Bool_and($$String_eq(_g_0, _r_0), $$String_eq(_h_0, _s_0))))))));
+}
+
+function $guidance_profile_available(_compatible_0, _readable_0, _expired_0) {
+  return $Bool_and(_compatible_0, $$Bool_and(_readable_0, $$Bool_not(_expired_0)));
+}
+
+function $guidance_grant(_principal_0, _candidate_principal_0, _actions_0, _resources_0, _capability_0, _operator_0, _candidate_0, _bound_0) {
+  const _x_0 = $$String_eq(_candidate_0, _bound_0);
+  return $Bool_and($$String_eq(_principal_0, _candidate_principal_0), $$Bool_and($$collections_contains(_actions_0, "local.moment.guidance"), $$Bool_and($$collections_contains(_actions_0, "guidance.review"), $$Bool_and($$collections_contains(_resources_0, _capability_0), (_operator_0 || _x_0)))));
+}
+
+function $guidance_candidate(_state_0, _blocked_0, _settlement_0) {
+  if (_state_0.$ === "RunQueued") {
+    return $Bool_not(_blocked_0);
+  } else if (_state_0.$ === "RunUncertain") {
+    return $Bool_not(_blocked_0);
+  } else if (_state_0.$ === "RunSucceeded") {
+    return $Bool_and($$Bool_not(_blocked_0), _settlement_0);
+  } else if (_state_0.$ === "RunFailed") {
+    return $Bool_and($$Bool_not(_blocked_0), _settlement_0);
+  } else if (_state_0.$ === "RunCancelled") {
+    return $Bool_and($$Bool_not(_blocked_0), _settlement_0);
+  } else {
+    return false;
+  }
+}
+
+function $guidance_uncertain(_state_0) {
+  if (_state_0.$ === "RunUncertain") {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+function $guidance_candidate_compare(_left_0, _left_key_0, _right_0, _right_key_0) {
+  const _a_0 = $$guidance_uncertain(_left_0);
+  const _b_0 = $$guidance_uncertain(_right_0);
+  return $Bool_pick($$Bool_and(_a_0, $$Bool_not(_b_0)), {$: "LT"}, $$Bool_pick($$Bool_and(_b_0, $$Bool_not(_a_0)), {$: "GT"}, $$String_order(_left_key_0, _right_key_0)));
+}
+
+function $guidance_result(_kind_0, _failure_0, _raw_0) {
+  const _x_0 = $$String_eq(_kind_0, "failed");
+  return $Bool_pick($$String_eq(_kind_0, "not_started"), {$: "GuidanceNotStarted"}, $$Bool_pick($$String_eq(_kind_0, "cancelled"), {$: "GuidanceCancelled"}, $$Bool_pick((_x_0 || _failure_0), {$: "GuidanceFailed"}, $$Bool_pick(_raw_0, {$: "GuidanceProject"}, {$: "GuidanceUnknownOutput"}))));
+}
+
+function $guidance_quote(_matches_0, _editorial_0) {
+  return $Bool_pick((_matches_0 === 0), {$: "GuidanceQuoteUnanchored"}, $$Bool_pick((_matches_0 === 1), $$Bool_pick(_editorial_0, {$: "GuidanceQuoteEditorial"}, {$: "GuidanceQuoteExact"}), {$: "GuidanceQuoteAmbiguous"}));
+}
+
+function $guidance_editorial(_present_0, _matches_0, _ascii_initial_0) {
+  return $Bool_and(_present_0, $$Bool_and((_matches_0 === 0), _ascii_initial_0));
+}
+
+function $guidance_capture_room(_count_0) {
+  return (_count_0 < 2048);
+}
+
+function $guidance_settlement(_state_0, _blocked_0) {
+  return $Bool_and($$Bool_not(_blocked_0), $$execution_terminal(_state_0));
+}
+
 function $execution_step_1(_state_0, _action_0) {
   return $execution_step(_state_0, _action_0);
 }
@@ -3522,6 +3718,94 @@ function $visibility_ref(_state_0, _visible_0) {
   return $awareness_visibility_ref(_state_0, _visible_0);
 }
 
+function $guidance_path_1(_root_host_0, _root_0, _path_host_0, _selected_0) {
+  return $guidance_path(_root_host_0, _root_0, _path_host_0, _selected_0);
+}
+
+function $guidance_registration_1(_normalized_0, _present_0, _count_0, _same_0) {
+  return $guidance_registration(_normalized_0, _present_0, _count_0, _same_0);
+}
+
+function $guidance_refresh_1(_active_0, _storage_0) {
+  return $guidance_refresh(_active_0, _storage_0);
+}
+
+function $guidance_retained_1(_count_0, _maximum_count_0, _total_0, _extra_0, _maximum_bytes_0) {
+  return $guidance_retained(_count_0, _maximum_count_0, _total_0, _extra_0, _maximum_bytes_0);
+}
+
+function $guidance_observation_error_1(_code_0, _domain_0) {
+  return $guidance_observation_error(_code_0, _domain_0);
+}
+
+function $guidance_selected_1(_explicit_0, _active_0, _located_0, _matches_0) {
+  return $guidance_selected(_explicit_0, _active_0, _located_0, _matches_0);
+}
+
+function $guidance_review_size_1(_count_0) {
+  return $guidance_review_size(_count_0);
+}
+
+function $guidance_review_source_1(_active_0, _observation_0) {
+  return $guidance_review_source(_active_0, _observation_0);
+}
+
+function $guidance_review_bytes_1(_values_0) {
+  return $guidance_review_bytes(_values_0);
+}
+
+function $guidance_current_1(_present_0, _active_0, _definition_0, _captured_definition_0, _observation_0, _latest_0, _capture_0) {
+  return $guidance_current(_present_0, _active_0, _definition_0, _captured_definition_0, _observation_0, _latest_0, _capture_0);
+}
+
+function $guidance_basis_1(_present_0, _actual_0, _expected_0) {
+  return $guidance_basis(_present_0, _actual_0, _expected_0);
+}
+
+function $guidance_policy_1(_current_ref_0, _expected_ref_0, _current_digest_0, _expected_digest_0) {
+  return $guidance_policy(_current_ref_0, _expected_ref_0, _current_digest_0, _expected_digest_0);
+}
+
+function $guidance_profile_1(_actual_0, _expected_0) {
+  return $guidance_profile(_actual_0, _expected_0);
+}
+
+function $guidance_profile_available_1(_compatible_0, _readable_0, _expiry_0, _now_0) {
+  return $guidance_profile_available(_compatible_0, _readable_0, $$rank_le(_expiry_0, _now_0));
+}
+
+function $guidance_grant_1(_principal_0, _candidate_principal_0, _actions_0, _resources_0, _capability_0, _operator_0, _candidate_0, _bound_0) {
+  return $guidance_grant(_principal_0, _candidate_principal_0, _actions_0, _resources_0, _capability_0, _operator_0, _candidate_0, _bound_0);
+}
+
+function $guidance_candidate_1(_state_0, _blocked_0, _settlement_0) {
+  return $guidance_candidate(_state_0, _blocked_0, _settlement_0);
+}
+
+function $guidance_candidate_compare_1(_left_0, _left_key_0, _right_0, _right_key_0) {
+  return $guidance_candidate_compare(_left_0, _left_key_0, _right_0, _right_key_0);
+}
+
+function $guidance_result_1(_kind_0, _failure_0, _raw_0) {
+  return $guidance_result(_kind_0, _failure_0, _raw_0);
+}
+
+function $guidance_quote_1(_matches_0, _editorial_0) {
+  return $guidance_quote(_matches_0, _editorial_0);
+}
+
+function $guidance_editorial_1(_present_0, _matches_0, _ascii_initial_0) {
+  return $guidance_editorial(_present_0, _matches_0, _ascii_initial_0);
+}
+
+function $guidance_capture_room_1(_count_0) {
+  return $guidance_capture_room(_count_0);
+}
+
+function $guidance_settlement_1(_state_0, _blocked_0) {
+  return $guidance_settlement(_state_0, _blocked_0);
+}
+
 function $Bool_not(_b_0) {
   if (!_b_0) {
     return true;
@@ -3878,6 +4162,10 @@ const $$awareness_prompt_large = $awareness_prompt_large;
 const $$U32_min = $U32_min;
 const $$awareness_groups = $awareness_groups;
 const $$awareness_observed_event = $awareness_observed_event;
+const $$guidance_components = $guidance_components;
+const $$guidance_some_fold = $guidance_some_fold;
+const $$guidance_evidence_fold = $guidance_evidence_fold;
+const $$guidance_uncertain = $guidance_uncertain;
 const $$truth_all = $truth_all;
 const $$truth_any = $truth_any;
 const $$same_scope = $same_scope;
@@ -4121,6 +4409,33 @@ const $$Char_is_eq = $Char_is_eq;export default {
   "awareness:visibility_event": run_lib((a0,a1,a2) => run_loop($awareness_visibility_event(a0,a1,str_in(a2))), 3),
   "awareness:checked_ref": run_lib((a0,a1,a2,a3) => run_loop($awareness_checked_ref(a0,a1,a2,a3)), 4),
   "awareness:visibility_ref": run_lib((a0,a1) => run_loop($awareness_visibility_ref(a0,a1)), 2),
+  "guidance:components_fold": run_lib((a0,a1,a2) => run_loop($guidance_components_fold(a0,a1,a2)), 3),
+  "guidance:components": run_lib((a0,a1) => run_loop($guidance_components(a0,a1)), 2),
+  "guidance:path": run_lib((a0,a1,a2,a3) => run_loop($guidance_path(str_in(a0),a1,str_in(a2),a3)), 4),
+  "guidance:registration": run_lib((a0,a1,a2,a3) => run_loop($guidance_registration(a0,a1,a2,a3)), 4),
+  "guidance:refresh": run_lib((a0,a1) => run_loop($guidance_refresh(a0,a1)), 2),
+  "guidance:retained": run_lib((a0,a1,a2,a3,a4) => run_loop($guidance_retained(a0,a1,a2,a3,a4)), 5),
+  "guidance:observation_error": run_lib((a0,a1) => run_loop($guidance_observation_error(str_in(a0),a1)), 2),
+  "guidance:some_fold": run_lib((a0,a1) => run_loop($guidance_some_fold(a0,a1)), 2),
+  "guidance:selected": run_lib((a0,a1,a2,a3) => run_loop($guidance_selected(a0,a1,a2,a3)), 4),
+  "guidance:review_size": run_lib((a0) => run_loop($guidance_review_size(a0)), 1),
+  "guidance:review_source": run_lib((a0,a1) => run_loop($guidance_review_source(a0,str_in(a1))), 2),
+  "guidance:evidence_fold": run_lib((a0,a1) => run_loop($guidance_evidence_fold(a0,a1)), 2),
+  "guidance:review_bytes": run_lib((a0) => run_loop($guidance_review_bytes(a0)), 1),
+  "guidance:current": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($guidance_current(a0,a1,str_in(a2),str_in(a3),str_in(a4),str_in(a5),str_in(a6))), 7),
+  "guidance:basis": run_lib((a0,a1,a2) => run_loop($guidance_basis(a0,str_in(a1),str_in(a2))), 3),
+  "guidance:policy": run_lib((a0,a1,a2,a3) => run_loop($guidance_policy(str_in(a0),str_in(a1),str_in(a2),str_in(a3))), 4),
+  "guidance:profile": run_lib((a0,a1) => run_loop($guidance_profile(a0,a1)), 2),
+  "guidance:profile_available": run_lib((a0,a1,a2) => run_loop($guidance_profile_available(a0,a1,a2)), 3),
+  "guidance:grant": run_lib((a0,a1,a2,a3,a4,a5,a6,a7) => run_loop($guidance_grant(str_in(a0),str_in(a1),a2,a3,str_in(a4),a5,str_in(a6),str_in(a7))), 8),
+  "guidance:candidate": run_lib((a0,a1,a2) => run_loop($guidance_candidate(a0,a1,a2)), 3),
+  "guidance:uncertain": run_lib((a0) => run_loop($guidance_uncertain(a0)), 1),
+  "guidance:candidate_compare": run_lib((a0,a1,a2,a3) => run_loop($guidance_candidate_compare(a0,str_in(a1),a2,str_in(a3))), 4),
+  "guidance:result": run_lib((a0,a1,a2) => run_loop($guidance_result(str_in(a0),a1,a2)), 3),
+  "guidance:quote": run_lib((a0,a1) => run_loop($guidance_quote(a0,a1)), 2),
+  "guidance:editorial": run_lib((a0,a1,a2) => run_loop($guidance_editorial(a0,a1,a2)), 3),
+  "guidance:capture_room": run_lib((a0) => run_loop($guidance_capture_room(a0)), 1),
+  "guidance:settlement": run_lib((a0,a1) => run_loop($guidance_settlement(a0,a1)), 2),
   "execution_step": run_lib((a0,a1) => run_loop($execution_step_1(a0,a1)), 2),
   "execution_terminal": run_lib((a0) => run_loop($execution_terminal_1(a0)), 1),
   "topology_check": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($topology_check_1(a0,a1,a2,a3,a4,a5,a6)), 7),
@@ -4295,4 +4610,26 @@ const $$Char_is_eq = $Char_is_eq;export default {
   "visibility_demand": run_lib((a0) => run_loop($visibility_demand(a0)), 1),
   "visibility_event": run_lib((a0,a1,a2) => run_loop($visibility_event(a0,a1,str_in(a2))), 3),
   "visibility_ref": run_lib((a0,a1) => run_loop($visibility_ref(a0,a1)), 2),
+  "guidance_path": run_lib((a0,a1,a2,a3) => run_loop($guidance_path_1(str_in(a0),a1,str_in(a2),a3)), 4),
+  "guidance_registration": run_lib((a0,a1,a2,a3) => run_loop($guidance_registration_1(a0,a1,a2,a3)), 4),
+  "guidance_refresh": run_lib((a0,a1) => run_loop($guidance_refresh_1(a0,a1)), 2),
+  "guidance_retained": run_lib((a0,a1,a2,a3,a4) => run_loop($guidance_retained_1(a0,a1,a2,a3,a4)), 5),
+  "guidance_observation_error": run_lib((a0,a1) => run_loop($guidance_observation_error_1(str_in(a0),a1)), 2),
+  "guidance_selected": run_lib((a0,a1,a2,a3) => run_loop($guidance_selected_1(a0,a1,a2,a3)), 4),
+  "guidance_review_size": run_lib((a0) => run_loop($guidance_review_size_1(a0)), 1),
+  "guidance_review_source": run_lib((a0,a1) => run_loop($guidance_review_source_1(a0,str_in(a1))), 2),
+  "guidance_review_bytes": run_lib((a0) => run_loop($guidance_review_bytes_1(a0)), 1),
+  "guidance_current": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($guidance_current_1(a0,a1,str_in(a2),str_in(a3),str_in(a4),str_in(a5),str_in(a6))), 7),
+  "guidance_basis": run_lib((a0,a1,a2) => run_loop($guidance_basis_1(a0,str_in(a1),str_in(a2))), 3),
+  "guidance_policy": run_lib((a0,a1,a2,a3) => run_loop($guidance_policy_1(str_in(a0),str_in(a1),str_in(a2),str_in(a3))), 4),
+  "guidance_profile": run_lib((a0,a1) => run_loop($guidance_profile_1(a0,a1)), 2),
+  "guidance_profile_available": run_lib((a0,a1,a2,a3) => run_loop($guidance_profile_available_1(a0,a1,a2,a3)), 4),
+  "guidance_grant": run_lib((a0,a1,a2,a3,a4,a5,a6,a7) => run_loop($guidance_grant_1(str_in(a0),str_in(a1),a2,a3,str_in(a4),a5,str_in(a6),str_in(a7))), 8),
+  "guidance_candidate": run_lib((a0,a1,a2) => run_loop($guidance_candidate_1(a0,a1,a2)), 3),
+  "guidance_candidate_compare": run_lib((a0,a1,a2,a3) => run_loop($guidance_candidate_compare_1(a0,str_in(a1),a2,str_in(a3))), 4),
+  "guidance_result": run_lib((a0,a1,a2) => run_loop($guidance_result_1(str_in(a0),a1,a2)), 3),
+  "guidance_quote": run_lib((a0,a1) => run_loop($guidance_quote_1(a0,a1)), 2),
+  "guidance_editorial": run_lib((a0,a1,a2) => run_loop($guidance_editorial_1(a0,a1,a2)), 3),
+  "guidance_capture_room": run_lib((a0) => run_loop($guidance_capture_room_1(a0)), 1),
+  "guidance_settlement": run_lib((a0,a1) => run_loop($guidance_settlement_1(a0,a1)), 2),
 };

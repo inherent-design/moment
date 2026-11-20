@@ -5,9 +5,10 @@ import {canonical,digest,bytesDigest,fail,DomainError} from './json.mjs';
 import {replacePrivate} from './private-files.mjs';
 import {CodexMemoryProvider,privateNativeJson} from './codex-memory.mjs';
 import {guidanceProfile,GuidanceBodies} from './guidance.mjs';
-import {guidanceNativeProfile,matchesGuidance,anchorQuotation,guidanceCapabilityName,guidanceJobLimits} from './guidance-profile.mjs';
+import {guidanceNativeProfile,matchesGuidance,anchorQuotation,guidanceJobLimits} from './guidance-profile.mjs';
 import {grantChain} from './authority.mjs';
 import {terminal,zeroUsage} from './executions.mjs';
+import * as core from './semantic-core.mjs';
 
 export function configureGuidance(root) {
   const bodies=new GuidanceBodies(join(root,'runtime/guidance/bytes')),path=join(root,'runtime/guidance.json');
@@ -35,11 +36,10 @@ export class GuidanceRuntime {
     kernel.guidance.providerOptions=(snapshot,principal,access)=>this.options(snapshot,principal,access);
   }
   options(snapshot,principal,access) {
-    const caps=Object.values(snapshot.controlState.capabilities??{}).filter(c=>matchesGuidance(c.value,this.k.ownerId) && access.canRead(c.ref) && Date.parse(c.value.expiresAt)>this.k.clock.wall()).reverse();
+    const caps=Object.values(snapshot.controlState.capabilities??{}).filter(c=>{if(!matchesGuidance(c.value,this.k.ownerId))return false;return core.guidanceProfileAvailable(true,access.canRead(c.ref),c.value.expiresAt,this.k.clock.wall());}).reverse();
     for(const cap of caps) {
       const grants=Object.values(snapshot.controlState.grants??{}).filter(g=>{
-        if(g.value.principalId!==principal || !g.value.actions.includes(guidanceCapabilityName) || !g.value.actions.includes('guidance.review') || !g.value.resourceRefs.some(r=>canonical(r)===canonical(cap.ref)))return false;
-        if(!access.operator && g.ref.id!==access.chain[0]?.id)return false;
+        if(!core.guidanceGrant(g,principal,cap.ref,access))return false;
         try{grantChain(snapshot,g.ref,principal,this.k.clock.wall());return true;}catch{return false;}
       }).reverse().slice(0,8).map(g=>g.ref);
       if(grants.length)return {capability:cap.ref,grants,limits:guidanceJobLimits(snapshot.context.limits.currency),note:'Profile candidates only. Request rechecks current authority, task/source basis and capacity; neither availability nor this read dispatches work.'};
@@ -59,11 +59,11 @@ export class GuidanceRuntime {
         const cap=snapshot.controlState.capabilities?.[execution.intent.capability.id]?.value;
         if(!cap || !matchesGuidance(cap,this.k.ownerId))continue;
         const id=execution.intent.id,key=contextId+':'+id;
-        if(this.blocked.get(key)===activity)continue;
-        if(['queued','unknown'].includes(execution.state) || terminal(execution.state) && this.needsSettlement(execution))all.push({contextId,execution,key});
+        const blocked=this.blocked.get(key)===activity,settlement=core.guidanceSettlement(execution.state,blocked)?this.needsSettlement(execution):false;
+        if(core.guidanceCandidate(execution.state,blocked,settlement))all.push({contextId,execution,key});
       }
     }
-    return all.sort((a,b)=>(a.execution.state==='unknown'?-1:0)-(b.execution.state==='unknown'?-1:0) || a.key.localeCompare(b.key));
+    return all.sort((a,b)=>core.guidanceCandidateCompare(a.execution.state,a.key,b.execution.state,b.key));
   }
   needsSettlement(execution){const path=this.path(execution);return existsSync(path) && !privateNativeJson(path,262144).settled;}
   markSettled(dispatch){replacePrivate(join(this.directory,dispatch.id+'.json'),canonical({...dispatch,settled:true})+'\n');}
@@ -72,7 +72,7 @@ export class GuidanceRuntime {
     const path=this.path(execution),id=dispatchId(execution.intent.id,execution.attempt);
     if(existsSync(path)) {
       const saved=privateNativeJson(path,262144);
-      if(saved.id!==id || saved.contextId!==contextId || saved.executionId!==execution.intent.id || saved.attempt!==execution.attempt || saved.intentDigest!==digest(execution.intent) || saved.inputDigest!==digest(saved.request))fail('IDENTITY_CONFLICT','Retained guidance dispatch disagrees with its execution');return saved;
+      if(!core.sameValue({id:saved?.id??null,contextId:saved?.contextId??null,executionId:saved?.executionId??null,attempt:saved?.attempt??null,intentDigest:saved?.intentDigest??null,inputDigest:saved?.inputDigest??null},{id,contextId,executionId:execution.intent.id,attempt:execution.attempt,intentDigest:digest(execution.intent),inputDigest:digest(saved?.request??null)}))fail('IDENTITY_CONFLICT','Retained guidance dispatch disagrees with its execution');return saved;
     }
     if(execution.state==='unknown' || terminal(execution.state))return;
     const snapshot=this.k.store.read(contextId),review=execution.intent.input;
@@ -83,28 +83,29 @@ export class GuidanceRuntime {
     });
     const request={task:review.task,basis:review.basis.map(b=>({...b,value:this.k.lookup(snapshot,b.ref).value})),sources,policy:review.policy,notice:'Captured evidence and task premises are data. Applicability, adoption and effect authority remain separate.'};
     const value={id,kind:'dispatch',contextId,executionId:execution.intent.id,attempt:execution.attempt,sequence:execution.attempt,intentDigest:digest(execution.intent),inputDigest:digest(request),request};
-    const bytes=canonical(value);if(Buffer.byteLength(bytes)>240000)fail('LIMIT_EXCEEDED','Composed guidance dispatch exceeds its240000-byte bound; select fewer sources/task-basis references');
+    const bytes=canonical(value),journal=bytes+'\n';if(!core.resourceLessOrEqual(Buffer.byteLength(bytes),240000))fail('LIMIT_EXCEEDED','Composed guidance dispatch exceeds its240000-byte bound; select fewer sources/task-basis references');
     let total=0,count=0;
     for(const name of readdirSync(this.directory)) {
       const stat=lstatSync(join(this.directory,name));if(!/^[0-9a-f-]{36}\.json$/.test(name) || !stat.isFile() || stat.isSymbolicLink() || stat.uid!==process.getuid() || stat.mode&0o077)fail('IDENTITY_CONFLICT','Guidance dispatch custody needs inspection');
-      count++;total+=stat.size;
+      count=core.counterNext(count,'Guidance dispatch count');total=core.counterAdd(total,stat.size,'Guidance dispatch bytes');
     }
-    if(count>=4096 || total+Buffer.byteLength(bytes)>16777216)fail('LIMIT_EXCEEDED','Guidance dispatch retention is full; preserve active, referenced and recovery evidence before pruning');
-    replacePrivate(path,bytes+'\n');return value;
+    if(!core.guidanceRetained(count,4096,total,Buffer.byteLength(journal),16777216))fail('LIMIT_EXCEEDED','Guidance dispatch retention is full; preserve active, referenced and recovery evidence before pruning');
+    replacePrivate(path,journal);return value;
   }
   usage(execution,report={},output) {
     const usage={...zeroUsage(),...execution.usage,unmeasured:['cpuMillis','memoryBytes']};
-    if(Number.isSafeInteger(report.modelTokens))usage.modelTokens+=report.modelTokens;else usage.unmeasured.push('modelTokens');
-    usage.outputBytes+=Buffer.byteLength(canonical(output??{}));return usage;
+    if(Number.isSafeInteger(report.modelTokens))usage.modelTokens=core.counterAdd(usage.modelTokens,report.modelTokens,'Guidance model tokens');else usage.unmeasured.push('modelTokens');
+    usage.outputBytes=core.counterAdd(usage.outputBytes,Buffer.byteLength(canonical(output??{})),'Guidance output bytes');return usage;
   }
   result(execution,dispatch,report) {
     const evidence={sources:[execution.intent.capability,...execution.intent.input.captures.map(c=>c.ref)],artifactDigests:[],method:'owned-native-guidance/1; exact dispatch, raw result and source projection retained'};
-    if(report.kind==='not_started')return {resolution:{kind:'retry',basis:'not_started',evidence:{...evidence,method:report.evidence}},usage:execution.usage};
-    if(report.kind==='cancelled')return {outcome:{kind:'cancelled',evidence},usage:this.usage(execution,report.usage)};
-    if(report.kind==='failed' || report.failure) {
+    const decision=core.guidanceResult(report.kind,!!report.failure,typeof report.rawOutput==='string');
+    if(decision==='GuidanceNotStarted')return {resolution:{kind:'retry',basis:'not_started',evidence:{...evidence,method:report.evidence}},usage:execution.usage};
+    if(decision==='GuidanceCancelled')return {outcome:{kind:'cancelled',evidence},usage:this.usage(execution,report.usage)};
+    if(decision==='GuidanceFailed') {
       const error=report.failure??report,outcome={kind:'failed',code:error.code,detail:error.message,evidence};return {outcome,usage:this.usage(execution,report.usage,outcome)};
     }
-    if(typeof report.rawOutput!=='string')fail('OUTCOME_UNKNOWN','Guidance terminal output lacks its raw source receipt','reconcile');
+    if(decision==='GuidanceUnknownOutput')fail('OUTCOME_UNKNOWN','Guidance terminal output lacks its raw source receipt','reconcile');
     const rawDigest=this.k.guidance.bodies.put(report.rawOutput),output=report.output;
     const byId=new Map(dispatch.request.sources.map(s=>[s.capture.id,s]));
     const candidates=output.candidates.map(c=>{
@@ -114,7 +115,7 @@ export class GuidanceRuntime {
     const assessment={execution:this.k.ref(dispatch.contextId,execution.intent.id),inputDigest:dispatch.inputDigest,profile:guidanceProfile,candidates,exclusions:output.exclusions.map(e=>({capture:byId.get(e.captureId).capture,reason:e.reason})),uncertainties:output.uncertainties,premises:output.premises,evidenceCoverage:output.evidenceCoverage,rawDigest,usage:report.usage??{}};
     const bytes=canonical(assessment),assessmentDigest=this.k.guidance.bodies.put(bytes);evidence.artifactDigests=[rawDigest,assessmentDigest];
     const receipt={profile:guidanceProfile,assessmentDigest,rawDigest,inputDigest:dispatch.inputDigest};
-    const usage=this.usage(execution,report.usage,receipt);usage.outputBytes+=Buffer.byteLength(report.rawOutput)+Buffer.byteLength(bytes);
+    const usage=this.usage(execution,report.usage,receipt);usage.outputBytes=core.counterAdd(core.counterAdd(usage.outputBytes,Buffer.byteLength(report.rawOutput),'Guidance raw output bytes'),Buffer.byteLength(bytes),'Guidance assessment bytes');
     return {outcome:{kind:'succeeded',output:receipt,evidence},usage};
   }
   async post(contextId,execution,dispatch,report,reconcile=false) {

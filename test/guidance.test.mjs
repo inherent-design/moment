@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {setup,schema,atom,allowDelegated,grant,delegated,limits,incident} from './helpers.mjs';
 import {GuidanceBodies,selectSource} from '../runtime/guidance.mjs';
-import {canonical} from '../runtime/json.mjs';
+import {canonical,DomainError} from '../runtime/json.mjs';
 const evidence={sources:[],artifactDigests:[],method:'test-owned source'};
 function fixture(t){const f=setup(t),root=realpathSync(mkdtempSync(join(tmpdir(),'moment-guidance-')));t.after(()=>rmSync(root,{recursive:true,force:true}));f.kernel.guidance.bodies=new GuidanceBodies(join(root,'bytes'));f.kernel.guidance.fileRoots=[root];return {...f,f,root};}
 function registered(f,root,text='Use pnpm. Keep task-specific scope.',selection={kind:'whole'}) {
@@ -61,6 +61,8 @@ test('UTF8 ranges, lines and JSON field selection reject invalid or ambiguous re
  assert.throws(()=>selectSource(bytes,{kind:'utf8-range',offset:1,byteLength:0}),/UTF-8/);
  assert.throws(()=>selectSource(bytes,{kind:'lines',first:2,last:8}),/unavailable/);
  assert.equal(selectSource(Buffer.from('{"x":"line\\nword"}'),{kind:'json-pointer',pointer:'/x'}).transformation,'json-string');
+ assert.equal(selectSource(Buffer.from('one\n'),{kind:'lines',first:2,last:2}).bytes.length,0);
+ assert.equal(selectSource(Buffer.from('one\n\n'),{kind:'lines',first:2,last:3}).bytes.toString(),'\n');
 });
 test('context ceiling revisions require operator/current evidence; keep identity, policy and grants separate and survive restart',t=>{
  const f=setup(t),a=atom(schema(f));f.write('graph.transact',{changes:[{kind:'record.put',record:a}]});const ref=f.kernel.ref(f.contextId,a.id),e={...evidence,sources:[ref]},before=f.store.read(f.contextId).context;
@@ -97,4 +99,58 @@ test('source pagination preserves discoverability under byte limits and binds th
  assert.equal(new Set(ids).size,20);
  const first=f.call('guidance.read',{contextId:f.contextId,location:root,limit:1}).value;
  assert.equal(f.call('guidance.read',{contextId:f.contextId,location:root+'/other',cursor:first.nextCursor}).error.code,'INVALID_ARGUMENT');
+});
+
+test('a normalized filesystem root associates and captures descendants without accepting sibling prefixes',t=>{
+ const {f,root}=fixture(t),source=registered(f,root,'Root association.');
+ const definition={...source.definition,locations:['/']};
+ assert.equal(f.write('guidance.register',{id:source.id,definition,active:true}).ok,true);
+ const selected=f.call('guidance.read',{contextId:f.contextId,location:root});
+ assert.equal(selected.ok,true,JSON.stringify(selected));assert.equal(selected.value.sources.length,1);
+ f.kernel.guidance.fileRoots=['/'];
+ const captured=f.write('guidance.refresh',{sourceId:source.id});
+ assert.equal(captured.ok,true,JSON.stringify(captured));assert.equal(captured.value.value.latest.state,'ready');
+ assert.equal(f.call('guidance.read',{contextId:f.contextId,captureIds:[captured.value.value.latest.capture.id]}).value.captures[0].text,'Root association.');
+ assert.equal(f.write('guidance.register',{id:source.id,definition:source.definition,active:true}).ok,true);
+ assert.equal(f.call('guidance.read',{contextId:f.contextId,location:root+'-neighbor'}).value.sources.length,0);
+});
+
+test('freshness follows actual task, policy and source changes while exact historical captures survive restart',t=>{
+ const {f,root}=fixture(t),source=registered(f,root,'Preserve the original scope.'),captured=f.write('guidance.refresh',{sourceId:source.id}).value.value.latest.capture;
+ const targetId=randomUUID(),target=f.write('incident.create',{id:targetId,incident}).value,snapshot=f.store.read(f.contextId),policy=f.kernel.lookup(snapshot,snapshot.context.policy),capture=snapshot.controlState.guidanceCaptures[captured.id];
+ const review={captures:[{ref:captured,digest:capture.digest}],basis:[{ref:target.ref,digest:target.digest,revision:target.revision}],policy:{ref:policy.ref,digest:policy.digest}};
+ assert.deepEqual(f.kernel.guidance.stale(snapshot,review),[]);
+ // A matching UUID in another system/context is not the same latest capture.
+ for(const part of ['systemId','contextId']) {
+  const changed=structuredClone(snapshot);changed.controlState.guidanceSources[source.id].value.latest.capture[part]=randomUUID();
+  assert.deepEqual(f.kernel.guidance.stale(changed,review),['Source registration or latest observation changed: '+captured.id]);
+  assert.throws(()=>f.kernel.guidance.review(changed,{sourceIds:[source.id],task:{location:root,sourceRefs:[]}},f.ownerId,{canRead:()=>true}),{code:'CAPABILITY_UNAVAILABLE'});
+ }
+ const unavailable=structuredClone(snapshot);delete unavailable.controlState.incidents[targetId];
+ assert.deepEqual(f.kernel.guidance.stale(unavailable,review),['Task basis unavailable: '+targetId]);
+ assert.equal(f.write('incident.update',{incidentId:targetId,incident:{...incident,status:'resting'},evidence}).ok,true);
+ assert.deepEqual(f.kernel.guidance.stale(f.store.read(f.contextId),review),['Task basis changed: '+targetId]);
+ const nextPolicy=f.write('policy.publish',{policy:{...policy.value,id:randomUUID(),parent:policy.ref}});assert.equal(nextPolicy.ok,true,JSON.stringify(nextPolicy));
+ assert.equal(f.write('policy.activate',{policy:nextPolicy.value.ref,evidence}).ok,true);
+ assert.equal(f.write('guidance.register',{id:source.id,definition:source.definition,active:false}).ok,true);
+ const expected=['Source registration or latest observation changed: '+captured.id,'Task basis changed: '+targetId,'Policy basis changed'];
+ assert.deepEqual(f.kernel.guidance.stale(f.store.read(f.contextId),review),expected);
+ assert.equal(f.write('guidance.refresh',{sourceId:source.id}).error.code,'FORBIDDEN');
+ const before=f.call('guidance.read',{contextId:f.contextId,captureIds:[captured.id]}).value.captures[0];assert.equal(before.text,'Preserve the original scope.');assert.equal(before.freshness,'historical');
+ f.reopen();f.kernel.guidance.bodies=new GuidanceBodies(join(root,'bytes'));
+ const after=f.call('guidance.read',{contextId:f.contextId,captureIds:[captured.id]}).value.captures[0];assert.deepEqual(after,before);assert.deepEqual(f.kernel.guidance.stale(f.store.read(f.contextId),review),expected);
+});
+
+test('component retention refuses new bytes without displacing history, while exact reuse needs no extra slot',t=>{
+ const root=realpathSync(mkdtempSync(join(tmpdir(),'moment-guidance-retention-')));t.after(()=>rmSync(root,{recursive:true,force:true}));
+ const bodies=new GuidanceBodies(root,{maximumBodies:1,maximumBytes:5,maximumBodyBytes:10}),first=bodies.put('12345');
+ assert.equal(bodies.put('12345'),first);assert.throws(()=>bodies.put('x'),{code:'LIMIT_EXCEEDED'});assert.equal(bodies.get(first).toString(),'12345');assert.equal(readdirSync(root).length,1);
+});
+
+test('unexpected domain failures do not become observations or erase the last valid capture',t=>{
+ const {f,root}=fixture(t),source=registered(f,root),captured=f.write('guidance.refresh',{sourceId:source.id}).value.value.latest;
+ f.kernel.guidance.readFile=()=>{throw new DomainError('NOT_FOUND','Adapter dependency is unavailable');};
+ assert.equal(f.write('guidance.refresh',{sourceId:source.id}).error.code,'NOT_FOUND');
+ assert.deepEqual(f.store.read(f.contextId).controlState.guidanceSources[source.id].value.latest,captured);
+ assert.equal(f.call('guidance.read',{contextId:f.contextId,captureIds:[captured.capture.id]}).value.captures[0].freshness,'current-observation');
 });

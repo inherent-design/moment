@@ -139,8 +139,9 @@ const quantities=value=>({$:'BudgetQuantities',...Object.fromEntries(Object.entr
 const amount=value=>value===Infinity?{$:'BudgetOverflow'}:{$:'BudgetFinite',count:count(value)};
 const balance=value=>({$:'BudgetBalance',...Object.fromEntries(Object.entries(accountingFields).map(([key,field])=>[field,amount(value[key])]))});
 export const resourceAdd=(a,b)=>amountValue(Core.resource_add(count(a),count(b)));
+export function counterAdd(value,extra,label='Resource counter') {const next=resourceAdd(value,extra);if(next===Infinity)fail('LIMIT_EXCEEDED',label+' exhausted');return next;}
 export function counterNext(value,label='Journal counter') {
- const next=resourceAdd(value,1);if(next===Infinity)fail('LIMIT_EXCEEDED',label+' exhausted');return next;
+ return counterAdd(value,1,label);
 }
 export const resourceLessOrEqual=(a,b)=>coreBoolean(Core.resource_le(count(a),count(b)));
 export function resourceTotals(entries,grantId) {
@@ -473,3 +474,34 @@ export function eventVisible(operator,event,context,fetch,canRef) {
  }
  fail('INTERNAL','Core visibility traversal exceeded its observed representation bound');
 }
+
+
+const guidanceTag=(value,tags)=>{if(!tags.includes(value?.$))fail('INTERNAL','Invalid core guidance decision');return value.$;};
+export const guidancePath=(rootHost,root,pathHost,selected)=>coreBoolean(Core.guidance_path(codecText(rootHost),codecTexts(root),codecText(pathHost),codecTexts(selected)));
+export const guidanceRegistration=(normalized,previous,retained,definitionDigest)=>guidanceTag(Core.guidance_registration(!!normalized,!!previous,size(retained),coreBoolean(Core.same_text(previous?.value.definitionDigest??'',codecText(definitionDigest)))),['GuidanceInvalidPaths','GuidanceRegistryFull','GuidanceNewSource','GuidanceSameSource','GuidanceChangedSource']);
+export const guidanceRefresh=(active,storage)=>guidanceTag(Core.guidance_refresh(!!active,!!storage),['GuidanceWithdrawn','GuidanceNoStorage','GuidanceObserve']);
+export const guidanceRetained=(retained,maximumCount,total,extra,maximumBytes)=>coreBoolean(Core.guidance_retained(count(retained),count(maximumCount),count(total),count(extra),count(maximumBytes)));
+export const guidanceObservationError=(code,domain)=>guidanceTag(Core.guidance_observation_error(codecText(code??''),!!domain),['GuidanceMissing','GuidanceDenied','GuidanceTooLarge','GuidanceChanged','GuidanceUnsupported','GuidanceRethrow']);
+export const guidanceSelected=(explicit,active,located,matches)=>coreBoolean(Core.guidance_selected(!!explicit,!!active,!!located,list(matches.map(coreBoolean))));
+export const guidanceReviewSize=retained=>guidanceTag(Core.guidance_review_size(size(retained)),['GuidanceNoSources','GuidanceSourceBound','GuidanceSourcesReady']);
+export const guidanceReviewSource=(active,observation)=>coreBoolean(Core.guidance_review_source(!!active,codecText(observation??'')));
+export const guidanceReviewBytes=lengths=>coreBoolean(Core.guidance_review_bytes(list(lengths.map(count))));
+export function guidanceCurrent(source,capture) {
+ const value=source?.value;
+ return coreBoolean(Core.guidance_current(!!value,!!value?.active,codecText(value?.definitionDigest??''),codecText(capture?.value.definitionDigest??''),codecText(value?.latest?.state??''),value?.latest?.capture?resourceKey(value.latest.capture):'',capture?resourceKey(capture.ref):''));
+}
+export const guidanceBasis=(stored,expected)=>guidanceTag(Core.guidance_basis(!!stored,codecText(stored?.digest??''),codecText(expected)),['GuidanceBasisUnavailable','GuidanceBasisChanged','GuidanceBasisCurrent']);
+export const guidancePolicy=(actualRef,expectedRef,actualDigest,expectedDigest)=>coreBoolean(Core.guidance_policy(resourceKey(actualRef),resourceKey(expectedRef),codecText(actualDigest),codecText(expectedDigest)));
+const guidanceProfileCodec=value=>({$:'GuidanceProfile',provider:codecText(value.providerId),name:codecText(value.name),version:codecText(value.version),input:canonical(value.inputSchema),output:canonical(value.outputSchema),isolation:codecText(value.isolation),reconciliation:codecText(value.reconciliation),features:canonical(value.features)});
+export const guidanceProfileMatches=(actual,expected)=>coreBoolean(Core.guidance_profile(guidanceProfileCodec(actual),guidanceProfileCodec(expected)));
+export const guidanceProfileAvailable=(compatible,readable,expiresAt,now)=>coreBoolean(Core.guidance_profile_available(!!compatible,!!readable,instant(codecText(expiresAt)),rank(now)));
+export const guidanceGrant=(grant,principal,capability,access)=>coreBoolean(Core.guidance_grant(codecText(principal),codecText(grant.value.principalId),codecTexts(grant.value.actions),codecTexts(grant.value.resourceRefs.map(resourceKey)),resourceKey(capability),!!access.operator,codecText(grant.ref.id),codecText(access.chain[0]?.id??'')));
+export const guidanceCandidate=(state,blocked,settlement)=>coreBoolean(Core.guidance_candidate(runState(state),!!blocked,!!settlement));
+export function guidanceCandidateCompare(left,leftKey,right,rightKey) {const result=Core.guidance_candidate_compare(runState(left),codecText(leftKey),runState(right),codecText(rightKey));guidanceTag(result,['LT','EQ','GT']);return {LT:-1,EQ:0,GT:1}[result.$];}
+export const guidanceResult=(kind,failure,raw)=>guidanceTag(Core.guidance_result(codecText(kind??''),!!failure,!!raw),['GuidanceNotStarted','GuidanceCancelled','GuidanceFailed','GuidanceUnknownOutput','GuidanceProject']);
+export const guidanceQuote=(matches,editorial)=>guidanceTag(Core.guidance_quote(size(matches),!!editorial),['GuidanceQuoteUnanchored','GuidanceQuoteExact','GuidanceQuoteAmbiguous','GuidanceQuoteEditorial']);
+export const guidanceEditorial=(present,matches,ascii)=>coreBoolean(Core.guidance_editorial(!!present,size(matches),!!ascii));
+
+export const guidanceCaptureRoom=retained=>coreBoolean(Core.guidance_capture_room(size(retained)));
+
+export const guidanceSettlement=(state,blocked)=>coreBoolean(Core.guidance_settlement(runState(state),!!blocked));
