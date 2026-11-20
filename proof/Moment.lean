@@ -516,6 +516,166 @@ theorem availability_within_every_ceiling (envelopes : List (Option Nat × Nat))
     · exact Nat.le_trans (minimum_is_bounded (tail.map capacityRemaining) (capacityRemaining entry)) (remaining_within_ceiling entry)
     · exact Nat.le_trans (minimum_below_member (tail.map capacityRemaining) (capacityRemaining head) (capacityRemaining entry) (List.mem_map.mpr ⟨entry,rest,rfl⟩)) (remaining_within_ceiling entry)
 
+inductive SchLife | active | completed | cancelled deriving DecidableEq, Repr
+inductive SchWake | event | at | after | capacity deriving DecidableEq, Repr
+structure SchFacts where
+  life : SchLife := .active
+  sequence : Nat := 100
+  block : Option Nat := none
+  pending : Nat := 0
+  busy : Nat := 0
+  edge : Bool := false
+  fired : Bool := false
+  pressure : Option Nat := none
+  deriving DecidableEq, Repr
+def schUnblocked (block : Option Nat) (activity : Nat) : Bool := block != some activity
+def schRunnable (f : SchFacts) (activity : Nat) : Bool :=
+  f.life == .active && schUnblocked f.block activity && decide (0 < f.pending) && (f.busy == 0)
+def schReady (f : SchFacts) (activity : Nat) (coalesce : Bool) (sources : Nat) : Bool :=
+  let backed := decide (0 < f.busy) && decide (128 ≤ f.pending) && (!coalesce || decide (32 ≤ sources))
+  f.life == .active && schUnblocked f.block activity &&
+    ((decide (f.sequence < activity) && (!backed || schUnblocked f.pressure activity)) || (decide (0 < f.pending) && (f.busy == 0)))
+def schScan (f : SchFacts) (context : String) (ended : Bool) (activity : Nat) : String :=
+  if f.life != .active then "SchSkip" else if context != "open" || ended then "SchCancel"
+  else if schUnblocked f.block activity then "SchObserve" else "SchSkip"
+def schMode (wake : SchWake) (f : SchFacts) (activity : Nat) (due : Option Nat) (now : Nat) : String :=
+  match wake with
+  | .event => if f.sequence < activity then "SchEvents" else "SchQuiet"
+  | .capacity => "SchCheckCapacity"
+  | _ => if !f.fired && due.any (· ≤ now) then "SchTimer" else "SchQuiet"
+def schWakeAdmission (wake : SchWake) (once : Bool) (resource : String) : String :=
+  match wake with
+  | .at | .after => if once then "SchWakeAllowed" else "SchTimerRearm"
+  | .capacity => if ["concurrentExecutions","cpuMillis","memoryBytes","outputBytes","modelTokens","apiSpendMicrounits"].contains resource then "SchWakeAllowed" else "SchUnknownResource"
+  | .event => "SchWakeAllowed"
+def schEventGate (previous sequence activity : Nat) (kind : String) (types : List String) : String :=
+  if sequence ≤ previous then "SchStaleEvent" else if activity < sequence then "SchFutureEvent"
+  else if !kind.startsWith "runtime.schedule." && types.contains kind then "SchInspectEvent" else "SchIgnoreEvent"
+def schObservation (each edge selected : Bool) : Bool × Bool :=
+  if each then (selected,edge) else (selected && !edge,selected)
+def schUnique (values : List String) : List String := values.foldl (fun seen value => if seen.contains value then seen else seen ++ [value]) []
+def schQueue (pending : Nat) (coalesce : Bool) (previous incoming : List String) : String :=
+  if 0 < pending && coalesce then
+    let merged := schUnique (previous ++ incoming)
+    if merged.length ≤ 32 then "SchMerge:" ++ String.intercalate "," merged else "SchQueueFull"
+  else if pending < 128 then "SchAppend:" ++ String.intercalate "," incoming else "SchQueueFull"
+structure SchAdvance where
+  cursor : Nat
+  edge : Bool
+  stop : Bool
+  full : Bool
+  deriving DecidableEq, Repr
+def schAdvance (previous sequence activity : Nat) (oldEdge nextEdge fire enqueued pending once : Bool) : SchAdvance :=
+  if fire && !enqueued then ⟨previous,oldEdge,true,true⟩
+  else ⟨if once && pending then activity else sequence,nextEdge,once && pending,false⟩
+def schCapacityEdge (old available accepted : Bool) : Bool :=
+  if available && !old && !accepted then old else available
+def schMatches (life : SchLife) (present equal : Bool) : Bool := life == .active && present && equal
+def schWatch (f : SchFacts) (activity : Nat) (present : Bool) : Bool :=
+  f.life == .active && schUnblocked f.block activity && !f.fired && present
+def schVisible (present incident operator readable creator bound : Bool) : Bool :=
+  present && incident && (operator || readable || (creator && bound))
+def schSelection (ids subjects : Option (List String)) : Option (List String) :=
+  match subjects with
+  | none => ids
+  | some values => some (match ids with | none => values | some selected => selected.filter values.contains)
+structure SchCandidate where
+  index : Nat
+  incident : String
+  order : Nat
+  facts : SchFacts
+  deriving DecidableEq, Repr
+def schOldest : List SchCandidate → Option SchCandidate
+  | [] => none
+  | head :: tail => match schOldest tail with
+    | none => some head
+    | some best => some (if head.order ≤ best.order then head else best)
+def schMinimum : List String → Option String
+  | [] => none
+  | head :: tail => match schMinimum tail with
+    | none => some head
+    | some best => some (if head < best then head else best)
+def schChoose (candidates : List SchCandidate) (activity : Nat) (last : Option String) : Option SchCandidate :=
+  let eligible := candidates.filter (fun item => schRunnable item.facts activity)
+  let group := match last with
+    | none => eligible
+    | some previous =>
+      let ids := eligible.map SchCandidate.incident
+      let successor := (schMinimum (ids.filter (fun id => decide (previous < id)))).orElse (fun _ => schMinimum ids)
+      eligible.filter (fun item => some item.incident == successor)
+  schOldest group
+structure SchCause where
+  id : String
+  context : String := "context"
+  kind : String := "graph.transact.committed"
+  subjects : List String := []
+  causes : List String := []
+  deriving DecidableEq, Repr
+def schCausalWalk : Nat → List String → List String → List SchCause → String → String → String
+  | _, [], _, _, _, _ => "independent"
+  | 0, _ :: _, _, _, _, _ => "unknown"
+  | fuel+1, head :: tail, seen, events, context, target =>
+    if seen.contains head then schCausalWalk fuel tail seen events context target
+    else match events.find? (fun item => item.id == head) with
+      | none => "unknown"
+      | some item =>
+        if item.context != context then "unknown"
+        else if item.kind == "runtime.schedule.triggered" && item.subjects.contains target then "dependent"
+        else schCausalWalk fuel ((item.causes.filter (fun id => !(head :: seen).contains id)).reverse ++ tail) (head :: seen) events context target
+
+theorem sch_cancelled_never_runnable (f : SchFacts) (activity : Nat) :
+    schRunnable { f with life := .cancelled } activity = false := by simp [schRunnable]
+theorem sch_blocked_rests (f : SchFacts) (activity : Nat) :
+    schRunnable { f with block := some activity } activity = false := by simp [schRunnable, schUnblocked]
+theorem sch_full_keeps_cursor (previous sequence activity : Nat) (oldEdge nextEdge pending once : Bool) :
+    schAdvance previous sequence activity oldEdge nextEdge true false pending once = ⟨previous,oldEdge,true,true⟩ := rfl
+theorem sch_edge_requires_new_rise : schObservation false true true = (false,true) := rfl
+theorem sch_each_remains_observable : schObservation true false true = (true,false) := rfl
+theorem sch_failed_capacity_not_acknowledged : schCapacityEdge false true false = false := rfl
+theorem sch_missing_is_unresolved (fuel : Nat) (head context target : String) :
+    schCausalWalk (fuel+1) [head] [] [] context target = "unknown" := rfl
+theorem sch_exhaustion_is_unresolved (head : String) (tail seen : List String) (events : List SchCause) (context target : String) :
+    schCausalWalk 0 (head::tail) seen events context target = "unknown" := rfl
+theorem sch_full_pressure_rests (sequence activity : Nat) :
+    schReady { sequence, pending := 128, busy := 1, pressure := some activity } activity false 0 = false := by
+  simp [schReady, schUnblocked]
+theorem sch_oldest_is_member (values : List SchCandidate) (chosen : SchCandidate) (h : schOldest values = some chosen) : chosen ∈ values := by
+  induction values with
+  | nil => simp [schOldest] at h
+  | cons head tail ih =>
+    simp only [schOldest] at h
+    cases ht : schOldest tail with
+    | none => simp [ht] at h; subst chosen; simp
+    | some best =>
+      simp only [ht, Option.some.injEq] at h
+      split at h
+      · subst chosen; simp
+      · subst chosen; exact List.mem_cons_of_mem head (ih ht)
+theorem sch_selected_group_is_eligible (values : List SchCandidate) (chosen : SchCandidate) (activity : Nat)
+    (h : schOldest (values.filter (fun item => schRunnable item.facts activity)) = some chosen) :
+    schRunnable chosen.facts activity = true := by
+  exact (List.mem_filter.mp (sch_oldest_is_member _ _ h)).2
+theorem sch_chosen_is_eligible (values : List SchCandidate) (chosen : SchCandidate) (activity : Nat) (last : Option String)
+    (h : schChoose values activity last = some chosen) : schRunnable chosen.facts activity = true := by
+  unfold schChoose at h
+  cases last with
+  | none => exact sch_selected_group_is_eligible _ _ _ h
+  | some previous =>
+    have member := sch_oldest_is_member _ _ h
+    exact (List.mem_filter.mp (List.mem_filter.mp member).1).2
+
+#print axioms sch_cancelled_never_runnable
+#print axioms sch_blocked_rests
+#print axioms sch_full_keeps_cursor
+#print axioms sch_edge_requires_new_rise
+#print axioms sch_each_remains_observable
+#print axioms sch_failed_capacity_not_acknowledged
+#print axioms sch_missing_is_unresolved
+#print axioms sch_exhaustion_is_unresolved
+#print axioms sch_full_pressure_rests
+#print axioms sch_oldest_is_member
+#print axioms sch_selected_group_is_eligible
+#print axioms sch_chosen_is_eligible
 #print axioms calendar_result_is_bounded
 #print axioms envelope_sum_is_bounded
 #print axioms remaining_within_ceiling
@@ -587,6 +747,23 @@ theorem availability_within_every_ceiling (envelopes : List (Option Nat × Nat))
 #print axioms terminal_cancel_unchanged
 #print axioms uncertain_claim_trace
 end Moment
+
+def schLives : List (Moment.SchLife × String) := [(.active,"active"),(.completed,"completed"),(.cancelled,"cancelled")]
+def schWakes : List (Moment.SchWake × String) := [(.event,"event"),(.at,"at"),(.after,"after"),(.capacity,"capacity")]
+def schSourceLists : List (List String) := [[],["a"],["a","b"],["b","a"],(List.range 32).map toString,(List.range 33).map toString]
+def schIncoming : List (List String) := [[],["a"],["b","a"],["new"],["31","0"]]
+def schFilters : List (Option (List String)) := [none,some [],some ["a","b"],some ["c","a"]]
+def schCandidates (mask : Nat) : List Moment.SchCandidate :=
+  ([ ("b",9),("a",5),("a",3),("c",7) ] : List (String × Nat)).zipIdx.map fun ((owner,order),index) =>
+    { index, incident := owner, order, facts := { pending := if mask / 2^index % 2 == 1 then 1 else 0 } }
+def schCauses (mask dependent broken : Nat) : List Moment.SchCause :=
+  ([0,1] : List Nat).filterMap fun index =>
+    if broken == 1 && index == 1 then none else some {
+      id := "n" ++ toString index,
+      context := if broken == 2 && index == 1 then "foreign" else "context",
+      kind := if dependent / 2^index % 2 == 1 then "runtime.schedule.triggered" else "graph.transact.committed",
+      subjects := ["target"],
+      causes := ([0,1] : List Nat).filterMap fun target => if mask / 2^(index*2+target) % 2 == 1 then some ("n" ++ toString target) else none }
 
 def truthLabel : Moment.Truth → String
   | .yes => "true"
@@ -921,3 +1098,88 @@ def main : IO Unit := do
   for anchor in [0,1,Moment.calendarMaximum-1,Moment.calendarMaximum] do
     for duration in [0,1,2,Moment.budgetMaximum] do
       IO.println s!"case|calendarAfter|{anchor}|{duration}|{budgetLabel (Moment.calendarAfter anchor duration)}"
+  for (life,label) in schLives do
+    IO.println s!"case|scheduleCancel|{label}|{life != .completed}"
+    for present in [false,true] do
+      for equal in [false,true] do
+        IO.println s!"case|scheduleMatches|{label}|{present}|{equal}|{Moment.schMatches life present equal}"
+    for blocked in [false,true] do
+      for pressure in [false,true] do
+        for pending in [0,1,128] do
+          for busy in [0,1] do
+            for coalesce in [false,true] do
+              for sources in [0,32] do
+                for sequence in [99,100] do
+                  let f : Moment.SchFacts := { life, sequence, block := if blocked then some 100 else none, pending, busy, pressure := if pressure then some 100 else none }
+                  IO.println s!"case|scheduleReady|{label}|{blocked}|{pressure}|{pending}|{busy}|{coalesce}|{sources}|{sequence}|{Moment.schReady f 100 coalesce sources}"
+      for context in ["open","closed"] do
+        for ended in [false,true] do
+          IO.println s!"case|scheduleScan|{label}|{blocked}|{context}|{ended}|{Moment.schScan { life, block := if blocked then some 100 else none } context ended 100}"
+      for fired in [false,true] do
+        for present in [false,true] do
+          IO.println s!"case|scheduleWatch|{label}|{blocked}|{fired}|{present}|{Moment.schWatch { life, block := if blocked then some 100 else none, fired } 100 present}"
+  for (wake,label) in schWakes do
+    IO.println s!"case|scheduleNeedsEvents|{label}|{wake == .event || wake == .after}"
+    for edge in [false,true] do
+      IO.println s!"case|scheduleBaseline|{label}|{edge}|{wake == .event && edge}"
+    for once in [false,true] do
+      for resource in ["cpuMillis","missing"] do
+        IO.println s!"case|scheduleWake|{label}|{once}|{resource}|{Moment.schWakeAdmission wake once resource}"
+    for fired in [false,true] do
+      for (due,index) in ([none,some 99,some 101] : List (Option Nat)).zipIdx do
+        for sequence in [99,100] do
+          IO.println s!"case|scheduleMode|{label}|{fired}|{index}|{sequence}|{Moment.schMode wake { sequence, fired } 100 due 100}"
+  for previous in [0,99,100] do
+    for sequence in [98,99,100,101] do
+      for kind in ["graph.transact.committed","runtime.schedule.triggered","other"] do
+        IO.println s!"case|scheduleEventGate|{previous}|{sequence}|{kind}|{Moment.schEventGate previous sequence 100 kind ["graph.transact.committed","runtime.schedule.triggered"]}"
+  for each in [false,true] do
+    for edge in [false,true] do
+      for selected in [false,true] do
+        let (fire,next) := Moment.schObservation each edge selected
+        IO.println s!"case|scheduleObservation|{each}|{edge}|{selected}|{fire}:{next}"
+  for pending in [0,1,128] do
+    for coalesce in [false,true] do
+      for (previous,index) in schSourceLists.zipIdx do
+        for (incoming,next) in schIncoming.zipIdx do
+          IO.println s!"case|scheduleQueue|{pending}|{coalesce}|{index}|{next}|{Moment.schQueue pending coalesce previous incoming}"
+  for oldEdge in [false,true] do
+    for nextEdge in [false,true] do
+      for fire in [false,true] do
+        for enqueued in [false,true] do
+          for pending in [false,true] do
+            for once in [false,true] do
+              let result := Moment.schAdvance 99 100 101 oldEdge nextEdge fire enqueued pending once
+              IO.println s!"case|scheduleAdvance|{oldEdge}|{nextEdge}|{fire}|{enqueued}|{pending}|{once}|{result.cursor}:{result.edge}:{result.stop}:{result.full}"
+  for old in [false,true] do
+    for available in [false,true] do
+      for accepted in [false,true] do
+        IO.println s!"case|scheduleCapacityEdge|{old}|{available}|{accepted}|{Moment.schCapacityEdge old available accepted}"
+  for present in [false,true] do
+    for incident in [false,true] do
+      for operator in [false,true] do
+        for readable in [false,true] do
+          for creator in [false,true] do
+            for bound in [false,true] do
+              IO.println s!"case|scheduleVisible|{present}|{incident}|{operator}|{readable}|{creator}|{bound}|{Moment.schVisible present incident operator readable creator bound}"
+  for (ids,index) in schFilters.zipIdx do
+    for (subjects,next) in schFilters.zipIdx do
+      let result := (Moment.schSelection ids subjects).map (fun values => "selected:" ++ String.intercalate "," values) |>.getD "unrestricted"
+      IO.println s!"case|scheduleSelection|{index}|{next}|{result}"
+  for mask in List.range 16 do
+    for (last,index) in ([none,some "a",some "b",some "c",some "z"] : List (Option String)).zipIdx do
+      let result := (Moment.schChoose (schCandidates mask) 100 last).map (fun item => toString item.index) |>.getD "none"
+      IO.println s!"case|scheduleChoose|{mask}|{index}|{result}"
+  for mask in List.range 16 do
+    for dependent in List.range 4 do
+      for broken in List.range 3 do
+        IO.println s!"case|scheduleCausality|{mask}|{dependent}|{broken}|{Moment.schCausalWalk 128 ["n0"] [] (schCauses mask dependent broken) "context" "target"}"
+  for count in [0,127,128,129] do
+    IO.println s!"case|scheduleRoom|{count}|{decide (count < 128)}"
+  for sequence in budgetValues do
+    for emitted in [0,1,128] do
+      IO.println s!"case|scheduleOrder|{sequence}|{emitted}|{budgetLabel (Moment.budgetAdd sequence (emitted+1))}"
+  for once in [false,true] do
+    IO.println s!"case|scheduleCompleted|{once}|{if once then "completed" else "active"}"
+  for code in ["REVISION_CONFLICT","FORBIDDEN","INTERNAL"] do
+    IO.println s!"case|scheduleRetryFault|{code}|{code == "REVISION_CONFLICT"}"

@@ -8,23 +8,31 @@
   "sources": [
     {
       "path": "core/LAWS.bend",
-      "digest": "sha256:cc7b52fc6f88db8c020f87924de1b4da63c8c763fa4e46fc4634755979de4726"
+      "digest": "sha256:210d92829212208734354403d35f5d6e85ea9d6507a0364d941cb09d8a85531f"
     },
     {
       "path": "core/PROOF.bend",
-      "digest": "sha256:3136def778323987f2912ab2cefdb97ccc8fb171f05744db546c6862df8bb473"
+      "digest": "sha256:f8391b99b9385596e72c5b48b4156a5b368d3e40461b6e3e28ec324ce8fbe514"
     },
     {
       "path": "core/accounting.bend",
-      "digest": "sha256:83a8d84df216a3acecae97f1da6e07d57e5db49accc2f4e9daf60fe7777cfa10"
+      "digest": "sha256:0a683445f112f68240e4670fadd5a6016ac6252f15389af1f449253aaad91456"
+    },
+    {
+      "path": "core/collections.bend",
+      "digest": "sha256:daedfe50a679fbf49beaa42cda58a397cdf1952dfb77e37520711538be163933"
     },
     {
       "path": "core/execution.bend",
       "digest": "sha256:fe5abac9f25d985b7d533063f093b60de66de01ca724bf8cee6bccdef4dbd1dc"
     },
     {
+      "path": "core/scheduler.bend",
+      "digest": "sha256:b5f0825873ae69e4c52e7d94e31f6d4d0dca43dfddeba6fa00022e974a8170c4"
+    },
+    {
       "path": "core/semantics.bend",
-      "digest": "sha256:04487477b2b04725bfe5f2f1af78b70413809c1ea5ccfa72906eb244b56160b4"
+      "digest": "sha256:791c2655f0018b1dcfbc22bb4933a206816cf97e7f46e18f251191a2cee3fae2"
     },
     {
       "path": "core/topology.bend",
@@ -32,7 +40,7 @@
     },
     {
       "path": "proof/Moment.lean",
-      "digest": "sha256:ee9adbea3e0eecd1ac47300e9b079a38f59bfb7f282bc18d7dc1a371b9b49d3a"
+      "digest": "sha256:f561d04bcd1c723b9b29cd9ad81fd9f321c38b59c997a4b9e426f887fa88f617"
     },
     {
       "path": "runtime/json.mjs",
@@ -40,7 +48,7 @@
     },
     {
       "path": "runtime/semantic-core.mjs",
-      "digest": "sha256:7641e405a0e159bf17d3c006ed4630155529b82eb0977efa77440addfca51f4b"
+      "digest": "sha256:8eb829becfa1c7c3008ac8da527cbafd94be65d0e6b287a24aa00107ec8d9372"
     },
     {
       "path": "runtime/semantic-manifest.mjs",
@@ -52,7 +60,7 @@
     },
     {
       "path": "scripts/core-correspondence.mjs",
-      "digest": "sha256:e0063d6c13509101b3c4c10207c96abedff7f4daf64839f69fb352faf2f67e51"
+      "digest": "sha256:7cbaa9ece41abf0a2ad8863ec4531b54b166a32e4f3a461e3a0edbb14cc4e6c6"
     },
     {
       "path": "scripts/core-tools.mjs",
@@ -73,7 +81,7 @@
   ],
   "output": {
     "path": "runtime/generated/semantics.mjs",
-    "digest": "sha256:21a2dea513a72eef1d6f147e3a76f5e2d316e85a182c562d591c4f204eaa7d5c"
+    "digest": "sha256:bced2e2be3aad2809391ac1f2f4f9ac5eca57cd7be83955b7494c5aff6816f72"
   },
   "claim": "Compiled executable core; proof verdict and native correspondence are separately qualified evidence"
 }

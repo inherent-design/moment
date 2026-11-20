@@ -2,6 +2,8 @@ import Base
 import ./execution.bend as Run
 import ./topology.bend as Top
 import ./accounting.bend as Budget
+import ./collections.bend as Text
+import ./scheduler.bend as Sched
 
 def execution_step(state: Run.State, action: Run.Action) -> Run.Step:
   Run.step(state, action)
@@ -131,22 +133,11 @@ def same_scope(asys: String, actx: String, bsys: String, bctx: String) -> Bool:
 def same_ref(asys: String, actx: String, aid: String, bsys: String, bctx: String, bid: String) -> Bool:
   Bool.and(same_scope(asys, actx, bsys, bctx), String.eq(aid, bid))
 
-def text_contains.fold(values: +List<String>, +needle: String, hit: Bool) -> Bool:
-  match values:
-    case Nil{}:
-      hit
-    case Con{head, tail}:
-      text_contains.fold(tail, needle, Bool.or(hit, String.eq(head, needle)))
-
 def text_contains(values: +List<String>, needle: String) -> Bool:
-  text_contains.fold(values, needle, False{})
+  Text.contains(values, needle)
 
 def text_subset(child: +List<String>, +parent: +List<String>) -> Bool:
-  match child:
-    case Nil{}:
-      True{}
-    case Con{head, tail}:
-      Bool.and(text_contains(parent, head), text_subset(tail, parent))
+  Text.subset(child, parent)
 
 def incident_scope(parent_all: Bool, child_all: Bool, child: +List<String>, parent: +List<String>) -> Bool:
   match parent_all:
@@ -654,3 +645,75 @@ def clock_delay(values: +List<ClockCandidate>, zero: Rank) -> ClockDelay:
       ClockIdle{}
     case Con{head, tail}:
       delay_fold(tail, head, zero)
+
+def schedule_room(count: U32) -> Bool:
+  Sched.room(count)
+
+def schedule_visible(present: Bool, incident: Bool, operator: Bool, readable: Bool, creator: String, principal: String, grant: String, chain: +List<String>) -> Bool:
+  Sched.visible(present, incident, operator, readable, creator, principal, grant, chain)
+
+def schedule_needs_events(wake: Sched.Wake) -> Bool:
+  Sched.needs_events(wake)
+
+def schedule_baseline(wake: Sched.Wake, edge: Bool) -> Bool:
+  Sched.baseline(wake, edge)
+
+def schedule_wake_admission(wake: Sched.Wake, once: Bool, resource: String) -> Sched.WakeAdmission:
+  Sched.wake_admission(wake, once, resource)
+
+def schedule_scan(facts: Sched.Facts, context: String, ended: Bool, activity: Budget.Count) -> Sched.Scan:
+  Sched.scan(facts, context, ended, activity)
+
+def schedule_mode(wake: Sched.Wake, facts: Sched.Facts, activity: Budget.Count, present: Bool, due: Budget.Count, now: Budget.Count) -> Sched.Mode:
+  Sched.mode(wake, facts, activity, present, due, now)
+
+def schedule_selection(has_ids: Bool, ids: +List<String>, event_present: Bool, subjects: +List<String>) -> Sched.Selection:
+  Sched.selection(has_ids, ids, event_present, subjects)
+
+def schedule_event_gate(previous: Budget.Count, sequence: Budget.Count, activity: Budget.Count, kind: String, types: +List<String>) -> Sched.EventGate:
+  Sched.event_gate(previous, sequence, activity, kind, types)
+
+def schedule_observation(each: Bool, edge: Bool, selected: Bool) -> Sched.Observation:
+  Sched.observation(each, edge, selected)
+
+def schedule_queue(pending: U32, coalesce: Bool, previous: +List<String>, incoming: +List<String>) -> Sched.Queue:
+  Sched.queue(pending, coalesce, previous, incoming)
+
+def schedule_order(sequence: Budget.Count, emitted: Budget.Count) -> Budget.Amount:
+  Sched.occurrence_order(sequence, emitted)
+
+def schedule_advance(previous: Budget.Count, sequence: Budget.Count, activity: Budget.Count, old_edge: Bool, next_edge: Bool, fired: Bool, enqueued: Bool, pending: Bool, once: Bool) -> Sched.Advance:
+  Sched.advance(previous, sequence, activity, old_edge, next_edge, fired, enqueued, pending, once)
+
+def schedule_capacity_edge(old: Bool, available: Bool, accepted: Bool) -> Bool:
+  Sched.capacity_edge(old, available, accepted)
+
+def schedule_matches(life: Sched.Life, present: Bool, expected: String, current: String) -> Bool:
+  Sched.matches(life, present, expected, current)
+
+def schedule_completed(once: Bool) -> Sched.Life:
+  Sched.completed(once)
+
+def schedule_cancellable(life: Sched.Life) -> Bool:
+  Sched.cancellable(life)
+
+def schedule_retry_fault(code: String) -> Bool:
+  Sched.retry_fault(code)
+
+def schedule_watch(facts: Sched.Facts, activity: Budget.Count, present: Bool) -> Bool:
+  Sched.watch(facts, activity, present)
+
+def schedule_ready(facts: Sched.Facts, activity: Budget.Count, coalesce: Bool, last_sources: U32) -> Bool:
+  Sched.ready(facts, activity, coalesce, last_sources)
+
+def schedule_choose(has_last: Bool, last: String, candidates: +List<Sched.Candidate>, activity: Budget.Count) -> Sched.Choice:
+  Sched.choose(has_last, last, candidates, activity)
+
+def schedule_causality(root: String) -> Sched.Causality:
+  Sched.causality(root)
+
+def schedule_causal_demand(state: Sched.Causality) -> Sched.Demand:
+  Sched.demand(state)
+
+def schedule_causal_step(state: Sched.Causality, event: Sched.CauseEvent, context: String, schedule: String) -> Sched.CausalStep:
+  Sched.step(state, event, context, schedule)

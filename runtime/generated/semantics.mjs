@@ -723,7 +723,11 @@ function $accounting_subtract(_left_0, _right_0) {
 }
 
 function $accounting_equal(_left_0, _right_0) {
-  return $Bool_and($$accounting_le(_left_0, _right_0), $$accounting_le(_right_0, _left_0));
+  const _a_0 = _left_0["high"];
+  const _b_0 = _left_0["low"];
+  const _c_0 = _right_0["high"];
+  const _d_0 = _right_0["low"];
+  return $Bool_and((_a_0 === _c_0), (_b_0 === _d_0));
 }
 
 function $accounting_accumulate(_value_0, _extra_0) {
@@ -927,6 +931,470 @@ function $accounting_available(_envelopes_0) {
   }
 }
 
+function $collections_contains_fold($0, $1, $2) {
+  for (;;) {
+    {
+      const _values_0 = $0;
+      const _needle_0 = $1;
+      const _hit_0 = $2;
+      if (_values_0.$ === "Nil") {
+        return _hit_0;
+      } else {
+        const _head_0 = _values_0["head"];
+        const _tail_0 = _values_0["tail"];
+        const _x_0 = $$String_eq(_head_0, _needle_0);
+        $0 = _tail_0;
+        $1 = _needle_0;
+        $2 = (_hit_0 || _x_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $collections_contains(_values_0, _needle_0) {
+  return $collections_contains_fold(_values_0, _needle_0, false);
+}
+
+function $collections_subset_fold($0, $1, $2) {
+  for (;;) {
+    {
+      const _values_0 = $0;
+      const _parent_0 = $1;
+      const _accepted_0 = $2;
+      if (_values_0.$ === "Nil") {
+        return _accepted_0;
+      } else {
+        const _head_0 = _values_0["head"];
+        const _tail_0 = _values_0["tail"];
+        $0 = _tail_0;
+        $1 = _parent_0;
+        $2 = $$Bool_and(_accepted_0, $$collections_contains(_parent_0, _head_0));
+        continue;
+      }
+    }
+  }
+}
+
+function $collections_subset(_values_0, _parent_0) {
+  return $collections_subset_fold(_values_0, _parent_0, true);
+}
+
+function $collections_unique_fold($0, $1, $2) {
+  for (;;) {
+    {
+      const _values_0 = $0;
+      const _seen_0 = $1;
+      const _reversed_0 = $2;
+      if (_values_0.$ === "Nil") {
+        return $List_reverse(_reversed_0);
+      } else {
+        const _head_0 = _values_0["head"];
+        const _tail_0 = _values_0["tail"];
+        const _value_0 = _head_0;
+        const _present_0 = $$collections_contains(_seen_0, _value_0);
+        $0 = _tail_0;
+        $1 = $$Bool_pick(_present_0, _seen_0, {$: "Con", "head": _value_0, "tail": _seen_0});
+        $2 = $$Bool_pick(_present_0, _reversed_0, {$: "Con", "head": _value_0, "tail": _reversed_0});
+        continue;
+      }
+    }
+  }
+}
+
+function $collections_union(_left_0, _right_0) {
+  return $collections_unique_fold($$List_append(_left_0, _right_0), {$: "Nil"}, {$: "Nil"});
+}
+
+function $collections_intersection_fold($0, $1, $2) {
+  for (;;) {
+    {
+      const _values_0 = $0;
+      const _allowed_0 = $1;
+      const _reversed_0 = $2;
+      if (_values_0.$ === "Nil") {
+        return $List_reverse(_reversed_0);
+      } else {
+        const _head_0 = _values_0["head"];
+        const _tail_0 = _values_0["tail"];
+        const _value_0 = _head_0;
+        $0 = _tail_0;
+        $1 = _allowed_0;
+        $2 = $$Bool_pick($$collections_contains(_allowed_0, _value_0), {$: "Con", "head": _value_0, "tail": _reversed_0}, _reversed_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $collections_intersection(_values_0, _allowed_0) {
+  return $collections_intersection_fold(_values_0, _allowed_0, {$: "Nil"});
+}
+
+function $collections_unseen_fold($0, $1, $2) {
+  for (;;) {
+    {
+      const _values_0 = $0;
+      const _seen_0 = $1;
+      const _reversed_0 = $2;
+      if (_values_0.$ === "Nil") {
+        return _reversed_0;
+      } else {
+        const _head_0 = _values_0["head"];
+        const _tail_0 = _values_0["tail"];
+        const _value_0 = _head_0;
+        $0 = _tail_0;
+        $1 = _seen_0;
+        $2 = $$Bool_pick($$collections_contains(_seen_0, _value_0), _reversed_0, {$: "Con", "head": _value_0, "tail": _reversed_0});
+        continue;
+      }
+    }
+  }
+}
+
+function $scheduler_active(_life_0) {
+  if (_life_0.$ === "SchActive") {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+function $scheduler_cancellable(_life_0) {
+  if (_life_0.$ === "SchCompleted") {
+    return false;
+  } else {
+    return true;
+  }
+}
+
+function $scheduler_unblocked(_block_0, _activity_0) {
+  if (_block_0.$ === "SchNoBlock") {
+    return true;
+  } else {
+    const _previous_0 = _block_0["activity"];
+    return $Bool_not($$accounting_equal(_previous_0, _activity_0));
+  }
+}
+
+function $scheduler_runnable(_facts_0, _activity_0) {
+  const _life_0 = _facts_0["life"];
+  const _block_0 = _facts_0["block"];
+  const _pending_0 = _facts_0["pending"];
+  const _busy_0 = _facts_0["active"];
+  return $Bool_and($$scheduler_active(_life_0), $$Bool_and($$scheduler_unblocked(_block_0, _activity_0), $$Bool_and($$Bool_not((_pending_0 === 0)), (_busy_0 === 0))));
+}
+
+function $scheduler_ready(_facts_0, _activity_0, _coalesce_0, _last_sources_0) {
+  const _life_0 = _facts_0["life"];
+  const _sequence_0 = _facts_0["sequence"];
+  const _block_0 = _facts_0["block"];
+  const _pending_0 = _facts_0["pending"];
+  const _busy_0 = _facts_0["active"];
+  const _pressure_0 = _facts_0["pressure"];
+  const _x_0 = $$Bool_not(_coalesce_0);
+  const _x_1 = $$Bool_not((_last_sources_0 < 32));
+  const _backed_up_0 = $$Bool_and($$Bool_not((_busy_0 === 0)), $$Bool_and($$Bool_not((_pending_0 < 128)), (_x_0 || _x_1)));
+  const _x_2 = $$Bool_not(_backed_up_0);
+  const _x_3 = $$scheduler_unblocked(_pressure_0, _activity_0);
+  const _x_4 = $$Bool_and($$Bool_not($$accounting_le(_activity_0, _sequence_0)), (_x_2 || _x_3));
+  const _x_5 = $$Bool_and($$Bool_not((_pending_0 === 0)), (_busy_0 === 0));
+  return $Bool_and($$scheduler_active(_life_0), $$Bool_and($$scheduler_unblocked(_block_0, _activity_0), (_x_4 || _x_5)));
+}
+
+function $scheduler_scan(_facts_0, _context_0, _ended_0, _activity_0) {
+  const _life_0 = _facts_0["life"];
+  const _block_0 = _facts_0["block"];
+  const _x_0 = $$Bool_not($$String_eq(_context_0, "open"));
+  return $Bool_pick($$scheduler_active(_life_0), $$Bool_pick((_x_0 || _ended_0), {$: "SchCancel"}, $$Bool_pick($$scheduler_unblocked(_block_0, _activity_0), {$: "SchObserve"}, {$: "SchSkip"})), {$: "SchSkip"});
+}
+
+function $scheduler_needs_events(_wake_0) {
+  if (_wake_0.$ === "SchEvent") {
+    return true;
+  } else if (_wake_0.$ === "SchAfter") {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+function $scheduler_timer(_wake_0) {
+  if (_wake_0.$ === "SchAt") {
+    return true;
+  } else if (_wake_0.$ === "SchAfter") {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+function $scheduler_baseline(_wake_0, _edge_0) {
+  if (_wake_0.$ === "SchEvent") {
+    return _edge_0;
+  } else {
+    return false;
+  }
+}
+
+function $scheduler_resource_known(_resource_0) {
+  return $collections_contains({$: "Con", "head": "concurrentExecutions", "tail": {$: "Con", "head": "cpuMillis", "tail": {$: "Con", "head": "memoryBytes", "tail": {$: "Con", "head": "outputBytes", "tail": {$: "Con", "head": "modelTokens", "tail": {$: "Con", "head": "apiSpendMicrounits", "tail": {$: "Nil"}}}}}}}, _resource_0);
+}
+
+function $scheduler_wake_admission(_wake_0, _once_0, _resource_0) {
+  if (_wake_0.$ === "SchAt") {
+    return $Bool_pick(_once_0, {$: "SchWakeAllowed"}, {$: "SchTimerRearm"});
+  } else if (_wake_0.$ === "SchAfter") {
+    return $Bool_pick(_once_0, {$: "SchWakeAllowed"}, {$: "SchTimerRearm"});
+  } else if (_wake_0.$ === "SchCapacity") {
+    return $Bool_pick($$scheduler_resource_known(_resource_0), {$: "SchWakeAllowed"}, {$: "SchUnknownResource"});
+  } else {
+    return {$: "SchWakeAllowed"};
+  }
+}
+
+function $scheduler_room(_count_0) {
+  return (_count_0 < 128);
+}
+
+function $scheduler_visible(_present_0, _incident_0, _operator_0, _readable_0, _creator_0, _principal_0, _grant_0, _chain_0) {
+  const _x_0 = $$Bool_and($$String_eq(_creator_0, _principal_0), $$collections_contains(_chain_0, _grant_0));
+  const _x_1 = (_readable_0 || _x_0);
+  return $Bool_and(_present_0, $$Bool_and(_incident_0, (_operator_0 || _x_1)));
+}
+
+function $scheduler_mode_fields(_wake_0, _sequence_0, _fired_0, _activity_0, _due_present_0, _due_0, _now_0) {
+  if (_wake_0.$ === "SchEvent") {
+    return $Bool_pick($$Bool_not($$accounting_le(_activity_0, _sequence_0)), {$: "SchEvents", "limit": 256}, {$: "SchQuiet"});
+  } else if (_wake_0.$ === "SchCapacity") {
+    return {$: "SchCheckCapacity"};
+  } else {
+    return $Bool_pick($$Bool_and($$Bool_not(_fired_0), $$Bool_and(_due_present_0, $$accounting_le(_due_0, _now_0))), {$: "SchTimer"}, {$: "SchQuiet"});
+  }
+}
+
+function $scheduler_mode(_wake_0, _facts_0, _activity_0, _due_present_0, _due_0, _now_0) {
+  const _sequence_0 = _facts_0["sequence"];
+  const _fired_0 = _facts_0["fired"];
+  return $scheduler_mode_fields(_wake_0, _sequence_0, _fired_0, _activity_0, _due_present_0, _due_0, _now_0);
+}
+
+function $scheduler_event_gate(_previous_0, _sequence_0, _activity_0, _kind_0, _types_0) {
+  return $Bool_pick($$accounting_le(_sequence_0, _previous_0), {$: "SchStaleEvent"}, $$Bool_pick($$accounting_le(_sequence_0, _activity_0), $$Bool_pick($$Bool_and($$Bool_not($$String_starts_with(_kind_0, "runtime.schedule.")), $$collections_contains(_types_0, _kind_0)), {$: "SchInspectEvent"}, {$: "SchIgnoreEvent"}), {$: "SchFutureEvent"}));
+}
+
+function $scheduler_observation(_each_0, _edge_0, _selected_0) {
+  return $Bool_pick(_each_0, {$: "SchObservation", "fire": _selected_0, "edge": _edge_0}, {$: "SchObservation", "fire": $$Bool_and(_selected_0, $$Bool_not(_edge_0)), "edge": _selected_0});
+}
+
+function $scheduler_merged(_sources_0) {
+  return $Bool_pick($$Nat_is_le($$List_length(_sources_0), 32), {$: "SchMerge", "sources": _sources_0}, {$: "SchQueueFull"});
+}
+
+function $scheduler_queue(_pending_0, _coalesce_0, _last_sources_0, _sources_0) {
+  return $Bool_pick($$Bool_and($$Bool_not((_pending_0 === 0)), _coalesce_0), $$scheduler_merged($$collections_union(_last_sources_0, _sources_0)), $$Bool_pick((_pending_0 < 128), {$: "SchAppend", "sources": _sources_0}, {$: "SchQueueFull"}));
+}
+
+function $scheduler_order_result(_value_0) {
+  return $accounting_accumulate(_value_0, $$accounting_one());
+}
+
+function $scheduler_occurrence_order(_sequence_0, _emitted_0) {
+  return $scheduler_order_result($$accounting_add(_sequence_0, _emitted_0));
+}
+
+function $scheduler_advance(_previous_0, _sequence_0, _activity_0, _old_edge_0, _next_edge_0, _fired_0, _enqueued_0, _pending_0, _once_0) {
+  const _stop_0 = $$Bool_and(_once_0, _pending_0);
+  return $Bool_pick($$Bool_and(_fired_0, $$Bool_not(_enqueued_0)), {$: "SchAdvance", "cursor": _previous_0, "edge": _old_edge_0, "stop": true, "full": true}, {$: "SchAdvance", "cursor": $$Bool_pick(_stop_0, _activity_0, _sequence_0), "edge": _next_edge_0, "stop": _stop_0, "full": false});
+}
+
+function $scheduler_capacity_edge(_old_0, _available_0, _accepted_0) {
+  return $Bool_pick($$Bool_and(_available_0, $$Bool_and($$Bool_not(_old_0), $$Bool_not(_accepted_0))), _old_0, _available_0);
+}
+
+function $scheduler_matches(_life_0, _present_0, _expected_0, _current_0) {
+  return $Bool_and($$scheduler_active(_life_0), $$Bool_and(_present_0, $$String_eq(_expected_0, _current_0)));
+}
+
+function $scheduler_completed(_once_0) {
+  return $Bool_pick(_once_0, {$: "SchCompleted"}, {$: "SchActive"});
+}
+
+function $scheduler_retry_fault(_code_0) {
+  return $String_eq(_code_0, "REVISION_CONFLICT");
+}
+
+function $scheduler_watch(_facts_0, _activity_0, _due_present_0) {
+  const _life_0 = _facts_0["life"];
+  const _block_0 = _facts_0["block"];
+  const _fired_0 = _facts_0["fired"];
+  return $Bool_and($$scheduler_active(_life_0), $$Bool_and($$scheduler_unblocked(_block_0, _activity_0), $$Bool_and($$Bool_not(_fired_0), _due_present_0)));
+}
+
+function $scheduler_candidate_order(_candidate_0) {
+  const _order_0 = _candidate_0["order"];
+  return _order_0;
+}
+
+function $scheduler_candidate_incident(_candidate_0) {
+  const _incident_0 = _candidate_0["incident"];
+  return _incident_0;
+}
+
+function $scheduler_candidate_eligible(_candidate_0, _activity_0, _restricted_0, _incident_0) {
+  const _owner_0 = _candidate_0["incident"];
+  const _facts_0 = _candidate_0["facts"];
+  const _x_0 = $$Bool_not(_restricted_0);
+  const _x_1 = $$String_eq(_owner_0, _incident_0);
+  return $Bool_and($$scheduler_runnable(_facts_0, _activity_0), (_x_0 || _x_1));
+}
+
+function $scheduler_prefer(_candidate_0, _current_0) {
+  if (_current_0.$ === "SchNobody") {
+    return {$: "SchChosen", "candidate": _candidate_0};
+  } else {
+    const _previous_0 = _current_0["candidate"];
+    return $Bool_pick($$accounting_le($$scheduler_candidate_order(_previous_0), $$scheduler_candidate_order(_candidate_0)), {$: "SchChosen", "candidate": _previous_0}, {$: "SchChosen", "candidate": _candidate_0});
+  }
+}
+
+function $scheduler_oldest($0, $1, $2, $3, $4) {
+  for (;;) {
+    {
+      const _candidates_0 = $0;
+      const _activity_0 = $1;
+      const _restricted_0 = $2;
+      const _incident_0 = $3;
+      const _current_0 = $4;
+      if (_candidates_0.$ === "Nil") {
+        return _current_0;
+      } else {
+        const _head_0 = _candidates_0["head"];
+        const _tail_0 = _candidates_0["tail"];
+        $0 = _tail_0;
+        $1 = _activity_0;
+        $2 = _restricted_0;
+        $3 = _incident_0;
+        $4 = $$Bool_pick($$scheduler_candidate_eligible(_head_0, _activity_0, _restricted_0, _incident_0), $$scheduler_prefer(_head_0, _current_0), _current_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $scheduler_lower_key(_value_0, _current_0) {
+  if (_current_0.$ === "SchNoKey") {
+    return {$: "SchKey", "value": _value_0};
+  } else {
+    const _previous_0 = _current_0["value"];
+    const _old_0 = _previous_0;
+    return $Bool_pick($$String_is_lt(_value_0, _old_0), {$: "SchKey", "value": _value_0}, {$: "SchKey", "value": _old_0});
+  }
+}
+
+function $scheduler_first_key($0, $1, $2, $3, $4) {
+  for (;;) {
+    {
+      const _candidates_0 = $0;
+      const _activity_0 = $1;
+      const _after_0 = $2;
+      const _last_0 = $3;
+      const _current_0 = $4;
+      if (_candidates_0.$ === "Nil") {
+        return _current_0;
+      } else {
+        const _head_0 = _candidates_0["head"];
+        const _tail_0 = _candidates_0["tail"];
+        const _incident_0 = $$scheduler_candidate_incident(_head_0);
+        const _x_0 = $$Bool_not(_after_0);
+        const _x_1 = $$String_is_lt(_last_0, _incident_0);
+        $0 = _tail_0;
+        $1 = _activity_0;
+        $2 = _after_0;
+        $3 = _last_0;
+        $4 = $$Bool_pick($$Bool_and($$scheduler_candidate_eligible(_head_0, _activity_0, false, ""), (_x_0 || _x_1)), $$scheduler_lower_key(_incident_0, _current_0), _current_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $scheduler_fallback(_key_0, _candidates_0, _activity_0) {
+  if (_key_0.$ === "SchNoKey") {
+    return $scheduler_first_key(_candidates_0, _activity_0, false, "", {$: "SchNoKey"});
+  } else {
+    return _key_0;
+  }
+}
+
+function $scheduler_choose_key(_key_0, _candidates_0, _activity_0) {
+  if (_key_0.$ === "SchNoKey") {
+    return {$: "SchNobody"};
+  } else {
+    const _value_0 = _key_0["value"];
+    return $scheduler_oldest(_candidates_0, _activity_0, true, _value_0, {$: "SchNobody"});
+  }
+}
+
+function $scheduler_choose(_has_last_0, _last_0, _candidates_0, _activity_0) {
+  return $Bool_pick(_has_last_0, $$scheduler_choose_key($$scheduler_fallback($$scheduler_first_key(_candidates_0, _activity_0, true, _last_0, {$: "SchNoKey"}), _candidates_0, _activity_0), _candidates_0, _activity_0), $$scheduler_oldest(_candidates_0, _activity_0, false, "", {$: "SchNobody"}));
+}
+
+function $scheduler_selection(_has_ids_0, _ids_0, _event_present_0, _subjects_0) {
+  return $Bool_pick(_event_present_0, {$: "SchSelected", "ids": $$Bool_pick(_has_ids_0, $$collections_intersection(_ids_0, _subjects_0), _subjects_0)}, $$Bool_pick(_has_ids_0, {$: "SchSelected", "ids": _ids_0}, {$: "SchUnrestricted"}));
+}
+
+function $scheduler_causality(_root_0) {
+  return {$: "SchCausality", "todo": {$: "Con", "head": _root_0, "tail": {$: "Nil"}}, "seen": {$: "Nil"}, "fuel": 128};
+}
+
+function $scheduler_demand_todo(_todo_0, _seen_0, _fuel_0) {
+  if (_todo_0.$ === "Nil") {
+    return {$: "SchIndependent"};
+  } else {
+    const _head_0 = _todo_0["head"];
+    const _tail_0 = _todo_0["tail"];
+    return $Bool_pick((_fuel_0 === 0), {$: "SchUnresolved"}, $$Bool_pick($$collections_contains(_seen_0, _head_0), {$: "SchSkipCause", "state": {$: "SchCausality", "todo": _tail_0, "seen": _seen_0, "fuel": ((_fuel_0 - 1) >>> 0)}}, {$: "SchNeedCause", "id": _head_0}));
+  }
+}
+
+function $scheduler_demand(_state_0) {
+  const _todo_0 = _state_0["todo"];
+  const _seen_0 = _state_0["seen"];
+  const _fuel_0 = _state_0["fuel"];
+  return $scheduler_demand_todo(_todo_0, _seen_0, _fuel_0);
+}
+
+function $scheduler_step_event(_event_0, _expected_0, _tail_0, _seen_0, _fuel_0, _context_0, _schedule_0) {
+  if (_event_0.$ === "SchMissingCause") {
+    return {$: "SchUnknownCause"};
+  } else {
+    const _id_0 = _event_0["id"];
+    const _owner_0 = _event_0["context"];
+    const _kind_0 = _event_0["kind"];
+    const _subjects_0 = _event_0["subjects"];
+    const _causes_0 = _event_0["causes"];
+    return $Bool_pick($$Bool_and($$String_eq(_id_0, _expected_0), $$String_eq(_owner_0, _context_0)), $$Bool_pick($$Bool_and($$String_eq(_kind_0, "runtime.schedule.triggered"), $$collections_contains(_subjects_0, _schedule_0)), {$: "SchDependent"}, {$: "SchNextCause", "state": {$: "SchCausality", "todo": $$List_append($$collections_unseen_fold(_causes_0, {$: "Con", "head": _id_0, "tail": _seen_0}, {$: "Nil"}), _tail_0), "seen": {$: "Con", "head": _id_0, "tail": _seen_0}, "fuel": ((_fuel_0 - 1) >>> 0)}}), {$: "SchUnknownCause"});
+  }
+}
+
+function $scheduler_step_todo(_todo_0, _seen_0, _fuel_0, _event_0, _context_0, _schedule_0) {
+  if (_todo_0.$ === "Nil") {
+    return {$: "SchUnknownCause"};
+  } else {
+    const _head_0 = _todo_0["head"];
+    const _tail_0 = _todo_0["tail"];
+    return $Bool_pick((_fuel_0 === 0), {$: "SchUnknownCause"}, $$scheduler_step_event(_event_0, _head_0, _tail_0, _seen_0, _fuel_0, _context_0, _schedule_0));
+  }
+}
+
+function $scheduler_step(_state_0, _event_0, _context_0, _schedule_0) {
+  const _todo_0 = _state_0["todo"];
+  const _seen_0 = _state_0["seen"];
+  const _fuel_0 = _state_0["fuel"];
+  return $scheduler_step_todo(_todo_0, _seen_0, _fuel_0, _event_0, _context_0, _schedule_0);
+}
+
 function $execution_step_1(_state_0, _action_0) {
   return $execution_step(_state_0, _action_0);
 }
@@ -1069,39 +1537,12 @@ function $same_ref(_asys_0, _actx_0, _aid_0, _bsys_0, _bctx_0, _bid_0) {
   return $Bool_and($$same_scope(_asys_0, _actx_0, _bsys_0, _bctx_0), $$String_eq(_aid_0, _bid_0));
 }
 
-function $text_contains_fold($0, $1, $2) {
-  for (;;) {
-    {
-      const _values_0 = $0;
-      const _needle_0 = $1;
-      const _hit_0 = $2;
-      if (_values_0.$ === "Nil") {
-        return _hit_0;
-      } else {
-        const _head_0 = _values_0["head"];
-        const _tail_0 = _values_0["tail"];
-        const _x_0 = $$String_eq(_head_0, _needle_0);
-        $0 = _tail_0;
-        $1 = _needle_0;
-        $2 = (_hit_0 || _x_0);
-        continue;
-      }
-    }
-  }
-}
-
 function $text_contains(_values_0, _needle_0) {
-  return $text_contains_fold(_values_0, _needle_0, false);
+  return $collections_contains(_values_0, _needle_0);
 }
 
 function $text_subset(_child_0, _parent_0) {
-  if (_child_0.$ === "Nil") {
-    return true;
-  } else {
-    const _head_0 = _child_0["head"];
-    const _tail_0 = _child_0["tail"];
-    return $Bool_and($$text_contains(_parent_0, _head_0), $$text_subset(_tail_0, _parent_0));
-  }
+  return $collections_subset(_child_0, _parent_0);
 }
 
 function $incident_scope(_parent_all_0, _child_all_0, _child_0, _parent_0) {
@@ -1684,6 +2125,102 @@ function $clock_delay(_values_0, _zero_0) {
   }
 }
 
+function $schedule_room(_count_0) {
+  return $scheduler_room(_count_0);
+}
+
+function $schedule_visible(_present_0, _incident_0, _operator_0, _readable_0, _creator_0, _principal_0, _grant_0, _chain_0) {
+  return $scheduler_visible(_present_0, _incident_0, _operator_0, _readable_0, _creator_0, _principal_0, _grant_0, _chain_0);
+}
+
+function $schedule_needs_events(_wake_0) {
+  return $scheduler_needs_events(_wake_0);
+}
+
+function $schedule_baseline(_wake_0, _edge_0) {
+  return $scheduler_baseline(_wake_0, _edge_0);
+}
+
+function $schedule_wake_admission(_wake_0, _once_0, _resource_0) {
+  return $scheduler_wake_admission(_wake_0, _once_0, _resource_0);
+}
+
+function $schedule_scan(_facts_0, _context_0, _ended_0, _activity_0) {
+  return $scheduler_scan(_facts_0, _context_0, _ended_0, _activity_0);
+}
+
+function $schedule_mode(_wake_0, _facts_0, _activity_0, _present_0, _due_0, _now_0) {
+  return $scheduler_mode(_wake_0, _facts_0, _activity_0, _present_0, _due_0, _now_0);
+}
+
+function $schedule_selection(_has_ids_0, _ids_0, _event_present_0, _subjects_0) {
+  return $scheduler_selection(_has_ids_0, _ids_0, _event_present_0, _subjects_0);
+}
+
+function $schedule_event_gate(_previous_0, _sequence_0, _activity_0, _kind_0, _types_0) {
+  return $scheduler_event_gate(_previous_0, _sequence_0, _activity_0, _kind_0, _types_0);
+}
+
+function $schedule_observation(_each_0, _edge_0, _selected_0) {
+  return $scheduler_observation(_each_0, _edge_0, _selected_0);
+}
+
+function $schedule_queue(_pending_0, _coalesce_0, _previous_0, _incoming_0) {
+  return $scheduler_queue(_pending_0, _coalesce_0, _previous_0, _incoming_0);
+}
+
+function $schedule_order(_sequence_0, _emitted_0) {
+  return $scheduler_occurrence_order(_sequence_0, _emitted_0);
+}
+
+function $schedule_advance(_previous_0, _sequence_0, _activity_0, _old_edge_0, _next_edge_0, _fired_0, _enqueued_0, _pending_0, _once_0) {
+  return $scheduler_advance(_previous_0, _sequence_0, _activity_0, _old_edge_0, _next_edge_0, _fired_0, _enqueued_0, _pending_0, _once_0);
+}
+
+function $schedule_capacity_edge(_old_0, _available_0, _accepted_0) {
+  return $scheduler_capacity_edge(_old_0, _available_0, _accepted_0);
+}
+
+function $schedule_matches(_life_0, _present_0, _expected_0, _current_0) {
+  return $scheduler_matches(_life_0, _present_0, _expected_0, _current_0);
+}
+
+function $schedule_completed(_once_0) {
+  return $scheduler_completed(_once_0);
+}
+
+function $schedule_cancellable(_life_0) {
+  return $scheduler_cancellable(_life_0);
+}
+
+function $schedule_retry_fault(_code_0) {
+  return $scheduler_retry_fault(_code_0);
+}
+
+function $schedule_watch(_facts_0, _activity_0, _present_0) {
+  return $scheduler_watch(_facts_0, _activity_0, _present_0);
+}
+
+function $schedule_ready(_facts_0, _activity_0, _coalesce_0, _last_sources_0) {
+  return $scheduler_ready(_facts_0, _activity_0, _coalesce_0, _last_sources_0);
+}
+
+function $schedule_choose(_has_last_0, _last_0, _candidates_0, _activity_0) {
+  return $scheduler_choose(_has_last_0, _last_0, _candidates_0, _activity_0);
+}
+
+function $schedule_causality(_root_0) {
+  return $scheduler_causality(_root_0);
+}
+
+function $schedule_causal_demand(_state_0) {
+  return $scheduler_demand(_state_0);
+}
+
+function $schedule_causal_step(_state_0, _event_0, _context_0, _schedule_0) {
+  return $scheduler_step(_state_0, _event_0, _context_0, _schedule_0);
+}
+
 function $Bool_not(_b_0) {
   if (!_b_0) {
     return true;
@@ -1712,16 +2249,8 @@ function $String_eq(_a_0, _b_0) {
   return $Cmp_is_eq($$String_order(_a_0, _b_0));
 }
 
-function $Nat_is_le(_a_0, _b_0) {
-  return $Cmp_is_le(cmp_new(_a_0, _b_0));
-}
-
-function $List_filter_put(_h_0, _r_0, _keep_0) {
-  if (!_keep_0) {
-    return _r_0;
-  } else {
-    return {$: "Con", "head": _h_0, "tail": _r_0};
-  }
+function $List_reverse(_xs_0) {
+  return $List_reverse_go(_xs_0, {$: "Nil"});
 }
 
 function $List_append(_xs_0, _ys_0) {
@@ -1734,12 +2263,32 @@ function $List_append(_xs_0, _ys_0) {
   }
 }
 
+function $String_starts_with(_s_0, _p_0) {
+  return $String_starts_with_go(_p_0, _s_0);
+}
+
+function $Nat_is_le(_a_0, _b_0) {
+  return $Cmp_is_le(cmp_new(_a_0, _b_0));
+}
+
 function $List_length(_xs_0) {
   if (_xs_0.$ === "Nil") {
     return 0;
   } else {
     const _t_0 = _xs_0["tail"];
     return nat_chk($$List_length(_t_0) + 1);
+  }
+}
+
+function $String_is_lt(_a_0, _b_0) {
+  return $Cmp_is_lt($$String_order(_a_0, _b_0));
+}
+
+function $List_filter_put(_h_0, _r_0, _keep_0) {
+  if (!_keep_0) {
+    return _r_0;
+  } else {
+    return {$: "Con", "head": _h_0, "tail": _r_0};
   }
 }
 
@@ -1763,11 +2312,75 @@ function $String_order(_a_0, _b_0) {
   return $String_order_go(_a_0, _b_0, {$: "EQ"});
 }
 
+function $List_reverse_go($0, $1) {
+  for (;;) {
+    {
+      const _xs_0 = $0;
+      const _acc_0 = $1;
+      if (_xs_0.$ === "Nil") {
+        return _acc_0;
+      } else {
+        const _h_0 = _xs_0["head"];
+        const _t_0 = _xs_0["tail"];
+        $0 = _t_0;
+        $1 = {$: "Con", "head": _h_0, "tail": _acc_0};
+        continue;
+      }
+    }
+  }
+}
+
+function $String_starts_with_go($0, $1, $2) {
+  let $pc = 0;
+  for (;;) switch ($pc) {
+    case 0: {
+      const _p_0 = $0;
+      const _s_0 = $1;
+      if (_p_0 === "") {
+        return true;
+      } else {
+        const _y_0 = _p_0.slice(0, char_len(_p_0));
+        const _yt_0 = _p_0.slice(char_len(_p_0));
+        if (_s_0 === "") {
+          return false;
+        } else {
+          const _x_0 = _s_0.slice(0, char_len(_s_0));
+          const _xt_0 = _s_0.slice(char_len(_s_0));
+          $0 = _yt_0;
+          $1 = _xt_0;
+          $2 = $$Char_is_eq(_x_0, _y_0);
+          $pc = 1; continue;
+        }
+      }
+    }
+    case 1: {
+      const _pt_0 = $0;
+      const _t_0 = $1;
+      const _same_0 = $2;
+      if (!_same_0) {
+        return false;
+      } else {
+        $0 = _pt_0;
+        $1 = _t_0;
+        $pc = 0; continue;
+      }
+    }
+  }
+}
+
 function $Cmp_is_le(_c_0) {
   if (_c_0.$ === "GT") {
     return false;
   } else {
     return true;
+  }
+}
+
+function $Cmp_is_lt(_c_0) {
+  if (_c_0.$ === "LT") {
+    return true;
+  } else {
+    return false;
   }
 }
 
@@ -1815,6 +2428,50 @@ function $String_order_go($0, $1, $2) {
   }
 }
 
+function $String_starts_with_go_if($0, $1, $2) {
+  let $pc = 1;
+  for (;;) switch ($pc) {
+    case 0: {
+      const _p_0 = $0;
+      const _s_0 = $1;
+      if (_p_0 === "") {
+        return true;
+      } else {
+        const _y_0 = _p_0.slice(0, char_len(_p_0));
+        const _yt_0 = _p_0.slice(char_len(_p_0));
+        if (_s_0 === "") {
+          return false;
+        } else {
+          const _x_0 = _s_0.slice(0, char_len(_s_0));
+          const _xt_0 = _s_0.slice(char_len(_s_0));
+          $0 = _yt_0;
+          $1 = _xt_0;
+          $2 = $$Char_is_eq(_x_0, _y_0);
+          $pc = 1; continue;
+        }
+      }
+    }
+    case 1: {
+      const _pt_0 = $0;
+      const _t_0 = $1;
+      const _same_0 = $2;
+      if (!_same_0) {
+        return false;
+      } else {
+        $0 = _pt_0;
+        $1 = _t_0;
+        $pc = 0; continue;
+      }
+    }
+  }
+}
+
+function $Char_is_eq(_a_0, _b_0) {
+  const _x_0 = char_code(_a_0);
+  const _y_0 = char_code(_b_0);
+  return (_x_0 === _y_0);
+}
+
 const $$execution_result = $execution_result;
 const $$Bool_not = $Bool_not;
 const $$topology_parent_allows = $topology_parent_allows;
@@ -1843,20 +2500,44 @@ const $$accounting_empty = $accounting_empty;
 const $$accounting_requests_fold = $accounting_requests_fold;
 const $$accounting_subtract = $accounting_subtract;
 const $$accounting_remaining = $accounting_remaining;
+const $$String_eq = $String_eq;
+const $$collections_contains = $collections_contains;
+const $$List_append = $List_append;
+const $$accounting_equal = $accounting_equal;
+const $$scheduler_active = $scheduler_active;
+const $$scheduler_unblocked = $scheduler_unblocked;
+const $$scheduler_resource_known = $scheduler_resource_known;
+const $$String_starts_with = $String_starts_with;
+const $$List_length = $List_length;
+const $$Nat_is_le = $Nat_is_le;
+const $$collections_union = $collections_union;
+const $$scheduler_merged = $scheduler_merged;
+const $$accounting_add = $accounting_add;
+const $$scheduler_runnable = $scheduler_runnable;
+const $$scheduler_candidate_order = $scheduler_candidate_order;
+const $$scheduler_candidate_eligible = $scheduler_candidate_eligible;
+const $$scheduler_prefer = $scheduler_prefer;
+const $$String_is_lt = $String_is_lt;
+const $$scheduler_candidate_incident = $scheduler_candidate_incident;
+const $$scheduler_lower_key = $scheduler_lower_key;
+const $$scheduler_first_key = $scheduler_first_key;
+const $$scheduler_fallback = $scheduler_fallback;
+const $$scheduler_choose_key = $scheduler_choose_key;
+const $$scheduler_oldest = $scheduler_oldest;
+const $$collections_intersection = $collections_intersection;
+const $$collections_unseen_fold = $collections_unseen_fold;
+const $$scheduler_step_event = $scheduler_step_event;
 const $$truth_all = $truth_all;
 const $$truth_any = $truth_any;
-const $$String_eq = $String_eq;
 const $$same_scope = $same_scope;
-const $$text_contains = $text_contains;
-const $$text_subset = $text_subset;
 const $$rank_le = $rank_le;
-const $$Nat_is_le = $Nat_is_le;
 const $$fits = $fits;
 const $$graph_phase = $graph_phase;
-const $$List_length = $List_length;
+const $$text_contains = $text_contains;
 const $$grant_available = $grant_available;
 const $$List_is_empty = $List_is_empty;
 const $$deadline = $deadline;
+const $$text_subset = $text_subset;
 const $$incident_scope = $incident_scope;
 const $$rule_contains = $rule_contains;
 const $$denies_preserved = $denies_preserved;
@@ -1871,14 +2552,12 @@ const $$incident_sources = $incident_sources;
 const $$role_connects = $role_connects;
 const $$lease_duration = $lease_duration;
 const $$count_minimum = $count_minimum;
-const $$accounting_add = $accounting_add;
 const $$lease_frame = $lease_frame;
-const $$accounting_equal = $accounting_equal;
 const $$expiry_fold = $expiry_fold;
 const $$queued_maintenance = $queued_maintenance;
 const $$marker_present = $marker_present;
 const $$String_order = $String_order;
-const $$List_append = $List_append;export default {
+const $$Char_is_eq = $Char_is_eq;export default {
   "execution:terminal": run_lib((a0) => run_loop($execution_terminal(a0)), 1),
   "execution:result": run_lib((a0) => run_loop($execution_result(a0)), 1),
   "execution:finish_leased": run_lib((a0) => run_loop($execution_finish_leased(a0)), 1),
@@ -1931,6 +2610,59 @@ const $$List_append = $List_append;export default {
   "accounting:remaining": run_lib((a0) => run_loop($accounting_remaining(a0)), 1),
   "accounting:available_fold": run_lib((a0,a1) => run_loop($accounting_available_fold(a0,a1)), 2),
   "accounting:available": run_lib((a0) => run_loop($accounting_available(a0)), 1),
+  "collections:contains_fold": run_lib((a0,a1,a2) => run_loop($collections_contains_fold(a0,str_in(a1),a2)), 3),
+  "collections:contains": run_lib((a0,a1) => run_loop($collections_contains(a0,str_in(a1))), 2),
+  "collections:subset_fold": run_lib((a0,a1,a2) => run_loop($collections_subset_fold(a0,a1,a2)), 3),
+  "collections:subset": run_lib((a0,a1) => run_loop($collections_subset(a0,a1)), 2),
+  "collections:unique_fold": run_lib((a0,a1,a2) => run_loop($collections_unique_fold(a0,a1,a2)), 3),
+  "collections:union": run_lib((a0,a1) => run_loop($collections_union(a0,a1)), 2),
+  "collections:intersection_fold": run_lib((a0,a1,a2) => run_loop($collections_intersection_fold(a0,a1,a2)), 3),
+  "collections:intersection": run_lib((a0,a1) => run_loop($collections_intersection(a0,a1)), 2),
+  "collections:unseen_fold": run_lib((a0,a1,a2) => run_loop($collections_unseen_fold(a0,a1,a2)), 3),
+  "scheduler:active": run_lib((a0) => run_loop($scheduler_active(a0)), 1),
+  "scheduler:cancellable": run_lib((a0) => run_loop($scheduler_cancellable(a0)), 1),
+  "scheduler:unblocked": run_lib((a0,a1) => run_loop($scheduler_unblocked(a0,a1)), 2),
+  "scheduler:runnable": run_lib((a0,a1) => run_loop($scheduler_runnable(a0,a1)), 2),
+  "scheduler:ready": run_lib((a0,a1,a2,a3) => run_loop($scheduler_ready(a0,a1,a2,a3)), 4),
+  "scheduler:scan": run_lib((a0,a1,a2,a3) => run_loop($scheduler_scan(a0,str_in(a1),a2,a3)), 4),
+  "scheduler:needs_events": run_lib((a0) => run_loop($scheduler_needs_events(a0)), 1),
+  "scheduler:timer": run_lib((a0) => run_loop($scheduler_timer(a0)), 1),
+  "scheduler:baseline": run_lib((a0,a1) => run_loop($scheduler_baseline(a0,a1)), 2),
+  "scheduler:resource_known": run_lib((a0) => run_loop($scheduler_resource_known(str_in(a0))), 1),
+  "scheduler:wake_admission": run_lib((a0,a1,a2) => run_loop($scheduler_wake_admission(a0,a1,str_in(a2))), 3),
+  "scheduler:room": run_lib((a0) => run_loop($scheduler_room(a0)), 1),
+  "scheduler:visible": run_lib((a0,a1,a2,a3,a4,a5,a6,a7) => run_loop($scheduler_visible(a0,a1,a2,a3,str_in(a4),str_in(a5),str_in(a6),a7)), 8),
+  "scheduler:mode_fields": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($scheduler_mode_fields(a0,a1,a2,a3,a4,a5,a6)), 7),
+  "scheduler:mode": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($scheduler_mode(a0,a1,a2,a3,a4,a5)), 6),
+  "scheduler:event_gate": run_lib((a0,a1,a2,a3,a4) => run_loop($scheduler_event_gate(a0,a1,a2,str_in(a3),a4)), 5),
+  "scheduler:observation": run_lib((a0,a1,a2) => run_loop($scheduler_observation(a0,a1,a2)), 3),
+  "scheduler:merged": run_lib((a0) => run_loop($scheduler_merged(a0)), 1),
+  "scheduler:queue": run_lib((a0,a1,a2,a3) => run_loop($scheduler_queue(a0,a1,a2,a3)), 4),
+  "scheduler:order_result": run_lib((a0) => run_loop($scheduler_order_result(a0)), 1),
+  "scheduler:occurrence_order": run_lib((a0,a1) => run_loop($scheduler_occurrence_order(a0,a1)), 2),
+  "scheduler:advance": run_lib((a0,a1,a2,a3,a4,a5,a6,a7,a8) => run_loop($scheduler_advance(a0,a1,a2,a3,a4,a5,a6,a7,a8)), 9),
+  "scheduler:capacity_edge": run_lib((a0,a1,a2) => run_loop($scheduler_capacity_edge(a0,a1,a2)), 3),
+  "scheduler:matches": run_lib((a0,a1,a2,a3) => run_loop($scheduler_matches(a0,a1,str_in(a2),str_in(a3))), 4),
+  "scheduler:completed": run_lib((a0) => run_loop($scheduler_completed(a0)), 1),
+  "scheduler:retry_fault": run_lib((a0) => run_loop($scheduler_retry_fault(str_in(a0))), 1),
+  "scheduler:watch": run_lib((a0,a1,a2) => run_loop($scheduler_watch(a0,a1,a2)), 3),
+  "scheduler:candidate_order": run_lib((a0) => run_loop($scheduler_candidate_order(a0)), 1),
+  "scheduler:candidate_incident": run_lib((a0) => str_out(run_loop($scheduler_candidate_incident(a0))), 1),
+  "scheduler:candidate_eligible": run_lib((a0,a1,a2,a3) => run_loop($scheduler_candidate_eligible(a0,a1,a2,str_in(a3))), 4),
+  "scheduler:prefer": run_lib((a0,a1) => run_loop($scheduler_prefer(a0,a1)), 2),
+  "scheduler:oldest": run_lib((a0,a1,a2,a3,a4) => run_loop($scheduler_oldest(a0,a1,a2,str_in(a3),a4)), 5),
+  "scheduler:lower_key": run_lib((a0,a1) => run_loop($scheduler_lower_key(str_in(a0),a1)), 2),
+  "scheduler:first_key": run_lib((a0,a1,a2,a3,a4) => run_loop($scheduler_first_key(a0,a1,a2,str_in(a3),a4)), 5),
+  "scheduler:fallback": run_lib((a0,a1,a2) => run_loop($scheduler_fallback(a0,a1,a2)), 3),
+  "scheduler:choose_key": run_lib((a0,a1,a2) => run_loop($scheduler_choose_key(a0,a1,a2)), 3),
+  "scheduler:choose": run_lib((a0,a1,a2,a3) => run_loop($scheduler_choose(a0,str_in(a1),a2,a3)), 4),
+  "scheduler:selection": run_lib((a0,a1,a2,a3) => run_loop($scheduler_selection(a0,a1,a2,a3)), 4),
+  "scheduler:causality": run_lib((a0) => run_loop($scheduler_causality(str_in(a0))), 1),
+  "scheduler:demand_todo": run_lib((a0,a1,a2) => run_loop($scheduler_demand_todo(a0,a1,a2)), 3),
+  "scheduler:demand": run_lib((a0) => run_loop($scheduler_demand(a0)), 1),
+  "scheduler:step_event": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($scheduler_step_event(a0,str_in(a1),a2,a3,a4,str_in(a5),str_in(a6))), 7),
+  "scheduler:step_todo": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($scheduler_step_todo(a0,a1,a2,a3,str_in(a4),str_in(a5))), 6),
+  "scheduler:step": run_lib((a0,a1,a2,a3) => run_loop($scheduler_step(a0,a1,str_in(a2),str_in(a3))), 4),
   "execution_step": run_lib((a0,a1) => run_loop($execution_step_1(a0,a1)), 2),
   "execution_terminal": run_lib((a0) => run_loop($execution_terminal_1(a0)), 1),
   "topology_check": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($topology_check_1(a0,a1,a2,a3,a4,a5,a6)), 7),
@@ -1953,7 +2685,6 @@ const $$List_append = $List_append;export default {
   "same_text": run_lib((a0,a1) => run_loop($same_text(str_in(a0),str_in(a1))), 2),
   "same_scope": run_lib((a0,a1,a2,a3) => run_loop($same_scope(str_in(a0),str_in(a1),str_in(a2),str_in(a3))), 4),
   "same_ref": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($same_ref(str_in(a0),str_in(a1),str_in(a2),str_in(a3),str_in(a4),str_in(a5))), 6),
-  "text_contains.fold": run_lib((a0,a1,a2) => run_loop($text_contains_fold(a0,str_in(a1),a2)), 3),
   "text_contains": run_lib((a0,a1) => run_loop($text_contains(a0,str_in(a1))), 2),
   "text_subset": run_lib((a0,a1) => run_loop($text_subset(a0,a1)), 2),
   "incident_scope": run_lib((a0,a1,a2,a3) => run_loop($incident_scope(a0,a1,a2,a3)), 4),
@@ -2022,4 +2753,28 @@ const $$List_append = $List_append;export default {
   "delay_finish": run_lib((a0,a1) => run_loop($delay_finish(a0,a1)), 2),
   "delay_fold": run_lib((a0,a1,a2) => run_loop($delay_fold(a0,a1,a2)), 3),
   "clock_delay": run_lib((a0,a1) => run_loop($clock_delay(a0,a1)), 2),
+  "schedule_room": run_lib((a0) => run_loop($schedule_room(a0)), 1),
+  "schedule_visible": run_lib((a0,a1,a2,a3,a4,a5,a6,a7) => run_loop($schedule_visible(a0,a1,a2,a3,str_in(a4),str_in(a5),str_in(a6),a7)), 8),
+  "schedule_needs_events": run_lib((a0) => run_loop($schedule_needs_events(a0)), 1),
+  "schedule_baseline": run_lib((a0,a1) => run_loop($schedule_baseline(a0,a1)), 2),
+  "schedule_wake_admission": run_lib((a0,a1,a2) => run_loop($schedule_wake_admission(a0,a1,str_in(a2))), 3),
+  "schedule_scan": run_lib((a0,a1,a2,a3) => run_loop($schedule_scan(a0,str_in(a1),a2,a3)), 4),
+  "schedule_mode": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($schedule_mode(a0,a1,a2,a3,a4,a5)), 6),
+  "schedule_selection": run_lib((a0,a1,a2,a3) => run_loop($schedule_selection(a0,a1,a2,a3)), 4),
+  "schedule_event_gate": run_lib((a0,a1,a2,a3,a4) => run_loop($schedule_event_gate(a0,a1,a2,str_in(a3),a4)), 5),
+  "schedule_observation": run_lib((a0,a1,a2) => run_loop($schedule_observation(a0,a1,a2)), 3),
+  "schedule_queue": run_lib((a0,a1,a2,a3) => run_loop($schedule_queue(a0,a1,a2,a3)), 4),
+  "schedule_order": run_lib((a0,a1) => run_loop($schedule_order(a0,a1)), 2),
+  "schedule_advance": run_lib((a0,a1,a2,a3,a4,a5,a6,a7,a8) => run_loop($schedule_advance(a0,a1,a2,a3,a4,a5,a6,a7,a8)), 9),
+  "schedule_capacity_edge": run_lib((a0,a1,a2) => run_loop($schedule_capacity_edge(a0,a1,a2)), 3),
+  "schedule_matches": run_lib((a0,a1,a2,a3) => run_loop($schedule_matches(a0,a1,str_in(a2),str_in(a3))), 4),
+  "schedule_completed": run_lib((a0) => run_loop($schedule_completed(a0)), 1),
+  "schedule_cancellable": run_lib((a0) => run_loop($schedule_cancellable(a0)), 1),
+  "schedule_retry_fault": run_lib((a0) => run_loop($schedule_retry_fault(str_in(a0))), 1),
+  "schedule_watch": run_lib((a0,a1,a2) => run_loop($schedule_watch(a0,a1,a2)), 3),
+  "schedule_ready": run_lib((a0,a1,a2,a3) => run_loop($schedule_ready(a0,a1,a2,a3)), 4),
+  "schedule_choose": run_lib((a0,a1,a2,a3) => run_loop($schedule_choose(a0,str_in(a1),a2,a3)), 4),
+  "schedule_causality": run_lib((a0) => run_loop($schedule_causality(str_in(a0))), 1),
+  "schedule_causal_demand": run_lib((a0) => run_loop($schedule_causal_demand(a0)), 1),
+  "schedule_causal_step": run_lib((a0,a1,a2,a3) => run_loop($schedule_causal_step(a0,a1,str_in(a2),str_in(a3))), 4),
 };

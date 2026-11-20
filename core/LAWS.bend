@@ -3,6 +3,7 @@ import ./semantics.bend as Core
 import ./execution.bend as Run
 import ./topology.bend as Top
 import ./accounting.bend as Budget
+import ./scheduler.bend as Sched
 
 law deny_precedence:
   for permits: Core.Truth
@@ -129,3 +130,45 @@ law calendar_overflow_refused:
 
 law unknown_usage_advertises_no_capacity:
   {Budget.available(Con{Budget.CapacityEnvelope{Budget.BudgetOverflow{}, Budget.one()}, Nil{}}) == Budget.zero() : Budget.Count}
+
+law completed_schedule_cannot_cancel:
+  {Core.schedule_cancellable(Sched.SchCompleted{}) == False{} : Bool}
+
+law word_self_compare:
+  for n: Nat
+  for value: Word(n)
+  {Word.cmp(n, value, value) == EQ{} : Cmp}
+
+law count_self_equal:
+  for value: Budget.Count
+  {Budget.equal(value, value) == True{} : Bool}
+
+law cancelled_schedule_never_ready:
+  for activity: Budget.Count
+  {Core.schedule_ready(Sched.SchFacts{Sched.SchCancelled{}, Budget.zero(), Sched.SchNoBlock{}, 1, 0, False{}, False{}, Sched.SchNoBlock{}}, activity, False{}, 0) == False{} : Bool}
+
+law blocked_schedule_rests:
+  for activity: Budget.Count
+  {Core.schedule_ready(Sched.SchFacts{Sched.SchActive{}, Budget.zero(), Sched.SchBlocked{activity}, 1, 0, False{}, False{}, Sched.SchNoBlock{}}, activity, False{}, 0) == False{} : Bool}
+
+law full_queue_keeps_cursor:
+  for previous: Budget.Count
+  for sequence: Budget.Count
+  for activity: Budget.Count
+  for old_edge: Bool
+  {Core.schedule_advance(previous, sequence, activity, old_edge, False{}, True{}, False{}, True{}, False{}) == Sched.SchAdvance{previous, old_edge, True{}, True{}} : Sched.Advance}
+
+law repeated_edge_does_not_fire:
+  {Core.schedule_observation(False{}, True{}, True{}) == Sched.SchObservation{False{}, True{}} : Sched.Observation}
+
+law failed_capacity_retains_rise:
+  {Core.schedule_capacity_edge(False{}, True{}, False{}) == False{} : Bool}
+
+law missing_ancestry_is_unknown:
+  for id: String
+  for context: String
+  for schedule: String
+  {Core.schedule_causal_step(Core.schedule_causality(id), Sched.SchMissingCause{}, context, schedule) == Sched.SchUnknownCause{} : Sched.CausalStep}
+
+law empty_ancestry_is_independent:
+  {Core.schedule_causal_demand(Sched.SchCausality{Nil{}, Nil{}, 0}) == Sched.SchIndependent{} : Sched.Demand}

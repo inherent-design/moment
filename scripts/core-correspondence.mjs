@@ -13,7 +13,7 @@ export function checkAxioms(output,claims) {
 export function checkCorrespondence(output) {
  const truth=value=>value==='true'?true:value==='false'?false:value==='unknown'?'unknown':(()=>{throw Error('Unknown model truth');})();
  const rows=output.split('\n').filter(line=>line.startsWith('case|'));
- assert.equal(rows.length,26388,'The complete declared finite correspondence set must be present');
+ assert.equal(rows.length,27793,'The complete declared finite correspondence set must be present');
  const counts={},seen=new Set(),choose=(values,mask)=>values.filter((_value,i)=>Number(mask)&2**i);
  const when={kind:'equal',left:{kind:'literal',value:true},right:{kind:'literal',value:true}},rules=[
   {id:'read',effect:'permit',when,actions:['read']},{id:'write',effect:'permit',when,actions:['write']},
@@ -37,6 +37,9 @@ export function checkCorrespondence(output) {
  const budgetEntry=(state,key,ceiling,usage,unknown,grantIds=[])=>({value:{state,intent:{limits:{...budgetZero(),concurrentExecutions:1,[key]:Number(ceiling)}},usage:{...budgetZero(),[key]:Number(usage),...(unknown?{unmeasured:[key]}:{})}},origin:{grantIds}});
  const sequence=(values,size,code)=>Array.from({length:Number(size)},(_,i)=>values[Math.floor(Number(code)/values.length**i)%values.length]);
  const date=value=>new Date(value).toISOString(),calendarStart=-62167219200000;
+ const schState=(overrides={})=>({state:'active',lastSeq:100,pending:[],activeExecutionIds:[],edge:false,timerFired:false,blockedActivity:-1,...overrides});
+ const schSources=[[],['a'],['a','b'],['b','a'],Array.from({length:32},(_,i)=>String(i)),Array.from({length:33},(_,i)=>String(i))],schIncoming=[[],['a'],['b','a'],['new'],['31','0']];
+ const schFilters=[undefined,[],['a','b'],['c','a']];
  for(const row of rows){const [,kind,...parts]=row.split('|'),expected=parts.pop(),key=[kind,...parts].join('|');let actual;
   assert.ok(!seen.has(key),'Duplicate model input: '+key);seen.add(key);counts[kind]=(counts[kind]??0)+1;
   const a=['not','all','any','policy','record','assertion'].includes(kind)?truth(parts[0]):undefined;
@@ -150,9 +153,62 @@ export function checkCorrespondence(output) {
    try{actual=String(core.calendarAfter(calendarStart+Number(parts[0]),Number(parts[1]))-calendarStart);}
    catch(error){if(error.code!=='INVALID_ARGUMENT'||error.message!=='Temporal anchor exceeds the supported calendar')throw error;actual='overflow';}
   }
+  else if(kind==='scheduleReady'){
+   const [state,blocked,pressure,pending,busy,coalesce,sources,sequence]=parts;
+   const f=schState({state,lastSeq:Number(sequence),blockedActivity:truth(blocked)?100:-1,backpressureActivity:truth(pressure)?100:-1,pending:Array.from({length:Number(pending)},()=>({eventIds:Array.from({length:Number(sources)},(_,i)=>String(i))})),activeExecutionIds:Array(Number(busy)).fill('busy')});
+   actual=String(core.scheduleReady(f,100,truth(coalesce)));
+  }
+  else if(kind==='scheduleScan'){
+   const [state,blocked,context,ended]=parts;actual=core.scheduleScan(schState({state,blockedActivity:truth(blocked)?100:-1}),context,truth(ended),100);
+  }
+  else if(kind==='scheduleWatch'){
+   const [state,blocked,fired,present]=parts;actual=String(core.scheduleWatch(schState({state,blockedActivity:truth(blocked)?100:-1,timerFired:truth(fired),...(truth(present)?{due:100}:{})}),100));
+  }
+  else if(kind==='scheduleNeedsEvents')actual=String(core.scheduleNeedsEvents(parts[0]));
+  else if(kind==='scheduleBaseline')actual=String(core.scheduleBaseline({kind:parts[0],mode:truth(parts[1])?'edge':'each'}));
+  else if(kind==='scheduleWake')actual=core.scheduleWakeAdmission({wake:{kind:parts[0],resource:parts[2]},recurrence:truth(parts[1])?'once':'rearmAfterCompletion'});
+  else if(kind==='scheduleMode'){
+   const [wake,fired,index,sequence]=parts,due=[undefined,99,101][Number(index)];actual=core.scheduleMode({kind:wake},schState({timerFired:truth(fired),lastSeq:Number(sequence),...(due===undefined?{}:{due})}),100,100).$;
+  }
+  else if(kind==='scheduleEventGate')actual=core.scheduleEventGate(schState({lastSeq:Number(parts[0])}),{sequence:Number(parts[1]),type:parts[2]},100,['graph.transact.committed','runtime.schedule.triggered']);
+  else if(kind==='scheduleObservation'){
+   const result=core.scheduleObservation(truth(parts[0])?'each':'edge',truth(parts[1]),truth(parts[2]));actual=[result.fire,result.edge].join(':');
+  }
+  else if(kind==='scheduleQueue'){
+   const [pending,coalesce,previous,incoming]=parts,state=schState({pending:Array.from({length:Number(pending)},()=>({eventIds:schSources[Number(previous)]}))}),result=core.scheduleQueue(state,truth(coalesce),schIncoming[Number(incoming)]);
+   actual=result.kind+(result.kind==='SchQueueFull'?'':':'+result.sources.join(','));
+  }
+  else if(kind==='scheduleAdvance'){
+   const [oldEdge,nextEdge,fire,enqueued,pending,once]=parts,result=core.scheduleAdvance(schState({lastSeq:99,edge:truth(oldEdge),pending:truth(pending)?[{}]:[]}),100,101,truth(nextEdge),truth(fire),truth(enqueued),truth(once)?'once':'rearmAfterCompletion');
+   actual=[result.cursor,result.edge,result.stop,result.full].join(':');
+  }
+  else if(kind==='scheduleCapacityEdge')actual=String(core.scheduleCapacityEdge(...parts.map(truth)));
+  else if(kind==='scheduleMatches')actual=String(core.scheduleMatches(schState({state:parts[0],pending:truth(parts[1])?[{id:truth(parts[2])?'expected':'other'}]:[]}), 'expected'));
+  else if(kind==='scheduleVisible'){
+   const [present,incident,operator,readable,creator,bound]=parts.map(truth),stored=present?{ref:ref('schedule'),value:{incidentId:'incident'}}:undefined;
+   actual=String(core.scheduleVisible(stored,{principalId:creator?'caller':'other',grant:{id:'grant'}},'caller',{canIncident:()=>incident,operator,canRead:()=>readable,chain:bound?[{id:'grant'}]:[]}));
+  }
+  else if(kind==='scheduleSelection'){
+   const result=core.scheduleSelection(schFilters[Number(parts[0])],schFilters[Number(parts[1])]);actual=result===undefined?'unrestricted':'selected:'+result.join(',');
+  }
+  else if(kind==='scheduleChoose'){
+   const entries=[['b',9],['a',5],['a',3],['c',7]].map(([incidentId,order],i)=>['s'+i,{value:{incidentId,order}}]),states=Object.fromEntries(entries.map(([id,stored],i)=>[id,schState({pending:Number(parts[0])&2**i?[{id:'occ'+i,eventIds:[],order:stored.value.order}]:[]})]));
+   const result=core.scheduleChoose(entries,states,100,[undefined,'a','b','c','z'][Number(parts[1])]);actual=result?String(entries.indexOf(result)):'none';
+  }
+  else if(kind==='scheduleCausality'){
+   const [mask,dependent,broken]=parts.map(Number),events=[0,1].filter(i=>!(broken===1&&i===1)).map(i=>({id:'n'+i,contextId:broken===2&&i===1?'foreign':'context',type:dependent&2**i?'runtime.schedule.triggered':'graph.transact.committed',subjectRefs:[ref('target')],causeIds:[0,1].filter(j=>mask&2**(i*2+j)).map(j=>'n'+j)}));
+   const result=core.scheduleDepends(events[0],id=>events.find(e=>e.id===id),'context',ref('target'));actual=result==='unknown'?'unknown':result?'dependent':'independent';
+  }
+  else if(kind==='scheduleRoom')actual=String(core.scheduleRoom(Number(parts[0])));
+  else if(kind==='scheduleOrder'){
+   try{actual=String(core.scheduleOrder(Number(parts[0]),Number(parts[1])));}catch(error){if(error.code!=='LIMIT_EXCEEDED')throw error;actual='overflow';}
+  }
+  else if(kind==='scheduleCancel')actual=String(core.scheduleCancellable(parts[0]));
+  else if(kind==='scheduleCompleted')actual=core.scheduleCompleted(truth(parts[0])?'once':'rearmAfterCompletion');
+  else if(kind==='scheduleRetryFault')actual=String(core.scheduleRetryFault(parts[0]));
   else throw Error('Unknown model case');
   assert.equal(actual,expected,'Native/model correspondence mismatch: '+row);
  }
- assert.deepEqual(counts,{not:3,all:9,any:9,policy:9,record:4,assertion:12,withdraw:3,graph:63,grant:576,grantEnd:2,policyRules:1024,issuers:16,runTerminal:8,runStep:104,runTrace:1352,topology:1062,topologyExtra:18,topologyProjection:48,topologyCombine:17,topologyCertificate:13824,accessOperator:8,accessResource:680,accessIncident:510,accessMethod:1020,incidentTerminal:4,incidentEdit:16,incidentEvidence:12,mutationBasis:96,querySelection:768,queryRelated:96,budgetAdd:121,budgetLe:121,budgetCapacity:1296,budgetCharge:648,budgetUsage:270,budgetTrace:576,fenceNext:11,singleSlot:11,budgetSubtract:121,fenceEqual:121,leaseWindow:93,leaseExpiry:72,leaseValid:384,retryAdmission:12,executionQueued:8,executionDeadline:16,executionMaintenance:384,clockDelay:156,resourceBlocked:85,capacityAvailable:259,resourceEnvelope:234,calendarAfter:16});
- return {cases:rows.length,counts,coverage:'Finite truth/support and execution tables and two-step traces; record/support orderings through length five; grant boundaries and four-rule/two-action policies; every directed graph through three nodes and named rank certificates; bounded scope chains, incident/evidence/revision and query products; exact resource/count boundaries and scoped reservation traces; bounded lease windows and wall/quarter-millisecond expiry observations, credentials/fences, retries, maintenance and timer/overrun selections; relative calendar bounds, compound envelopes and capacity intersections',limitations:['Finite exhaustive correspondence only within the named input sets, not every possible policy or graph','Topology certificate theorem excludes cycles under its complete rank-check premise; native input assembly and compiler translation remain trust boundaries','Lease comparison tables assume authenticated clock observations in their stated frames; native fractional interpolation is separately exercised and is not a physical-clock theorem','Execution signals require native lease/provider/evidence/current-authority validation; state selection grants none of those','Grant scope tables assume independently validated current grant chains and authenticated principal observations','Theorems concern their stated models; compiler/translation and native adapters remain explicit trust boundaries','Resource counting is accounting, not host-enforced isolation or currency conversion; numeric codecs and native effects require independent execution checks']};
+ assert.deepEqual(counts,{not:3,all:9,any:9,policy:9,record:4,assertion:12,withdraw:3,graph:63,grant:576,grantEnd:2,policyRules:1024,issuers:16,runTerminal:8,runStep:104,runTrace:1352,topology:1062,topologyExtra:18,topologyProjection:48,topologyCombine:17,topologyCertificate:13824,accessOperator:8,accessResource:680,accessIncident:510,accessMethod:1020,incidentTerminal:4,incidentEdit:16,incidentEvidence:12,mutationBasis:96,querySelection:768,queryRelated:96,budgetAdd:121,budgetLe:121,budgetCapacity:1296,budgetCharge:648,budgetUsage:270,budgetTrace:576,fenceNext:11,singleSlot:11,budgetSubtract:121,fenceEqual:121,leaseWindow:93,leaseExpiry:72,leaseValid:384,retryAdmission:12,executionQueued:8,executionDeadline:16,executionMaintenance:384,clockDelay:156,resourceBlocked:85,capacityAvailable:259,resourceEnvelope:234,calendarAfter:16,scheduleCancel:3,scheduleMatches:12,scheduleReady:576,scheduleScan:24,scheduleWatch:24,scheduleNeedsEvents:4,scheduleBaseline:8,scheduleWake:16,scheduleMode:48,scheduleEventGate:36,scheduleObservation:8,scheduleQueue:180,scheduleAdvance:64,scheduleCapacityEdge:8,scheduleVisible:64,scheduleSelection:16,scheduleChoose:80,scheduleCausality:192,scheduleRoom:4,scheduleOrder:33,scheduleCompleted:2,scheduleRetryFault:3});
+ return {cases:rows.length,counts,coverage:'Finite truth/support and execution tables and two-step traces; record/support orderings through length five; grant boundaries and four-rule/two-action policies; every directed graph through three nodes and named rank certificates; bounded scope chains, incident/evidence/revision and query products; exact resource/count boundaries and scoped reservation traces; bounded lease windows and wall/quarter-millisecond expiry observations, credentials/fences, retries, maintenance and timer/overrun selections; relative calendar bounds, compound envelopes and capacity intersections; bounded scheduler lifecycle/readiness/visibility/queue/edge/cursor and incident-choice products, plus all two-node causal edge masks with selected dependence and missing/foreign observations',limitations:['Finite exhaustive correspondence only within the named input sets, not every possible policy or graph','Topology certificate theorem excludes cycles under its complete rank-check premise; native input assembly and compiler translation remain trust boundaries','Lease comparison tables assume authenticated clock observations in their stated frames; native fractional interpolation is separately exercised and is not a physical-clock theorem','Execution signals require native lease/provider/evidence/current-authority validation; state selection grants none of those','Grant scope tables assume independently validated current grant chains and authenticated principal observations','Theorems concern their stated models; compiler/translation and native adapters remain explicit trust boundaries','Resource counting is accounting, not host-enforced isolation or currency conversion; numeric codecs and native effects require independent execution checks','Scheduler selection remains conditional on current admission, delivered observations, worker fairness and available resources; the finite cases are not an unconditional liveness theorem']};
 }

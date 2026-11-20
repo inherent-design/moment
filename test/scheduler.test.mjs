@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import {DomainError} from '../runtime/json.mjs';
 import { setup,schema,atom,limits,incident,allowDelegated,grant,delegated } from './helpers.mjs';
 import { fixture as executionFixture,outcome,usage } from './execution-fixture.mjs';
 const evidence={ sources:[],artifactDigests:[],method:'Wake fixture' };
@@ -157,5 +158,65 @@ test('coalescing overflow retains its rescan cursor and reports a bounded fault 
   f.advance();const results=f.store.read(f.contextId).records.filter(item=>Array.isArray(item.value.value));
   assert.equal(results.length,2);assert.deepEqual(results.flatMap(item=>item.value.value),sources);
   const events=f.store.events(f.contextId,0,1000);assert.ok(events.some(event=>event.type==='runtime.schedule.waiting' && event.payload?.fault.code==='LIMIT_EXCEEDED'));
+  const revision=f.store.read(f.contextId).context.revision;assert.equal(f.advance(),false);assert.equal(f.store.read(f.contextId).context.revision,revision);
+});
+
+test('a full source queue rests behind active work and resumes its retained cursor after completion',t=>{
+  const f=executionFixture(t),intent=f.intent(),scheduleId=randomUUID();
+  const rule=f.write('rule.publish',{rule:{id:randomUUID(),triggerEventTypes:[],condition:truth,operation:'execution.request',literalInput:{contextId:f.contextId,expectedRevision:0,idempotencyKey:'placeholder',execution:intent},inputBindings:{'/execution/id':'occurrence.id'},limits}}).value;
+  const schedule={id:scheduleId,incidentId:intent.incidentId,rule:rule.ref,wake:{kind:'event',eventTypes:['graph.transact.committed'],selector:{schemaNames:[f.capability.inputSchema.name],assertionStatus:'any'},mode:'each'},recurrence:'rearmAfterCompletion',coalesce:false};
+  assert.equal(f.write('schedule.put',{schedule}).ok,true);
+  const trigger=()=>{const result=f.write('graph.transact',{changes:[{kind:'record.put',record:atom(f.capability.inputSchema)}]});assert.equal(result.ok,true);return result.value.eventIds[0];};
+  trigger();f.kernel.scheduler.advance(f.contextId);const first=f.call('schedule.get',{contextId:f.contextId,scheduleId}).value.activeExecutionIds[0];assert.ok(first);
+  const sources=Array.from({length:129},trigger);f.kernel.scheduler.scan(f.contextId);
+  const queued=f.store.read(f.contextId).controlState.scheduleStates[scheduleId];assert.equal(queued.pending.length,128);assert.equal(queued.lastFault.code,'LIMIT_EXCEEDED');
+  assert.equal(f.kernel.scheduler.ready(f.contextId),false,'An unchanged full queue cannot progress while its previous execution remains active');
+  const run=f.running(first);assert.equal(f.write('execution.finish',{...f.leaseInput(run),outcome,usage}).ok,true);
+  assert.equal(f.kernel.scheduler.ready(f.contextId),true,'New activity must release the observation backpressure before the active execution list is refreshed');f.kernel.scheduler.advance(f.contextId);
+  const resumed=f.store.read(f.contextId).controlState.scheduleStates[scheduleId];assert.ok(resumed.pending.some(item=>item.eventIds.includes(sources.at(-1))),'The omitted source event must be recovered from the retained cursor');assert.equal(f.store.outbox(f.contextId).length,2);
+});
+
+test('a stale dispatch fault cannot annotate a schedule cancelled by a newer admitted operation',t=>{
+  const f=fixture(t),scheduled=f.put(f.rule());f.trigger();f.kernel.scheduler.scan(f.contextId);
+  const scheduler=f.kernel.scheduler,admit=scheduler.admit.bind(scheduler),revision=f.store.read(f.contextId).context.revision;
+  // Script an interrupted port, while cancellation itself uses the real API and
+  // SQLite transaction. No primary process or external provider participates.
+  scheduler.admit=()=>{scheduler.admit=admit;assert.equal(f.write('schedule.cancel',{scheduleId:scheduled.id}).ok,true);throw new DomainError('FORBIDDEN','Scripted refusal after a newer cancellation');};
+  assert.equal(scheduler.runOne(f.contextId),true);
+  const current=f.store.read(f.contextId),state=current.controlState.scheduleStates[scheduled.id];assert.equal(state.state,'cancelled');assert.equal(state.lastFault,undefined);assert.equal(current.context.revision,revision+1,'Only the newer cancellation should commit');
+});
+
+test('an intervening revision makes a delayed refusal stale even when its occurrence remains pending',t=>{
+  const f=fixture(t),scheduled=f.put(f.rule());f.trigger();f.kernel.scheduler.scan(f.contextId);
+  const scheduler=f.kernel.scheduler,admit=scheduler.admit.bind(scheduler),revision=f.store.read(f.contextId).context.revision;
+  scheduler.admit=()=>{scheduler.admit=admit;f.trigger();throw new DomainError('FORBIDDEN','Scripted stale refusal');};
+  assert.equal(scheduler.runOne(f.contextId),true);const current=f.store.read(f.contextId),state=current.controlState.scheduleStates[scheduled.id];
+  assert.equal(state.pending.length,1);assert.equal(state.lastFault,undefined);assert.equal(current.context.revision,revision+1);
+  assert.equal(scheduler.runOne(f.contextId),true);assert.equal(f.status(scheduled.id).value.state,'completed');
+});
+
+test('fair dispatch rotates incidents and retains oldest occurrence order within each incident',t=>{
+  const f=fixture(t),ids=[randomUUID(),f.incidentId,randomUUID()].sort();
+  for(const id of ids)if(id!==f.incidentId)assert.equal(f.write('incident.create',{id,incident}).ok,true);
+  const rules=ids.map(incidentId=>f.rule({literalInput:{contextId:f.contextId,expectedRevision:0,idempotencyKey:'placeholder',incidentId,incident:{...incident,status:'resting'},evidence}}));
+  // Installation order differs from incident order; each incident has two
+  // separately retained schedules. The first dispatch follows global age.
+  const order=[2,0,0,1,2,1],schedules=order.map((index,position)=>f.put(rules[index],{id:'00000000-0000-4000-8000-'+String(position+1).padStart(12,'0'),incidentId:ids[index]}));
+  f.trigger();f.kernel.scheduler.scan(f.contextId);const completed=[];
+  for(let index=0;index<schedules.length;index++){
+    const before=new Set(completed);assert.equal(f.kernel.scheduler.runOne(f.contextId),true);
+    const next=schedules.find(s=>!before.has(s.id)&&f.status(s.id).value.state==='completed');assert.ok(next);completed.push(next.id);
+  }
+  assert.deepEqual(completed,[schedules[0],schedules[1],schedules[3],schedules[4],schedules[2],schedules[5]].map(s=>s.id));
+  assert.equal(f.kernel.scheduler.runOne(f.contextId),false);
+});
+
+test('interacting rearmed schedules retain legitimate cross reactions and terminate their causal feedback',t=>{
+  const f=fixture(t),target=atom(f.s);
+  const rule=()=>f.rule({operation:'graph.transact',literalInput:{contextId:f.contextId,expectedRevision:0,idempotencyKey:'placeholder',changes:[{kind:'record.put',record:target}]},inputBindings:{'/changes/0/record/id':'occurrence.id'}});
+  const schedules=[f.put(rule(),{recurrence:'rearmAfterCompletion'}),f.put(rule(),{recurrence:'rearmAfterCompletion'})];
+  f.trigger();f.advance();
+  const events=f.store.events(f.contextId,0,1000);assert.equal(events.filter(event=>event.type==='runtime.schedule.completed').length,4);
+  for(const schedule of schedules){const state=f.status(schedule.id).value;assert.equal(state.state,'active');assert.deepEqual(state.pendingOccurrenceIds,[]);assert.equal(state.lastFault,undefined);}
   const revision=f.store.read(f.contextId).context.revision;assert.equal(f.advance(),false);assert.equal(f.store.read(f.contextId).context.revision,revision);
 });

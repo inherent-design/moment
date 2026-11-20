@@ -1,5 +1,6 @@
 import Base
 import ./semantics.bend as Core
+import ./accounting.bend as Budget
 import ./LAWS.bend as Laws
 
 def Laws.deny_precedence(permits):
@@ -111,4 +112,48 @@ def Laws.calendar_overflow_refused():
   {==}
 
 def Laws.unknown_usage_advertises_no_capacity():
+  {==}
+
+def Laws.completed_schedule_cannot_cancel():
+  {==}
+
+def Laws.word_self_compare(n, value):
+  match n:
+    case 0n:
+      {==}
+    case 1n+p:
+      match value:
+        case WCon{False{}, tail}:
+          Equal.cong(Cmp, Cmp, value => Word.cmp.fin(False{}, False{}, value), Word.cmp(p, tail, tail), EQ{}, Laws.word_self_compare(p, tail))
+        case WCon{True{}, tail}:
+          Equal.cong(Cmp, Cmp, value => Word.cmp.fin(True{}, True{}, value), Word.cmp(p, tail, tail), EQ{}, Laws.word_self_compare(p, tail))
+
+def Laws.count_self_equal(value):
+  match value:
+    case Budget.BudgetCount{U32{high}, U32{low}}:
+      Equal.trans(Bool,
+        Bool.and(Cmp.is_eq(Word.cmp(32n, high, high)), Cmp.is_eq(Word.cmp(32n, low, low))),
+        Cmp.is_eq(Word.cmp(32n, low, low)), True{},
+        Equal.cong(Cmp, Bool, value => Bool.and(Cmp.is_eq(value), Cmp.is_eq(Word.cmp(32n, low, low))), Word.cmp(32n, high, high), EQ{}, Laws.word_self_compare(32n, high)),
+        Equal.cong(Cmp, Bool, Cmp.is_eq, Word.cmp(32n, low, low), EQ{}, Laws.word_self_compare(32n, low)))
+
+def Laws.cancelled_schedule_never_ready(activity):
+  {==}
+
+def Laws.blocked_schedule_rests(activity):
+  Equal.cong(Bool, Bool, value => Bool.and(Bool.not(value), Bool.or(Bool.and(Bool.not(Budget.le(activity, Budget.zero())), True{}), True{})), Budget.equal(activity, activity), True{}, Laws.count_self_equal(activity))
+
+def Laws.full_queue_keeps_cursor(previous, sequence, activity, old_edge):
+  {==}
+
+def Laws.repeated_edge_does_not_fire():
+  {==}
+
+def Laws.failed_capacity_retains_rise():
+  {==}
+
+def Laws.missing_ancestry_is_unknown(id, context, schedule):
+  {==}
+
+def Laws.empty_ancestry_is_independent():
   {==}

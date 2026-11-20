@@ -45,8 +45,10 @@ def subtract_checked(allowed: Bool, left: Count, right: Count) -> Amount:
 def subtract(+left: Count, +right: Count) -> Amount:
   subtract_checked(le(right, left), left, right)
 
-def equal(+left: Count, +right: Count) -> Bool:
-  Bool.and(le(left, right), le(right, left))
+def equal(left: Count, right: Count) -> Bool:
+  BudgetCount{a, b} = left
+  BudgetCount{c, d} = right
+  Bool.and(U32.is_eq(a, c), U32.is_eq(b, d))
 
 def accumulate(value: Amount, extra: Count) -> Amount:
   match value:

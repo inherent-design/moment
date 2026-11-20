@@ -205,7 +205,7 @@ export class Kernel {
         case 'schedule.cancel': {
           this.scheduler.get(current,input.scheduleId,principalId,access);
           const state=current.controlState.scheduleStates[input.scheduleId];
-          if (state.state!=='completed') control('scheduleStates',input.scheduleId,{ ...state,state:'cancelled',pending:[] });break;
+          if(core.scheduleCancellable(state.state))control('scheduleStates',input.scheduleId,{...state,state:'cancelled',pending:[]});break;
         }
         case 'policy.evaluate': {
           if (!access.operator && !sameRef(input.grant,boundGrant)) fail('FORBIDDEN','Only the bound grant may be evaluated');

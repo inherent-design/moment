@@ -204,3 +204,72 @@ export function timeDelay(values) {
  if(result?.$==='ClockIdle')return null;if(result?.$==='ClockImmediate')return 0;
  if(result?.$!=='ClockSelected'||!Number.isInteger(result.index)||result.index<0||result.index>=values.length)fail('INTERNAL','Invalid core timer selection');return values[result.index];
 }
+
+const scheduleLives={active:'SchActive',completed:'SchCompleted',cancelled:'SchCancelled'};
+const scheduleWakes={event:'SchEvent',at:'SchAt',after:'SchAfter',capacity:'SchCapacity'};
+const scheduleLife=value=>{if(typeof value!=='string'||!Object.hasOwn(scheduleLives,value))fail('INVALID_ARGUMENT','Unsupported schedule state');return {$:scheduleLives[value]};};
+const scheduleWake=value=>{if(typeof value!=='string'||!Object.hasOwn(scheduleWakes,value))fail('INVALID_ARGUMENT','Unsupported schedule wake');return {$:scheduleWakes[value]};};
+const scheduleOnce=value=>{if(value!=='once'&&value!=='rearmAfterCompletion')fail('INVALID_ARGUMENT','Unsupported schedule recurrence');return value==='once';};
+const size=value=>{if(!Number.isInteger(value)||value<0||value>0x7fffffff)fail('INVALID_ARGUMENT','Collection is outside the core index domain');return value;};
+const scheduleBlock=value=>value===-1||value===undefined?{$:'SchNoBlock'}:{$:'SchBlocked',activity:count(value)};
+const scheduleFacts=state=>({$:'SchFacts',life:scheduleLife(state.state),sequence:count(state.lastSeq),block:scheduleBlock(state.blockedActivity),pending:size(state.pending.length),active:size(state.activeExecutionIds.length),edge:!!state.edge,fired:!!state.timerFired,pressure:scheduleBlock(state.backpressureActivity)});
+const scheduleTag=(value,tags)=>{if(!tags.includes(value?.$))fail('INTERNAL','Invalid core schedule decision');return value.$;};
+function textValues(value,bound) {
+ const result=[];while(value?.$==='Con'){if(result.length>=bound||typeof value.head!=='string')fail('INTERNAL','Invalid core text collection');result.push(value.head);value=value.tail;}
+ if(value?.$!=='Nil')fail('INTERNAL','Invalid core text collection');return result;
+}
+export const scheduleRoom=value=>coreBoolean(Core.schedule_room(size(value)));
+export function scheduleVisible(stored,origin,principal,access) {
+ return coreBoolean(Core.schedule_visible(!!stored,!!stored&&access.canIncident(stored.value.incidentId),!!access.operator,!!stored&&access.canRead(stored.ref),origin?.principalId??'',principal,origin?.grant?.id??'',list(access.chain.map(grant=>grant.id))));
+}
+export const scheduleNeedsEvents=kind=>coreBoolean(Core.schedule_needs_events(scheduleWake(kind)));
+export const scheduleBaseline=wake=>coreBoolean(Core.schedule_baseline(scheduleWake(wake.kind),wake.mode==='edge'));
+export const scheduleWakeAdmission=schedule=>scheduleTag(Core.schedule_wake_admission(scheduleWake(schedule.wake.kind),scheduleOnce(schedule.recurrence),schedule.wake.resource??''),['SchWakeAllowed','SchTimerRearm','SchUnknownResource']);
+export const scheduleMutation=required=>coreBoolean(Core.text_contains(list(required??[]),'expectedRevision'));
+export const scheduleScan=(state,context,ended,activity)=>scheduleTag(Core.schedule_scan(scheduleFacts(state),context,!!ended,count(activity)),['SchSkip','SchCancel','SchObserve']);
+export function scheduleMode(wake,state,activity,now) {
+ const result=Core.schedule_mode(scheduleWake(wake.kind),scheduleFacts(state),count(activity),state.due!==undefined,wallCount(state.due??0),wallCount(now));scheduleTag(result,['SchQuiet','SchEvents','SchTimer','SchCheckCapacity']);
+ if(result.$==='SchEvents'&&result.limit!==256)fail('INTERNAL','Invalid core schedule event bound');return result;
+}
+export function scheduleSelection(ids,subjects) {
+ const result=Core.schedule_selection(ids!==undefined,list(ids??[]),subjects!==undefined,list(subjects??[]));scheduleTag(result,['SchSelected','SchUnrestricted']);return result.$==='SchUnrestricted'?undefined:textValues(result.ids,Math.max(ids?.length??0,subjects?.length??0));
+}
+export const scheduleEventGate=(state,event,activity,types)=>scheduleTag(Core.schedule_event_gate(count(state.lastSeq),count(event.sequence),count(activity),event.type,list(types)),['SchStaleEvent','SchFutureEvent','SchIgnoreEvent','SchInspectEvent']);
+export function scheduleObservation(mode,edge,selected) {
+ if(mode!=='each'&&mode!=='edge')fail('INVALID_ARGUMENT','Unsupported schedule event mode');const result=Core.schedule_observation(mode==='each',!!edge,!!selected);scheduleTag(result,['SchObservation']);return {fire:coreBoolean(result.fire),edge:coreBoolean(result.edge)};
+}
+export function scheduleQueue(state,coalesce,sources) {
+ const result=Core.schedule_queue(size(state.pending.length),!!coalesce,list(state.pending.at(-1)?.eventIds??[]),list(sources));scheduleTag(result,['SchQueueFull','SchMerge','SchAppend']);return {kind:result.$,...(result.$==='SchQueueFull'?{}:{sources:textValues(result.sources,Math.max(32,sources.length))})};
+}
+export function scheduleOrder(sequence,emitted) {
+ const result=amountValue(Core.schedule_order(count(sequence),count(emitted)));if(result===Infinity)fail('LIMIT_EXCEEDED','Schedule occurrence sequence exhausted');return result;
+}
+export function scheduleAdvance(state,sequence,activity,nextEdge,fire,enqueued,recurrence) {
+ const result=Core.schedule_advance(count(state.lastSeq),count(sequence),count(activity),!!state.edge,!!nextEdge,!!fire,!!enqueued,state.pending.length>0,scheduleOnce(recurrence));scheduleTag(result,['SchAdvance']);return {cursor:countValue(result.cursor),edge:coreBoolean(result.edge),stop:coreBoolean(result.stop),full:coreBoolean(result.full)};
+}
+export const scheduleCapacityEdge=(old,available,accepted)=>coreBoolean(Core.schedule_capacity_edge(!!old,!!available,!!accepted));
+export const scheduleMatches=(state,id)=>coreBoolean(Core.schedule_matches(scheduleLife(state.state),state.pending[0]!==undefined,id,state.pending[0]?.id??''));
+export function scheduleCompleted(recurrence) {const result=Core.schedule_completed(scheduleOnce(recurrence));scheduleTag(result,['SchActive','SchCompleted']);return result.$==='SchCompleted'?'completed':'active';}
+export const scheduleCancellable=state=>coreBoolean(Core.schedule_cancellable(scheduleLife(state)));
+export const scheduleRetryFault=code=>coreBoolean(Core.schedule_retry_fault(code));
+export const scheduleWatch=(state,activity)=>coreBoolean(Core.schedule_watch(scheduleFacts(state),count(activity),state.due!==undefined));
+export const scheduleReady=(state,activity,coalesce)=>coreBoolean(Core.schedule_ready(scheduleFacts(state),count(activity),!!coalesce,size(state.pending.at(-1)?.eventIds.length??0)));
+export function scheduleChoose(entries,states,activity,last) {
+ size(entries.length);const candidates=entries.map(([id,stored],index)=>({$:'SchCandidate',index,incident:stored.value.incidentId,order:count(states[id].pending[0]?.order??0),facts:scheduleFacts(states[id])}));
+ const result=Core.schedule_choose(last!==undefined,last??'',list(candidates),count(activity));scheduleTag(result,['SchNobody','SchChosen']);if(result.$==='SchNobody')return undefined;
+ const index=result.candidate?.index;if(!Number.isInteger(index)||index<0||index>=entries.length)fail('INTERNAL','Invalid core schedule selection');return entries[index];
+}
+export function scheduleDepends(event,fetch,contextId,scheduleRef) {
+ let state=Core.schedule_causality(event.id);const cache=new Map([[event.id,event]]);
+ // The core chooses every fetch, visited check, fuel charge and transition.
+ // This loop is only a bounded observation port, not a second ancestry engine.
+ for(let step=0;step<=128;step++){
+  const demand=Core.schedule_causal_demand(state);scheduleTag(demand,['SchIndependent','SchUnresolved','SchSkipCause','SchNeedCause']);
+  if(demand.$==='SchIndependent')return false;if(demand.$==='SchUnresolved')return 'unknown';if(demand.$==='SchSkipCause'){state=demand.state;continue;}
+  if(typeof demand.id!=='string')fail('INTERNAL','Invalid core causal demand');if(!cache.has(demand.id))cache.set(demand.id,fetch(demand.id));const item=cache.get(demand.id);
+  const encoded=item?{$:'SchCause',id:item.id,context:item.contextId,kind:item.type,subjects:list(item.subjectRefs.map(resourceKey)),causes:list(item.causeIds)}:{$:'SchMissingCause'};
+  const result=Core.schedule_causal_step(state,encoded,contextId,resourceKey(scheduleRef));scheduleTag(result,['SchDependent','SchUnknownCause','SchNextCause']);
+  if(result.$==='SchDependent')return true;if(result.$==='SchUnknownCause')return 'unknown';state=result.state;
+ }
+ fail('INTERNAL','Core causal walk exceeded its declared observation bound');
+}
