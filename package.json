@@ -28,7 +28,8 @@
     "check:renovate": "pnpm --ignore-scripts dlx --package renovate@44.256.1 renovate-config-validator --strict renovate.json",
     "security:scan": "node scripts/check-security.mjs",
     "check:ci": "actionlint -shellcheck=",
-    "check:release": "node scripts/publish-package.mjs --check"
+    "check:release": "node scripts/publish-package.mjs --check",
+    "test:store-readback": "node verification/store-readback.mjs"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "2.4.0",

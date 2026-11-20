@@ -16,6 +16,7 @@ Qualification applies to an identified source, toolchain, artifact, environment 
 | `pnpm test:integration` | Actual read-only Codex configuration commands in owned roots; installer preview/apply/retry/remove and recovery. No inference or primary configuration change. |
 | `pnpm test:codex-protocol` | Separate unauthenticated native stdio handshake and consumed API validation. |
 | `pnpm test:codex-mcp:protocol` | Actual isolated app-server and SDK MCP discovery/domain result. No model turn or credentials. |
+| `pnpm test:store-readback /absolute/moment-home /absolute/baseline-repository` | Explicit online read-only SQLite snapshots into private owned copies; old/new history, receipt and memory readback, live-claim refusal and actual crash recovery. No service start, credentials copied or production cutover. |
 | `pnpm test:codex-native --credential-file <absolute-private-source>` | Explicit isolated authenticated turn, scoped tool use and durable observation across owned Moment restart. |
 | `pnpm test:codex-mcp --credential-file <absolute-private-source>` | Explicit persisted parent/restart/resume/reload and one requested child's own inherited MCP calls. |
 | `pnpm check:renovate` | Pinned strict dependency-policy validator. No update PR, merge or publication. |
@@ -23,6 +24,8 @@ Qualification applies to an identified source, toolchain, artifact, environment 
 | `mise -E security exec -- pnpm security:scan` | Pinned Trivy source/secret/recognized-configuration scan and locked production/development inventory; rejects missing declared dependencies. |
 
 Run `mise -E security install` before scanner/workflow checks. Native checks require an installed supported Codex boundary. Live inference additionally requires a selected unexpired access session; no refresh token or primary writable authentication state is shared. See [dependencies](dependencies.md) and [releasing](releasing.md).
+
+Store readback can be expensive because it interprets the complete retained history. Run it explicitly for a recognized current-format baseline before a relevant migration or rollout. It takes individually consistent kernel and memory snapshots; their capture times do not constitute one atomic cross-database epoch. It compares full logical fingerprints before and after constructors/readback and actual process death on the copies, then removes successful test copies. Failure retains private recovery files. It neither converts legacy formats nor verifies every raw capture's availability. A production conversion still requires its own qualified custody, preconditions, backup and recovery procedure.
 
 Keep Node's test runner: these tests exercise Node/SQLite, subprocesses, Unix sockets and installed packages. Vite/Vitest would add a runner without improving an identified boundary. Knip follows actual package/script/test entries and documented dynamic workers. TypeScript owns strict contract examples and companion declarations. Static checks complement execution.
 
