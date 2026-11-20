@@ -2,6 +2,7 @@ import { canonical,digest,fail,DomainError } from './json.mjs';
 import { sealCursor,openCursor } from './cursors.mjs';
 import { sameRef } from './authority.mjs';
 import { promptSchema } from './builtins.mjs';
+import * as core from './semantic-core.mjs';
 
 /** Bounded mailboxes and deterministic prompts; neither invokes a model nor accepts work. */
 export class Awareness {
@@ -87,9 +88,9 @@ export class Awareness {
     // Current authority is checked before rendering historical bytes or omitting optional detail.
     const sources=input.sourceRefs.map(ref=>{ this.detail(current,ref,access);return this.detail(snapshot,ref,access); });
     const output=k.schema(snapshot,input.outputSchema);if (!access.canRead(output.ref)) fail('NOT_FOUND','Output schema is not accessible');
-    const policy=k.lookup(current,current.context.policy).value,limits={ ...policy.limits };
-    for (const grant of access.chain) for (const name of ['cpuMillis','memoryBytes','outputBytes','modelTokens','apiSpendMicrounits','concurrentExecutions']) limits[name]=Math.min(limits[name],grant.limits[name]);
-    for (const envelope of [current.context.limits,...access.chain.map(item=>item.limits)]) if (envelope.deadline && (!limits.deadline || Date.parse(envelope.deadline)<Date.parse(limits.deadline))) limits.deadline=envelope.deadline;
+    const policy=k.lookup(current,current.context.policy).value,limits={ ...policy.limits },envelopes=[current.context.limits,policy.limits,...access.chain.map(item=>item.limits)];
+    for (const name of ['cpuMillis','memoryBytes','outputBytes','modelTokens','apiSpendMicrounits','concurrentExecutions']) limits[name]=core.resourceAvailable(envelopes.map(envelope=>({used:0,ceiling:envelope[name]})));
+    for (const envelope of envelopes) if (envelope.deadline && !core.deadlineFits(limits.deadline,envelope.deadline)) limits.deadline=envelope.deadline;
     const omitted=new Set(),render=()=>canonical({ instructions:{ templateText:text },quotedEvidence:{ rendered:text.replace(/\{\{([A-Za-z][A-Za-z0-9_]{0,63})\}\}/g,(_,slot)=>omitted.has(slot)?'[omitted]':canonical(sources[sourceSlots.indexOf(slot)])) },context:{ incident,policy:current.context.policy,limits,grantActions:access.operator?null:access.chain[0].actions,authorityNotice:'Action names are a ceiling; every operation rechecks current policy, resources and incident scope.' },output:{ schema:input.outputSchema,document:output.value.document } });
     let content=render();
     for (const slot of [...sourceSlots].reverse()) if (Buffer.byteLength(content)>input.maximumInputBytes && optionalSlots.includes(slot)) { omitted.add(slot);content=render(); }
