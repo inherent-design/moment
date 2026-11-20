@@ -3271,6 +3271,411 @@ function $memory_retention_classify(_kind_0) {
   return $Bool_pick($$memory_retention_known_kind(_kind_0), {$: "RetentionValueClass", "category": $$memory_retention_category(_kind_0)}, {$: "RetentionValueUnknown"});
 }
 
+function $captures_protected_parts() {
+  return {$: "Con", "head": "state", "tail": {$: "Con", "head": "recipient-state", "tail": {$: "Con", "head": "recovery", "tail": {$: "Con", "head": "runtime", "tail": {$: "Con", "head": "retention", "tail": {$: "Con", "head": "storage-minimization", "tail": {$: "Con", "head": "world", "tail": {$: "Con", "head": "worlds", "tail": {$: "Con", "head": "saves", "tail": {$: "Con", "head": "backups", "tail": {$: "Con", "head": "lods", "tail": {$: "Nil"}}}}}}}}}}}};
+}
+
+function $captures_protected_kind(_kind_0) {
+  return $collections_contains({$: "Con", "head": "authored", "tail": {$: "Con", "head": "world", "tail": {$: "Con", "head": "state", "tail": {$: "Con", "head": "recovery", "tail": {$: "Con", "head": "private", "tail": {$: "Nil"}}}}}}, _kind_0);
+}
+
+function $captures_protection(_kind_0, _pins_0) {
+  const _x_0 = $$captures_protected_kind(_kind_0);
+  const _x_1 = $$Bool_not($$accounting_equal(_pins_0, $$accounting_zero()));
+  return (_x_0 || _x_1);
+}
+
+function $captures_protected_path(_parts_0) {
+  return $Bool_not($$List_is_empty($$collections_intersection(_parts_0, $$captures_protected_parts())));
+}
+
+function $captures_local_representation(_kind_0) {
+  return $collections_contains({$: "Con", "head": "present", "tail": {$: "Con", "head": "exact-shared", "tail": {$: "Nil"}}}, _kind_0);
+}
+
+function $captures_protected_availability(_kind_0, _availability_0) {
+  const _x_0 = $$Bool_not($$captures_protected_kind(_kind_0));
+  const _x_1 = $$String_eq(_availability_0, "present");
+  return (_x_0 || _x_1);
+}
+
+function $captures_observation(_kind_0, _present_0, _archive_0) {
+  return $Bool_pick(_present_0, $$Bool_pick($$String_eq(_kind_0, "intentionally-retired"), "unexpectedly-present", "present-unverified"), $$Bool_pick($$Bool_and($$String_eq(_kind_0, "packed"), _archive_0), "materialization-required", "absent"));
+}
+
+function $captures_protected_payload(_kind_0, _pins_0, _parts_0, _allowed_0) {
+  const _x_0 = $$captures_protection(_kind_0, _pins_0);
+  const _x_1 = $$captures_protected_path(_parts_0);
+  const _x_2 = $$Bool_not($$collections_contains(_allowed_0, _kind_0));
+  const _x_3 = (_x_0 || _x_1);
+  return (_x_2 || _x_3);
+}
+
+function $captures_candidate(_source_0, _target_0, _allowed_0, _used_0, _maximum_0) {
+  const _a_0 = _source_0["id"];
+  const _ak_0 = _source_0["kind"];
+  const _av_0 = _source_0["availability"];
+  const _ad_0 = _source_0["digest"];
+  const _ab_0 = _source_0["bytes"];
+  const _ap_0 = _source_0["pins"];
+  const _ax_0 = _source_0["parts"];
+  const _b_0 = _target_0["id"];
+  const _bk_0 = _target_0["kind"];
+  const _bv_0 = _target_0["availability"];
+  const _bd_0 = _target_0["digest"];
+  const _bb_0 = _target_0["bytes"];
+  const _bp_0 = _target_0["pins"];
+  const _bx_0 = _target_0["parts"];
+  const _x_0 = $$captures_protected_payload(_ak_0, _ap_0, _ax_0, _allowed_0);
+  const _x_1 = $$captures_protected_payload(_bk_0, _bp_0, _bx_0, _allowed_0);
+  const _x_2 = $$String_eq(_a_0, _b_0);
+  const _x_3 = (_x_0 || _x_1);
+  return $Bool_pick((_x_2 || _x_3), {$: "CaptureCandidateProtected"}, $$Bool_pick($$Bool_not($$Bool_and($$captures_local_representation(_av_0), $$captures_local_representation(_bv_0))), {$: "CaptureCandidateAbsent"}, $$Bool_pick($$Bool_not($$Bool_and($$String_eq(_ad_0, _bd_0), $$accounting_equal(_ab_0, _bb_0))), {$: "CaptureCandidateDifferent"}, $$Bool_pick($$accounting_fits($$accounting_accumulate(_used_0, _bb_0), _maximum_0), {$: "CaptureCandidateReady"}, {$: "CaptureCandidateBudget"}))));
+}
+
+function $captures_observed_pair(_source_0, _target_0, _a_0, _b_0) {
+  const _sd_0 = _source_0["digest"];
+  const _sb_0 = _source_0["bytes"];
+  const _td_0 = _target_0["digest"];
+  const _tb_0 = _target_0["bytes"];
+  const _ad_0 = _a_0["digest"];
+  const _ab_0 = _a_0["bytes"];
+  const _am_0 = _a_0["mode"];
+  const _au_0 = _a_0["uid"];
+  const _ag_0 = _a_0["gid"];
+  const _af_0 = _a_0["flags"];
+  const _ax_0 = _a_0["attrs"];
+  const _bd_0 = _b_0["digest"];
+  const _bb_0 = _b_0["bytes"];
+  const _bm_0 = _b_0["mode"];
+  const _bu_0 = _b_0["uid"];
+  const _bg_0 = _b_0["gid"];
+  const _bf_0 = _b_0["flags"];
+  const _bx_0 = _b_0["attrs"];
+  const _x_0 = ((_am_0 | _bm_0) >>> 0);
+  const _x_1 = ((_x_0 & 73) >>> 0);
+  return $Bool_pick($$Bool_not($$Bool_and($$String_eq(_sd_0, _ad_0), $$Bool_and($$String_eq(_td_0, _bd_0), $$Bool_and($$accounting_equal(_sb_0, _ab_0), $$accounting_equal(_tb_0, _bb_0))))), {$: "CapturePairBytes"}, $$Bool_pick($$Bool_not($$Bool_and((_am_0 === _bm_0), $$Bool_and($$accounting_equal(_au_0, _bu_0), $$Bool_and($$accounting_equal(_ag_0, _bg_0), $$Bool_and((_af_0 === _bf_0), $$String_eq(_ax_0, _bx_0)))))), {$: "CapturePairMetadata"}, $$Bool_pick((_x_1 === 0), {$: "CapturePairReady"}, {$: "CapturePairExecutable"})));
+}
+
+function $captures_distinct_fold($0, $1, $2) {
+  for (;;) {
+    {
+      const _values_0 = $0;
+      const _seen_0 = $1;
+      const _accepted_0 = $2;
+      if (_values_0.$ === "Nil") {
+        return _accepted_0;
+      } else {
+        const _head_0 = _values_0["head"];
+        const _tail_0 = _values_0["tail"];
+        $0 = _tail_0;
+        $1 = {$: "Con", "head": _head_0, "tail": _seen_0};
+        $2 = $$Bool_and(_accepted_0, $$Bool_not($$collections_contains(_seen_0, _head_0)));
+        continue;
+      }
+    }
+  }
+}
+
+function $captures_targets(_count_0, _maximum_0, _ids_0) {
+  return $Bool_and($$Bool_not($$accounting_equal(_count_0, $$accounting_zero())), $$Bool_and($$accounting_le(_count_0, _maximum_0), $$captures_distinct_fold(_ids_0, {$: "Nil"}, true)));
+}
+
+function $captures_survivors(_sources_0, _targets_0) {
+  return $List_is_empty($$collections_intersection(_sources_0, _targets_0));
+}
+
+function $captures_capacity(_count_0, _maximum_count_0, _bytes_0, _maximum_bytes_0) {
+  return $Bool_and($$accounting_le(_count_0, _maximum_count_0), $$accounting_fits(_bytes_0, _maximum_bytes_0));
+}
+
+function $captures_group(_system_0, _context_0, _project_present_0, _project_0, _tree_present_0, _tree_0, _category_0) {
+  return {$: "CaptureRunGroup", "system": _system_0, "project": _project_present_0, "scope": $$Bool_pick(_project_present_0, _project_0, _context_0), "tree_present": _tree_present_0, "tree": _tree_0, "category": _category_0};
+}
+
+function $captures_run_compare(_a_0, _ai_0, _b_0, _bi_0) {
+  return $Bool_pick($$accounting_equal(_a_0, _b_0), $$String_order(_ai_0, _bi_0), $$Bool_pick($$accounting_le(_a_0, _b_0), {$: "GT"}, {$: "LT"}));
+}
+
+function $captures_id_compare(_a_0, _b_0) {
+  return $String_order(_a_0, _b_0);
+}
+
+function $captures_inputs(_count_0, _unique_0, _states_0) {
+  return $Bool_pick($$accounting_equal(_count_0, _unique_0), $$Bool_pick($$collections_subset(_states_0, {$: "Con", "head": "active", "tail": {$: "Con", "head": "completed", "tail": {$: "Con", "head": "cancelled", "tail": {$: "Nil"}}}}), {$: "CaptureInputsReady"}, {$: "CaptureInputsUnknown"}), {$: "CaptureInputsDuplicate"});
+}
+
+function $captures_active(_state_0, _current_0) {
+  const _x_0 = $$String_eq(_state_0, "active");
+  return (_current_0 || _x_0);
+}
+
+function $captures_active_fold($0, $1) {
+  for (;;) {
+    {
+      const _runs_0 = $0;
+      const _found_0 = $1;
+      if (_runs_0.$ === "Nil") {
+        return _found_0;
+      } else {
+        const _t_0 = _runs_0["head"];
+        const _state_0 = _t_0["state"];
+        const _current_0 = _t_0["current"];
+        const _tail_0 = _runs_0["tail"];
+        const _x_0 = $$captures_active(_state_0, _current_0);
+        $0 = _tail_0;
+        $1 = (_found_0 || _x_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $captures_group_fold($0, $1, $2, $3) {
+  for (;;) {
+    {
+      const _runs_0 = $0;
+      const _has_active_0 = $1;
+      const _seen_0 = $2;
+      const _selected_0 = $3;
+      if (_runs_0.$ === "Nil") {
+        return $List_reverse(_selected_0);
+      } else {
+        const _t_0 = _runs_0["head"];
+        const _id_0 = _t_0["id"];
+        const _state_0 = _t_0["state"];
+        const _current_0 = _t_0["current"];
+        const _pins_0 = _t_0["pins"];
+        const _tail_0 = _runs_0["tail"];
+        const _completed_0 = $$String_eq(_state_0, "completed");
+        const _room_0 = (_seen_0 < 2);
+        const _x_0 = $$Bool_not($$accounting_equal(_pins_0, $$accounting_zero()));
+        const _x_1 = $$Bool_pick(_has_active_0, $$captures_active(_state_0, _current_0), $$Bool_and(_completed_0, _room_0));
+        const _keep_0 = (_x_0 || _x_1);
+        $0 = _tail_0;
+        $1 = _has_active_0;
+        $2 = $$Bool_pick($$Bool_and(_completed_0, _room_0), ((_seen_0 + 1) >>> 0), _seen_0);
+        $3 = $$Bool_pick(_keep_0, {$: "Con", "head": _id_0, "tail": _selected_0}, _selected_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $captures_select_group(_runs_0) {
+  return $captures_group_fold(_runs_0, $$captures_active_fold(_runs_0, false), 0, {$: "Nil"});
+}
+
+function $captures_dependency_start(_ids_0, _size_0) {
+  return {$: "CaptureDepsWalking", "todo": _ids_0, "selected": _ids_0, "fuel": _size_0};
+}
+
+function $captures_dependency_walk(_todo_0, _selected_0, _fuel_0) {
+  if (_todo_0.$ === "Nil") {
+    return {$: "CaptureDepsReady", "ids": _selected_0};
+  } else {
+    const _head_0 = _todo_0["head"];
+    const _tail_0 = _todo_0["tail"];
+    return $Bool_pick($$accounting_equal(_fuel_0, $$accounting_zero()), {$: "CaptureDepsFailure", "reason": "exhausted", "id": _head_0}, {$: "CaptureDepsRequest", "id": _head_0, "tail": _tail_0, "selected": _selected_0, "fuel": _fuel_0});
+  }
+}
+
+function $captures_dependency_demand(_state_0) {
+  if (_state_0.$ === "CaptureDepsWalking") {
+    const _todo_0 = _state_0["todo"];
+    const _selected_0 = _state_0["selected"];
+    const _fuel_0 = _state_0["fuel"];
+    return $captures_dependency_walk(_todo_0, _selected_0, _fuel_0);
+  } else if (_state_0.$ === "CaptureDepsMissingState") {
+    const _id_0 = _state_0["id"];
+    return {$: "CaptureDepsFailure", "reason": "missing", "id": _id_0};
+  } else {
+    return {$: "CaptureDepsFailure", "reason": "exhausted", "id": ""};
+  }
+}
+
+function $captures_dependency_join(_added_0, _tail_0, _selected_0, _fuel_0) {
+  if (_added_0.$ === "Nil") {
+    return {$: "CaptureDepsWalking", "todo": _tail_0, "selected": _selected_0, "fuel": _fuel_0};
+  } else {
+    const _head_0 = _added_0["head"];
+    const _rest_0 = _added_0["tail"];
+    const _values_0 = {$: "Con", "head": _head_0, "tail": _rest_0};
+    return {$: "CaptureDepsWalking", "todo": $$List_append(_tail_0, _values_0), "selected": $$List_append(_selected_0, _values_0), "fuel": _fuel_0};
+  }
+}
+
+function $captures_dependency_advance(_tail_0, _selected_0, _dependencies_0, _remaining_0) {
+  if (_remaining_0.$ === "BudgetOverflow") {
+    return {$: "CaptureDepsExhaustedState"};
+  } else {
+    const _fuel_0 = _remaining_0["count"];
+    const _unique_0 = $$collections_union({$: "Nil"}, _dependencies_0);
+    const _added_0 = $$List_reverse($$collections_unseen_fold(_unique_0, _selected_0, {$: "Nil"}));
+    return $captures_dependency_join(_added_0, _tail_0, _selected_0, _fuel_0);
+  }
+}
+
+function $captures_dependency_observe(_request_0, _present_0, _dependencies_0) {
+  if (_request_0.$ === "CaptureDepsRequest") {
+    const _id_0 = _request_0["id"];
+    const _tail_0 = _request_0["tail"];
+    const _selected_0 = _request_0["selected"];
+    const _fuel_0 = _request_0["fuel"];
+    return $Bool_pick(_present_0, $$captures_dependency_advance(_tail_0, _selected_0, _dependencies_0, $$accounting_subtract(_fuel_0, $$accounting_one())), {$: "CaptureDepsMissingState", "id": _id_0});
+  } else if (_request_0.$ === "CaptureDepsReady") {
+    const _ids_0 = _request_0["ids"];
+    return {$: "CaptureDepsWalking", "todo": {$: "Nil"}, "selected": _ids_0, "fuel": $$accounting_zero()};
+  } else {
+    const _id_1 = _request_0["id"];
+    return {$: "CaptureDepsMissingState", "id": _id_1};
+  }
+}
+
+function $captures_generation_finish(_next_0, _generation_0, _previous_present_0, _previous_0, _head_present_0, _head_digest_0) {
+  if (_next_0.$ === "BudgetOverflow") {
+    return {$: "CaptureGenerationExhausted"};
+  } else {
+    const _count_0 = _next_0["count"];
+    return $Bool_pick($$Bool_and($$accounting_equal(_count_0, _generation_0), $$Bool_and($$Bool_not((_previous_present_0 !== _head_present_0)), $$String_eq(_previous_0, _head_digest_0))), {$: "CaptureGenerationReady"}, {$: "CaptureGenerationStale"});
+  }
+}
+
+function $captures_generation(_generation_0, _previous_present_0, _previous_0, _head_present_0, _head_0, _head_digest_0) {
+  return $captures_generation_finish($$accounting_add(_head_0, $$accounting_one()), _generation_0, _previous_present_0, _previous_0, _head_present_0, _head_digest_0);
+}
+
+function $captures_pointer(_current_0, _before_0, _digest_0, _published_0) {
+  const _x_0 = $$String_eq(_current_0, _before_0);
+  const _x_1 = $$String_eq(_digest_0, _published_0);
+  return (_x_0 || _x_1);
+}
+
+function $captures_receipt(_state_0, _completed_0, _files_0, _expected_0) {
+  return $Bool_pick($$String_eq(_state_0, "complete"), $$Bool_pick($$Bool_and($$accounting_equal(_completed_0, _expected_0), $$accounting_equal(_files_0, _expected_0)), {$: "CaptureReceiptReplay"}, {$: "CaptureReceiptConflict"}), $$Bool_pick($$String_eq(_state_0, "incomplete"), {$: "CaptureReceiptUnknown"}, $$Bool_pick($$String_eq(_state_0, "refused"), {$: "CaptureReceiptRefused"}, {$: "CaptureReceiptUnsupported"})));
+}
+
+function $captures_manifest_header(_generation_0, _previous_0) {
+  const _x_0 = $$Bool_not($$accounting_equal(_generation_0, $$accounting_one()));
+  return $Bool_and($$accounting_le($$accounting_one(), _generation_0), $$Bool_not((_previous_0 !== _x_0)));
+}
+
+function $captures_declaration(_availability_0, _restoration_0, _evidence_0, _disposition_0, _same_path_0) {
+  return $Bool_pick($$String_eq(_availability_0, "packed"), $$Bool_and($$Bool_not($$accounting_equal(_restoration_0, $$accounting_zero())), $$Bool_and($$Bool_not($$accounting_equal(_evidence_0, $$accounting_zero())), $$Bool_not(_same_path_0))), $$Bool_pick($$String_eq(_availability_0, "intentionally-retired"), $$Bool_not($$accounting_equal(_disposition_0, $$accounting_zero())), true));
+}
+
+function $captures_custody(_enabled_0, _confirmed_0, _owner_alive_0, _participants_0, _unknown_writers_0) {
+  return $Bool_and(_enabled_0, $$Bool_and(_confirmed_0, $$Bool_and(_owner_alive_0, $$Bool_and($$Bool_not($$accounting_equal(_participants_0, $$accounting_zero())), $$accounting_equal(_unknown_writers_0, $$accounting_zero())))));
+}
+
+function $captures_lock_reclaim(_actual_operation_0, _expected_operation_0, _actual_scope_0, _expected_scope_0, _retired_0) {
+  return $Bool_and(_retired_0, $$Bool_and($$Bool_not($$String_eq(_expected_operation_0, "")), $$Bool_and($$String_eq(_actual_operation_0, _expected_operation_0), $$String_eq(_actual_scope_0, _expected_scope_0))));
+}
+
+function $captures_sum_fold($0, $1) {
+  for (;;) {
+    {
+      const _values_0 = $0;
+      const _total_0 = $1;
+      if (_values_0.$ === "Nil") {
+        return _total_0;
+      } else {
+        const _head_0 = _values_0["head"];
+        const _tail_0 = _values_0["tail"];
+        $0 = _tail_0;
+        $1 = $$accounting_accumulate(_total_0, _head_0);
+        continue;
+      }
+    }
+  }
+}
+
+function $captures_sum(_values_0) {
+  return $captures_sum_fold(_values_0, {$: "BudgetFinite", "count": $$accounting_zero()});
+}
+
+function $storage_format(_component_0, _version_0) {
+  const _x_0 = $$accounting_equal(_version_0, $$accounting_one());
+  const _x_1 = $$accounting_equal(_version_0, {$: "BudgetCount", "high": 0, "low": 2});
+  return $Bool_pick($$collections_contains({$: "Con", "head": "kernel", "tail": {$: "Con", "head": "memory", "tail": {$: "Nil"}}}, _component_0), $$Bool_pick($$accounting_equal(_version_0, $$accounting_zero()), {$: "StorageEmpty"}, $$Bool_pick($$String_eq(_component_0, "kernel"), $$Bool_pick($$accounting_equal(_version_0, {$: "BudgetCount", "high": 0, "low": 2}), {$: "StorageCurrent"}, $$Bool_pick($$accounting_equal(_version_0, $$accounting_one()), {$: "StorageLegacy"}, {$: "StorageUnsupported"})), $$Bool_pick($$String_eq(_component_0, "memory"), $$Bool_pick($$accounting_equal(_version_0, {$: "BudgetCount", "high": 0, "low": 3}), {$: "StorageCurrent"}, $$Bool_pick((_x_0 || _x_1), {$: "StorageLegacy"}, {$: "StorageUnsupported"})), {$: "StorageUnsupported"}))), {$: "StorageUnsupported"});
+}
+
+function $storage_version_one(_version_0) {
+  return $accounting_equal(_version_0, $$accounting_one());
+}
+
+function $storage_ready(_present_0, _version_0, _stage_0) {
+  const _x_0 = $$Bool_not(_present_0);
+  const _x_1 = $$Bool_and($$storage_version_one(_version_0), $$String_eq(_stage_0, "complete"));
+  return (_x_0 || _x_1);
+}
+
+function $storage_plan_formats(_source_kernel_0, _memory_present_0, _source_memory_0, _target_kernel_0, _target_memory_0) {
+  const _x_0 = $$accounting_equal(_source_kernel_0, $$accounting_one());
+  const _x_1 = $$accounting_equal(_source_kernel_0, {$: "BudgetCount", "high": 0, "low": 2});
+  const _x_2 = $$accounting_equal(_source_memory_0, {$: "BudgetCount", "high": 0, "low": 2});
+  const _x_3 = $$accounting_equal(_source_memory_0, {$: "BudgetCount", "high": 0, "low": 3});
+  const _x_4 = $$accounting_equal(_source_memory_0, $$accounting_one());
+  const _x_5 = (_x_2 || _x_3);
+  const _x_6 = $$Bool_not(_memory_present_0);
+  const _x_7 = (_x_4 || _x_5);
+  return $Bool_pick($$Bool_and($$accounting_equal(_target_kernel_0, {$: "BudgetCount", "high": 0, "low": 2}), $$accounting_equal(_target_memory_0, {$: "BudgetCount", "high": 0, "low": 2})), {$: "StoragePlanHistorical"}, $$Bool_pick($$Bool_and($$accounting_equal(_target_kernel_0, {$: "BudgetCount", "high": 0, "low": 2}), $$Bool_and($$accounting_equal(_target_memory_0, {$: "BudgetCount", "high": 0, "low": 3}), $$Bool_and((_x_0 || _x_1), (_x_6 || _x_7)))), {$: "StoragePlanReady"}, {$: "StoragePlanUnsupported"}));
+}
+
+function $storage_source_format(_actual_present_0, _actual_0, _source_present_0, _source_0, _target_0, _converted_0) {
+  const _x_0 = $$Bool_and($$Bool_not((_actual_present_0 !== _source_present_0)), $$accounting_equal(_actual_0, _source_0));
+  const _x_1 = $$Bool_and(_converted_0, $$Bool_and(_actual_present_0, $$accounting_equal(_actual_0, _target_0)));
+  return (_x_0 || _x_1);
+}
+
+function $storage_preserve_memory(_source_kernel_0) {
+  return $accounting_equal(_source_kernel_0, {$: "BudgetCount", "high": 0, "low": 2});
+}
+
+function $storage_execution_hold(_state_0) {
+  if (_state_0.$ === "RunRunning") {
+    return true;
+  } else if (_state_0.$ === "RunCancelling") {
+    return true;
+  } else if (_state_0.$ === "RunUncertain") {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+function $storage_memory_receipt(_status_0) {
+  return $collections_contains({$: "Con", "head": "succeeded", "tail": {$: "Con", "head": "failed", "tail": {$: "Nil"}}}, _status_0);
+}
+
+function $storage_memory_dispatch(_status_0) {
+  return $collections_contains({$: "Con", "head": "running", "tail": {$: "Con", "head": "unknown", "tail": {$: "Nil"}}}, _status_0);
+}
+
+function $storage_labor(_present_0, _version_0, _holder_0, _preserve_0, _component_0) {
+  const _x_0 = $$Bool_not(_holder_0);
+  const _x_1 = $$Bool_and(_preserve_0, $$String_eq(_component_0, "memory"));
+  const _x_2 = $$Bool_not(_present_0);
+  const _x_3 = $$Bool_and($$storage_version_one(_version_0), (_x_0 || _x_1));
+  return (_x_2 || _x_3);
+}
+
+function $storage_journal(_present_0, _version_0, _actual_0, _expected_0, _stage_0) {
+  return $Bool_pick(_present_0, $$Bool_pick($$Bool_and($$storage_version_one(_version_0), $$collections_contains({$: "Con", "head": "prepared", "tail": {$: "Con", "head": "backed-up", "tail": {$: "Con", "head": "converted", "tail": {$: "Con", "head": "verified", "tail": {$: "Con", "head": "complete", "tail": {$: "Nil"}}}}}}, _stage_0)), $$Bool_pick($$String_eq(_actual_0, _expected_0), $$Bool_pick($$String_eq(_stage_0, "complete"), {$: "StorageJournalReplay"}, {$: "StorageJournalResume"}), $$Bool_pick($$String_eq(_stage_0, "complete"), {$: "StorageJournalArchive"}, {$: "StorageJournalConflict"})), {$: "StorageJournalUnsupported"}), {$: "StorageJournalFresh"});
+}
+
+function $storage_conversion_needed(_stage_0) {
+  return $Bool_not($$String_eq(_stage_0, "verified"));
+}
+
+function $storage_enrollment(_actual_session_0, _expected_session_0, _actual_key_0, _expected_key_0, _enabled_0) {
+  return $Bool_and(_enabled_0, $$Bool_and($$String_eq(_actual_session_0, _expected_session_0), $$String_eq(_actual_key_0, _expected_key_0)));
+}
+
+function $storage_initialization(_absent_0, _present_0, _version_0, _component_0, _stage_0, _actual_system_0, _expected_system_0, _actual_plan_0, _expected_plan_0) {
+  return $Bool_and(_absent_0, $$Bool_and(_present_0, $$Bool_and($$storage_version_one(_version_0), $$Bool_and($$String_eq(_component_0, "memory"), $$Bool_and($$String_eq(_stage_0, "verified"), $$Bool_and($$String_eq(_actual_system_0, _expected_system_0), $$String_eq(_actual_plan_0, _expected_plan_0)))))));
+}
+
 function $execution_step_1(_state_0, _action_0) {
   return $execution_step(_state_0, _action_0);
 }
@@ -4666,6 +5071,170 @@ function $memory_retention_classify_1(_kind_0) {
   return $memory_retention_classify(_kind_0);
 }
 
+function $capture_protected_parts() {
+  return $captures_protected_parts();
+}
+
+function $capture_protected_kind(_kind_0) {
+  return $captures_protected_kind(_kind_0);
+}
+
+function $capture_protected_path(_parts_0) {
+  return $captures_protected_path(_parts_0);
+}
+
+function $capture_protected_availability(_kind_0, _availability_0) {
+  return $captures_protected_availability(_kind_0, _availability_0);
+}
+
+function $capture_observation(_kind_0, _present_0, _archive_0) {
+  return $captures_observation(_kind_0, _present_0, _archive_0);
+}
+
+function $capture_candidate(_source_0, _target_0, _allowed_0, _used_0, _maximum_0) {
+  return $captures_candidate(_source_0, _target_0, _allowed_0, _used_0, _maximum_0);
+}
+
+function $capture_observed_pair(_source_0, _target_0, _a_0, _b_0) {
+  return $captures_observed_pair(_source_0, _target_0, _a_0, _b_0);
+}
+
+function $capture_targets(_count_0, _maximum_0, _ids_0) {
+  return $captures_targets(_count_0, _maximum_0, _ids_0);
+}
+
+function $capture_survivors(_sources_0, _targets_0) {
+  return $captures_survivors(_sources_0, _targets_0);
+}
+
+function $capture_capacity(_count_0, _maximum_count_0, _bytes_0, _maximum_bytes_0) {
+  return $captures_capacity(_count_0, _maximum_count_0, _bytes_0, _maximum_bytes_0);
+}
+
+function $capture_group(_system_0, _context_0, _project_present_0, _project_0, _tree_present_0, _tree_0, _category_0) {
+  return $captures_group(_system_0, _context_0, _project_present_0, _project_0, _tree_present_0, _tree_0, _category_0);
+}
+
+function $capture_run_compare(_a_0, _ai_0, _b_0, _bi_0) {
+  return $captures_run_compare(_a_0, _ai_0, _b_0, _bi_0);
+}
+
+function $capture_id_compare(_a_0, _b_0) {
+  return $captures_id_compare(_a_0, _b_0);
+}
+
+function $capture_inputs(_count_0, _unique_0, _states_0) {
+  return $captures_inputs(_count_0, _unique_0, _states_0);
+}
+
+function $capture_select_group(_runs_0) {
+  return $captures_select_group(_runs_0);
+}
+
+function $capture_dependency_start(_ids_0, _size_0) {
+  return $captures_dependency_start(_ids_0, _size_0);
+}
+
+function $capture_dependency_demand(_state_0) {
+  return $captures_dependency_demand(_state_0);
+}
+
+function $capture_dependency_observe(_request_0, _present_0, _dependencies_0) {
+  return $captures_dependency_observe(_request_0, _present_0, _dependencies_0);
+}
+
+function $capture_generation(_generation_0, _previous_present_0, _previous_0, _head_present_0, _head_0, _head_digest_0) {
+  return $captures_generation(_generation_0, _previous_present_0, _previous_0, _head_present_0, _head_0, _head_digest_0);
+}
+
+function $capture_pointer(_current_0, _before_0, _digest_0, _published_0) {
+  return $captures_pointer(_current_0, _before_0, _digest_0, _published_0);
+}
+
+function $capture_receipt(_state_0, _completed_0, _files_0, _expected_0) {
+  return $captures_receipt(_state_0, _completed_0, _files_0, _expected_0);
+}
+
+function $storage_format_1(_component_0, _version_0) {
+  return $storage_format(_component_0, _version_0);
+}
+
+function $storage_version_one_1(_version_0) {
+  return $storage_version_one(_version_0);
+}
+
+function $storage_ready_1(_present_0, _version_0, _stage_0) {
+  return $storage_ready(_present_0, _version_0, _stage_0);
+}
+
+function $storage_plan_formats_1(_source_kernel_0, _memory_present_0, _source_memory_0, _target_kernel_0, _target_memory_0) {
+  return $storage_plan_formats(_source_kernel_0, _memory_present_0, _source_memory_0, _target_kernel_0, _target_memory_0);
+}
+
+function $storage_source_format_1(_actual_present_0, _actual_0, _source_present_0, _source_0, _target_0, _converted_0) {
+  return $storage_source_format(_actual_present_0, _actual_0, _source_present_0, _source_0, _target_0, _converted_0);
+}
+
+function $storage_preserve_memory_1(_source_kernel_0) {
+  return $storage_preserve_memory(_source_kernel_0);
+}
+
+function $storage_execution_hold_1(_state_0) {
+  return $storage_execution_hold(_state_0);
+}
+
+function $storage_memory_receipt_1(_status_0) {
+  return $storage_memory_receipt(_status_0);
+}
+
+function $storage_memory_dispatch_1(_status_0) {
+  return $storage_memory_dispatch(_status_0);
+}
+
+function $storage_labor_1(_present_0, _version_0, _holder_0, _preserve_0, _component_0) {
+  return $storage_labor(_present_0, _version_0, _holder_0, _preserve_0, _component_0);
+}
+
+function $storage_journal_1(_present_0, _version_0, _actual_0, _expected_0, _stage_0) {
+  return $storage_journal(_present_0, _version_0, _actual_0, _expected_0, _stage_0);
+}
+
+function $storage_conversion_needed_1(_stage_0) {
+  return $storage_conversion_needed(_stage_0);
+}
+
+function $capture_manifest_header(_generation_0, _previous_0) {
+  return $captures_manifest_header(_generation_0, _previous_0);
+}
+
+function $capture_declaration(_availability_0, _restoration_0, _evidence_0, _disposition_0, _same_path_0) {
+  return $captures_declaration(_availability_0, _restoration_0, _evidence_0, _disposition_0, _same_path_0);
+}
+
+function $capture_custody(_enabled_0, _confirmed_0, _owner_alive_0, _participants_0, _unknown_writers_0) {
+  return $captures_custody(_enabled_0, _confirmed_0, _owner_alive_0, _participants_0, _unknown_writers_0);
+}
+
+function $capture_lock_reclaim(_actual_operation_0, _expected_operation_0, _actual_scope_0, _expected_scope_0, _retired_0) {
+  return $captures_lock_reclaim(_actual_operation_0, _expected_operation_0, _actual_scope_0, _expected_scope_0, _retired_0);
+}
+
+function $capture_sum(_values_0) {
+  return $captures_sum(_values_0);
+}
+
+function $storage_enrollment_1(_actual_session_0, _expected_session_0, _actual_key_0, _expected_key_0, _enabled_0) {
+  return $storage_enrollment(_actual_session_0, _expected_session_0, _actual_key_0, _expected_key_0, _enabled_0);
+}
+
+function $capture_protection(_kind_0, _pins_0) {
+  return $captures_protection(_kind_0, _pins_0);
+}
+
+function $storage_initialization_1(_absent_0, _present_0, _version_0, _component_0, _stage_0, _actual_system_0, _expected_system_0, _actual_plan_0, _expected_plan_0) {
+  return $storage_initialization(_absent_0, _present_0, _version_0, _component_0, _stage_0, _actual_system_0, _expected_system_0, _actual_plan_0, _expected_plan_0);
+}
+
 function $Bool_not(_b_0) {
   if (!_b_0) {
     return true;
@@ -5057,6 +5626,17 @@ const $$memory_retention_selected = $memory_retention_selected;
 const $$memory_retention_retire_step = $memory_retention_retire_step;
 const $$memory_retention_known_basis = $memory_retention_known_basis;
 const $$memory_retention_category = $memory_retention_category;
+const $$captures_protected_kind = $captures_protected_kind;
+const $$captures_protected_parts = $captures_protected_parts;
+const $$captures_protection = $captures_protection;
+const $$captures_protected_path = $captures_protected_path;
+const $$captures_protected_payload = $captures_protected_payload;
+const $$captures_local_representation = $captures_local_representation;
+const $$captures_distinct_fold = $captures_distinct_fold;
+const $$captures_active = $captures_active;
+const $$captures_active_fold = $captures_active_fold;
+const $$captures_dependency_advance = $captures_dependency_advance;
+const $$storage_version_one = $storage_version_one;
 const $$truth_all = $truth_all;
 const $$truth_any = $truth_any;
 const $$same_scope = $same_scope;
@@ -5412,6 +5992,58 @@ const $$Char_is_eq = $Char_is_eq;export default {
   "memory-retention:known_basis": run_lib((a0) => run_loop($memory_retention_known_basis(str_in(a0))), 1),
   "memory-retention:availability": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_retention_availability(a0,str_in(a1),a2,str_in(a3),str_in(a4))), 5),
   "memory-retention:classify": run_lib((a0) => run_loop($memory_retention_classify(str_in(a0))), 1),
+  "captures:protected_parts": run_lib(() => run_loop($captures_protected_parts()), 0),
+  "captures:protected_kind": run_lib((a0) => run_loop($captures_protected_kind(str_in(a0))), 1),
+  "captures:protection": run_lib((a0,a1) => run_loop($captures_protection(str_in(a0),a1)), 2),
+  "captures:protected_path": run_lib((a0) => run_loop($captures_protected_path(a0)), 1),
+  "captures:local_representation": run_lib((a0) => run_loop($captures_local_representation(str_in(a0))), 1),
+  "captures:protected_availability": run_lib((a0,a1) => run_loop($captures_protected_availability(str_in(a0),str_in(a1))), 2),
+  "captures:observation": run_lib((a0,a1,a2) => str_out(run_loop($captures_observation(str_in(a0),a1,a2))), 3),
+  "captures:protected_payload": run_lib((a0,a1,a2,a3) => run_loop($captures_protected_payload(str_in(a0),a1,a2,a3)), 4),
+  "captures:candidate": run_lib((a0,a1,a2,a3,a4) => run_loop($captures_candidate(a0,a1,a2,a3,a4)), 5),
+  "captures:observed_pair": run_lib((a0,a1,a2,a3) => run_loop($captures_observed_pair(a0,a1,a2,a3)), 4),
+  "captures:distinct_fold": run_lib((a0,a1,a2) => run_loop($captures_distinct_fold(a0,a1,a2)), 3),
+  "captures:targets": run_lib((a0,a1,a2) => run_loop($captures_targets(a0,a1,a2)), 3),
+  "captures:survivors": run_lib((a0,a1) => run_loop($captures_survivors(a0,a1)), 2),
+  "captures:capacity": run_lib((a0,a1,a2,a3) => run_loop($captures_capacity(a0,a1,a2,a3)), 4),
+  "captures:group": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($captures_group(str_in(a0),str_in(a1),a2,str_in(a3),a4,str_in(a5),str_in(a6))), 7),
+  "captures:run_compare": run_lib((a0,a1,a2,a3) => run_loop($captures_run_compare(a0,str_in(a1),a2,str_in(a3))), 4),
+  "captures:id_compare": run_lib((a0,a1) => run_loop($captures_id_compare(str_in(a0),str_in(a1))), 2),
+  "captures:inputs": run_lib((a0,a1,a2) => run_loop($captures_inputs(a0,a1,a2)), 3),
+  "captures:active": run_lib((a0,a1) => run_loop($captures_active(str_in(a0),a1)), 2),
+  "captures:active_fold": run_lib((a0,a1) => run_loop($captures_active_fold(a0,a1)), 2),
+  "captures:group_fold": run_lib((a0,a1,a2,a3) => run_loop($captures_group_fold(a0,a1,a2,a3)), 4),
+  "captures:select_group": run_lib((a0) => run_loop($captures_select_group(a0)), 1),
+  "captures:dependency_start": run_lib((a0,a1) => run_loop($captures_dependency_start(a0,a1)), 2),
+  "captures:dependency_walk": run_lib((a0,a1,a2) => run_loop($captures_dependency_walk(a0,a1,a2)), 3),
+  "captures:dependency_demand": run_lib((a0) => run_loop($captures_dependency_demand(a0)), 1),
+  "captures:dependency_join": run_lib((a0,a1,a2,a3) => run_loop($captures_dependency_join(a0,a1,a2,a3)), 4),
+  "captures:dependency_advance": run_lib((a0,a1,a2,a3) => run_loop($captures_dependency_advance(a0,a1,a2,a3)), 4),
+  "captures:dependency_observe": run_lib((a0,a1,a2) => run_loop($captures_dependency_observe(a0,a1,a2)), 3),
+  "captures:generation_finish": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($captures_generation_finish(a0,a1,a2,str_in(a3),a4,str_in(a5))), 6),
+  "captures:generation": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($captures_generation(a0,a1,str_in(a2),a3,a4,str_in(a5))), 6),
+  "captures:pointer": run_lib((a0,a1,a2,a3) => run_loop($captures_pointer(str_in(a0),str_in(a1),str_in(a2),str_in(a3))), 4),
+  "captures:receipt": run_lib((a0,a1,a2,a3) => run_loop($captures_receipt(str_in(a0),a1,a2,a3)), 4),
+  "captures:manifest_header": run_lib((a0,a1) => run_loop($captures_manifest_header(a0,a1)), 2),
+  "captures:declaration": run_lib((a0,a1,a2,a3,a4) => run_loop($captures_declaration(str_in(a0),a1,a2,a3,a4)), 5),
+  "captures:custody": run_lib((a0,a1,a2,a3,a4) => run_loop($captures_custody(a0,a1,a2,a3,a4)), 5),
+  "captures:lock_reclaim": run_lib((a0,a1,a2,a3,a4) => run_loop($captures_lock_reclaim(str_in(a0),str_in(a1),str_in(a2),str_in(a3),a4)), 5),
+  "captures:sum_fold": run_lib((a0,a1) => run_loop($captures_sum_fold(a0,a1)), 2),
+  "captures:sum": run_lib((a0) => run_loop($captures_sum(a0)), 1),
+  "storage:format": run_lib((a0,a1) => run_loop($storage_format(str_in(a0),a1)), 2),
+  "storage:version_one": run_lib((a0) => run_loop($storage_version_one(a0)), 1),
+  "storage:ready": run_lib((a0,a1,a2) => run_loop($storage_ready(a0,a1,str_in(a2))), 3),
+  "storage:plan_formats": run_lib((a0,a1,a2,a3,a4) => run_loop($storage_plan_formats(a0,a1,a2,a3,a4)), 5),
+  "storage:source_format": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($storage_source_format(a0,a1,a2,a3,a4,a5)), 6),
+  "storage:preserve_memory": run_lib((a0) => run_loop($storage_preserve_memory(a0)), 1),
+  "storage:execution_hold": run_lib((a0) => run_loop($storage_execution_hold(a0)), 1),
+  "storage:memory_receipt": run_lib((a0) => run_loop($storage_memory_receipt(str_in(a0))), 1),
+  "storage:memory_dispatch": run_lib((a0) => run_loop($storage_memory_dispatch(str_in(a0))), 1),
+  "storage:labor": run_lib((a0,a1,a2,a3,a4) => run_loop($storage_labor(a0,a1,a2,a3,str_in(a4))), 5),
+  "storage:journal": run_lib((a0,a1,a2,a3,a4) => run_loop($storage_journal(a0,a1,str_in(a2),str_in(a3),str_in(a4))), 5),
+  "storage:conversion_needed": run_lib((a0) => run_loop($storage_conversion_needed(str_in(a0))), 1),
+  "storage:enrollment": run_lib((a0,a1,a2,a3,a4) => run_loop($storage_enrollment(str_in(a0),str_in(a1),str_in(a2),str_in(a3),a4)), 5),
+  "storage:initialization": run_lib((a0,a1,a2,a3,a4,a5,a6,a7,a8) => run_loop($storage_initialization(a0,a1,a2,str_in(a3),str_in(a4),str_in(a5),str_in(a6),str_in(a7),str_in(a8))), 9),
   "execution_step": run_lib((a0,a1) => run_loop($execution_step_1(a0,a1)), 2),
   "execution_terminal": run_lib((a0) => run_loop($execution_terminal_1(a0)), 1),
   "topology_check": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($topology_check_1(a0,a1,a2,a3,a4,a5,a6)), 7),
@@ -5663,4 +6295,45 @@ const $$Char_is_eq = $Char_is_eq;export default {
   "memory_retention_excess": run_lib((a0,a1) => run_loop($memory_retention_excess_1(a0,a1)), 2),
   "memory_retention_availability": run_lib((a0,a1,a2,a3,a4) => run_loop($memory_retention_availability_1(a0,str_in(a1),a2,str_in(a3),str_in(a4))), 5),
   "memory_retention_classify": run_lib((a0) => run_loop($memory_retention_classify_1(str_in(a0))), 1),
+  "capture_protected_parts": run_lib(() => run_loop($capture_protected_parts()), 0),
+  "capture_protected_kind": run_lib((a0) => run_loop($capture_protected_kind(str_in(a0))), 1),
+  "capture_protected_path": run_lib((a0) => run_loop($capture_protected_path(a0)), 1),
+  "capture_protected_availability": run_lib((a0,a1) => run_loop($capture_protected_availability(str_in(a0),str_in(a1))), 2),
+  "capture_observation": run_lib((a0,a1,a2) => str_out(run_loop($capture_observation(str_in(a0),a1,a2))), 3),
+  "capture_candidate": run_lib((a0,a1,a2,a3,a4) => run_loop($capture_candidate(a0,a1,a2,a3,a4)), 5),
+  "capture_observed_pair": run_lib((a0,a1,a2,a3) => run_loop($capture_observed_pair(a0,a1,a2,a3)), 4),
+  "capture_targets": run_lib((a0,a1,a2) => run_loop($capture_targets(a0,a1,a2)), 3),
+  "capture_survivors": run_lib((a0,a1) => run_loop($capture_survivors(a0,a1)), 2),
+  "capture_capacity": run_lib((a0,a1,a2,a3) => run_loop($capture_capacity(a0,a1,a2,a3)), 4),
+  "capture_group": run_lib((a0,a1,a2,a3,a4,a5,a6) => run_loop($capture_group(str_in(a0),str_in(a1),a2,str_in(a3),a4,str_in(a5),str_in(a6))), 7),
+  "capture_run_compare": run_lib((a0,a1,a2,a3) => run_loop($capture_run_compare(a0,str_in(a1),a2,str_in(a3))), 4),
+  "capture_id_compare": run_lib((a0,a1) => run_loop($capture_id_compare(str_in(a0),str_in(a1))), 2),
+  "capture_inputs": run_lib((a0,a1,a2) => run_loop($capture_inputs(a0,a1,a2)), 3),
+  "capture_select_group": run_lib((a0) => run_loop($capture_select_group(a0)), 1),
+  "capture_dependency_start": run_lib((a0,a1) => run_loop($capture_dependency_start(a0,a1)), 2),
+  "capture_dependency_demand": run_lib((a0) => run_loop($capture_dependency_demand(a0)), 1),
+  "capture_dependency_observe": run_lib((a0,a1,a2) => run_loop($capture_dependency_observe(a0,a1,a2)), 3),
+  "capture_generation": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($capture_generation(a0,a1,str_in(a2),a3,a4,str_in(a5))), 6),
+  "capture_pointer": run_lib((a0,a1,a2,a3) => run_loop($capture_pointer(str_in(a0),str_in(a1),str_in(a2),str_in(a3))), 4),
+  "capture_receipt": run_lib((a0,a1,a2,a3) => run_loop($capture_receipt(str_in(a0),a1,a2,a3)), 4),
+  "storage_format": run_lib((a0,a1) => run_loop($storage_format_1(str_in(a0),a1)), 2),
+  "storage_version_one": run_lib((a0) => run_loop($storage_version_one_1(a0)), 1),
+  "storage_ready": run_lib((a0,a1,a2) => run_loop($storage_ready_1(a0,a1,str_in(a2))), 3),
+  "storage_plan_formats": run_lib((a0,a1,a2,a3,a4) => run_loop($storage_plan_formats_1(a0,a1,a2,a3,a4)), 5),
+  "storage_source_format": run_lib((a0,a1,a2,a3,a4,a5) => run_loop($storage_source_format_1(a0,a1,a2,a3,a4,a5)), 6),
+  "storage_preserve_memory": run_lib((a0) => run_loop($storage_preserve_memory_1(a0)), 1),
+  "storage_execution_hold": run_lib((a0) => run_loop($storage_execution_hold_1(a0)), 1),
+  "storage_memory_receipt": run_lib((a0) => run_loop($storage_memory_receipt_1(str_in(a0))), 1),
+  "storage_memory_dispatch": run_lib((a0) => run_loop($storage_memory_dispatch_1(str_in(a0))), 1),
+  "storage_labor": run_lib((a0,a1,a2,a3,a4) => run_loop($storage_labor_1(a0,a1,a2,a3,str_in(a4))), 5),
+  "storage_journal": run_lib((a0,a1,a2,a3,a4) => run_loop($storage_journal_1(a0,a1,str_in(a2),str_in(a3),str_in(a4))), 5),
+  "storage_conversion_needed": run_lib((a0) => run_loop($storage_conversion_needed_1(str_in(a0))), 1),
+  "capture_manifest_header": run_lib((a0,a1) => run_loop($capture_manifest_header(a0,a1)), 2),
+  "capture_declaration": run_lib((a0,a1,a2,a3,a4) => run_loop($capture_declaration(str_in(a0),a1,a2,a3,a4)), 5),
+  "capture_custody": run_lib((a0,a1,a2,a3,a4) => run_loop($capture_custody(a0,a1,a2,a3,a4)), 5),
+  "capture_lock_reclaim": run_lib((a0,a1,a2,a3,a4) => run_loop($capture_lock_reclaim(str_in(a0),str_in(a1),str_in(a2),str_in(a3),a4)), 5),
+  "capture_sum": run_lib((a0) => run_loop($capture_sum(a0)), 1),
+  "storage_enrollment": run_lib((a0,a1,a2,a3,a4) => run_loop($storage_enrollment_1(str_in(a0),str_in(a1),str_in(a2),str_in(a3),a4)), 5),
+  "capture_protection": run_lib((a0,a1) => run_loop($capture_protection(str_in(a0),a1)), 2),
+  "storage_initialization": run_lib((a0,a1,a2,a3,a4,a5,a6,a7,a8) => run_loop($storage_initialization_1(a0,a1,a2,str_in(a3),str_in(a4),str_in(a5),str_in(a6),str_in(a7),str_in(a8))), 9),
 };

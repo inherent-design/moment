@@ -2,7 +2,13 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import * as core from '../runtime/semantic-core.mjs';
 import {evaluate,evaluatePolicy} from '../runtime/conditions.mjs';
-import {checkAxioms} from '../scripts/core-correspondence.mjs';
+import {checkAxioms,checkModelDiagnostics} from '../scripts/core-correspondence.mjs';
+
+test('expected refusal rows do not conceal actual model diagnostics or axiom failures',()=>{
+ checkModelDiagnostics('case|capRuns|3|error:NOT_FOUND\n');
+ for(const diagnostic of ['proof/Moment.lean:1:1: error: unsolved goals','proof/Moment.lean:1:1: warning: unused argument',"'Moment.bad' depends on axioms: [sorryAx]"])
+  assert.throws(()=>checkModelDiagnostics('case|capRuns|3|error:NOT_FOUND\n'+diagnostic),/Lean rejected/);
+});
 
 test('proof admission preserves unknown axiom and missing-audit refusals',()=>{
  assert.deepEqual(checkAxioms("'Moment.valid' depends on axioms: [propext]",['Moment.valid']),[{name:'Moment.valid',axioms:['propext']}]);

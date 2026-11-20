@@ -1621,6 +1621,265 @@ theorem ret_working_metadata_is_charged : retUsage "working" [] [] [1] [2] 1 0 =
 #print axioms ret_overflow_cannot_fit
 #print axioms ret_raw_evidence_has_precedence
 #print axioms ret_working_metadata_is_charged
+-- Capture selection and storage recovery are value decisions. Native schema,
+-- authorization, process, byte and durable-effect observations remain premises.
+def capProtectedKinds : List String := ["authored","world","state","recovery","private"]
+def capProtectedParts : List String := ["state","recipient-state","recovery","runtime","retention","storage-minimization","world","worlds","saves","backups","lods"]
+def capLocal (kind : String) : Bool := ["present","exact-shared"].contains kind
+structure CapPayload where
+  id : String
+  kind : String
+  availability : String
+  digest : String
+  bytes : Nat
+  pins : Nat
+  parts : List String
+  deriving Repr
+
+def capProtection (kind : String) (pins : Nat) : Bool := capProtectedKinds.contains kind || pins != 0
+def capProtected (value : CapPayload) (allowed : List String) : Bool :=
+  !allowed.contains value.kind || capProtection value.kind value.pins || value.parts.any capProtectedParts.contains
+
+def capCandidate (source target : CapPayload) (allowed : List String) (used : Option Nat) (maximum : Nat) : String :=
+  if source.id == target.id || capProtected source allowed || capProtected target allowed then "CaptureCandidateProtected"
+  else if !(capLocal source.availability && capLocal target.availability) then "CaptureCandidateAbsent"
+  else if source.digest != target.digest || source.bytes != target.bytes then "CaptureCandidateDifferent"
+  else if used.any (fun n => n+target.bytes ≤ budgetMaximum && n+target.bytes ≤ maximum) then "CaptureCandidateReady" else "CaptureCandidateBudget"
+structure CapFile where
+  digest : String
+  bytes : Nat
+  mode : Nat
+  uid : Nat
+  gid : Nat
+  flags : Nat
+  attrs : String
+  deriving Repr
+
+def capPair (source target : CapPayload) (a b : CapFile) : String :=
+  if source.digest != a.digest || target.digest != b.digest || source.bytes != a.bytes || target.bytes != b.bytes then "CapturePairBytes"
+  else if a.mode != b.mode || a.uid != b.uid || a.gid != b.gid || a.flags != b.flags || a.attrs != b.attrs then "CapturePairMetadata"
+  else if Nat.land (Nat.lor a.mode b.mode) 73 != 0 then "CapturePairExecutable" else "CapturePairReady"
+def capObservation (kind : String) (present archive : Bool) : String :=
+  if present then if kind == "intentionally-retired" then "unexpectedly-present" else "present-unverified"
+  else if kind == "packed" && archive then "materialization-required" else "absent"
+def capDeclaration (kind : String) (restoration evidence disposition : Nat) (samePath : Bool) : Bool :=
+  if kind == "packed" then restoration > 0 && evidence > 0 && !samePath else if kind == "intentionally-retired" then disposition > 0 else true
+
+def capHeader (generation : Nat) (previous : Bool) : Bool := generation ≥ 1 && previous == (generation != 1)
+def capGeneration (generation : Nat) (previous : Option String) (head : Option (Nat × String)) : String :=
+  let next := head.map (fun value => value.1+1) |>.getD 1
+  if next > budgetMaximum then "CaptureGenerationExhausted" else
+  if generation == next && previous == head.map Prod.snd then "CaptureGenerationReady" else "CaptureGenerationStale"
+def capReceipt (state : String) (completed files expected : Nat) : String :=
+  if state == "complete" then if completed == expected && files == expected then "CaptureReceiptReplay" else "CaptureReceiptConflict"
+  else if state == "incomplete" then "CaptureReceiptUnknown" else if state == "refused" then "CaptureReceiptRefused" else "CaptureReceiptUnsupported"
+def capCustody (enabled confirmed alive : Bool) (participants unknownWriters : Nat) : Bool := enabled && confirmed && alive && participants > 0 && unknownWriters == 0
+def capLock (actual expected actualScope expectedScope : String) (retired : Bool) : Bool := retired && expected != "" && actual == expected && actualScope == expectedScope
+
+def capTargets (ids : List String) (maximum : Nat) : Bool := !ids.isEmpty && ids.length ≤ maximum && ids.eraseDups.length == ids.length
+def capSurvivors (sources targets : List String) : Bool := !(sources.any targets.contains)
+def capCapacity (files maximumFiles : Nat) (bytes : Option Nat) (maximumBytes : Nat) : Bool := files ≤ maximumFiles && bytes.any (· ≤ maximumBytes)
+def capSum (values : List Nat) : Option Nat := if values.sum ≤ budgetMaximum then some values.sum else none
+
+structure CapRun where
+  id : String
+  system : String
+  context : String
+  project : Option String := none
+  tree : Option String := none
+  category : String := "archive"
+  state : String := "completed"
+  current : Bool := false
+  order : Nat
+  pins : List String := []
+  dependencies : List String := []
+  deriving Repr
+
+def capGroup (run : CapRun) : String × Bool × String × Option String × String :=
+  (run.system,run.project.isSome,run.project.getD run.context,run.tree,run.category)
+def capActive (run : CapRun) : Bool := run.current || run.state == "active"
+def capEarlier (a b : CapRun) : Bool := a.order > b.order || a.order == b.order && a.id < b.id
+
+def capRoot (runs : List CapRun) (run : CapRun) : Bool :=
+  !run.pins.isEmpty || if runs.any (fun other => capGroup other == capGroup run && capActive other) then capActive run
+  else run.state == "completed" && (runs.filter (fun other => capGroup other == capGroup run && other.state == "completed" && capEarlier other run)).length < 2
+
+def capRoots (runs : List CapRun) : List String := (runs.filter (capRoot runs)).map CapRun.id
+
+def capExpand (runs : List CapRun) (selected : List String) : List String :=
+  (selected ++ (runs.filter (fun run => selected.contains run.id)).flatMap CapRun.dependencies).eraseDups
+
+def capReach : Nat → List CapRun → List String → List String
+  | 0,_,selected => selected
+  | n+1,runs,selected => capReach n runs (capExpand runs selected)
+
+def capRuns (runs : List CapRun) : Except String (List String) :=
+  let ids := runs.map CapRun.id
+  if ids.eraseDups.length != ids.length then .error "INVALID_ARGUMENT"
+  else if !(runs.all (fun run => ["active","completed","cancelled"].contains run.state)) then .error "UNSUPPORTED_VERSION"
+  else let reached := capReach runs.length runs (capRoots runs)
+       if !(reached.all ids.contains) then .error "NOT_FOUND" else .ok (reached.mergeSort (· ≤ ·))
+
+def stFormat (component : String) (version : Nat) : String :=
+  if component != "kernel" && component != "memory" then "StorageUnsupported" else if version == 0 then "StorageEmpty"
+  else if version == (if component == "kernel" then 2 else 3) then "StorageCurrent"
+  else if version == 1 || component == "memory" && version == 2 then "StorageLegacy" else "StorageUnsupported"
+def stReady (present : Bool) (version : Nat) (stage : String) : Bool := !present || version == 1 && stage == "complete"
+def stPlan (sourceKernel : Nat) (sourceMemory : Option Nat) (targetKernel targetMemory : Nat) : String :=
+  if targetKernel == 2 && targetMemory == 2 then "StoragePlanHistorical"
+  else if targetKernel == 2 && targetMemory == 3 && [1,2].contains sourceKernel && sourceMemory.all [1,2,3].contains then "StoragePlanReady" else "StoragePlanUnsupported"
+def stSource (actual source : Option Nat) (target : Nat) (converted : Bool) : Bool := actual == source || converted && actual == some target
+
+def stHold (state : RunState) : Bool := match state with | .running | .cancelling | .uncertain => true | _ => false
+
+def stMemoryReceipt (status : String) : Bool := ["succeeded","failed"].contains status
+def stMemoryDispatch (status : String) : Bool := ["running","unknown"].contains status
+def stLabor (present : Bool) (version : Nat) (holder : Option String) (preserve : Bool) : Bool :=
+  !present || version == 1 && holder.all (fun component => preserve && component == "memory")
+def stJournal (present : Bool) (version : Nat) (actual expected stage : String) : String :=
+  if !present then "StorageJournalFresh" else if version != 1 || !["prepared","backed-up","converted","verified","complete"].contains stage then "StorageJournalUnsupported"
+  else if actual == expected then if stage == "complete" then "StorageJournalReplay" else "StorageJournalResume"
+  else if stage == "complete" then "StorageJournalArchive" else "StorageJournalConflict"
+def stEnrollment (actual expected actualKey expectedKey : String) (enabled : Bool) : Bool := enabled && actual == expected && actualKey == expectedKey
+
+theorem cap_world_availability_is_not_recovery (availability : String) (h : availability ≠ "present") :
+    (!capProtectedKinds.contains "world" || availability == "present") = false := by simp [capProtectedKinds,h]
+theorem cap_retired_presence_is_explicit (archive : Bool) : capObservation "intentionally-retired" true archive = "unexpectedly-present" := rfl
+theorem cap_packed_needs_restoration (evidence disposition : Nat) (samePath : Bool) : capDeclaration "packed" 0 evidence disposition samePath = false := rfl
+theorem cap_candidate_preserves_digest (s t : CapPayload) (allowed : List String) (used : Option Nat) (maximum : Nat)
+    (h : capCandidate s t allowed used maximum = "CaptureCandidateReady") : s.digest = t.digest := by
+  unfold capCandidate at h
+  split at h
+  · simp_all
+  · split at h
+    · simp_all
+    · split at h <;> simp_all
+
+theorem cap_candidate_preserves_length (s t : CapPayload) (allowed : List String) (used : Option Nat) (maximum : Nat)
+    (h : capCandidate s t allowed used maximum = "CaptureCandidateReady") : s.bytes = t.bytes := by
+  unfold capCandidate at h
+  split at h
+  · simp_all
+  · split at h
+    · simp_all
+    · split at h <;> simp_all
+
+theorem cap_unknown_amount_cannot_fit (s t : CapPayload) (allowed : List String) (maximum : Nat) :
+    capCandidate s t allowed none maximum ≠ "CaptureCandidateReady" := by
+  unfold capCandidate
+  split
+  · decide
+  · split
+    · decide
+    · split <;> simp [Option.any]
+
+theorem cap_ready_pair_preserves_mode (s t : CapPayload) (a b : CapFile) (h : capPair s t a b = "CapturePairReady") : a.mode = b.mode := by
+  unfold capPair at h
+  split at h
+  · simp_all
+  · split at h <;> simp_all
+
+theorem cap_ready_pair_has_no_execute_bits (s t : CapPayload) (a b : CapFile) (h : capPair s t a b = "CapturePairReady") : Nat.land (Nat.lor a.mode b.mode) 73 = 0 := by
+  unfold capPair at h
+  split at h
+  · simp_all
+  · split at h
+    · simp_all
+    · split at h <;> simp_all
+
+theorem cap_group_keeps_system (a b : CapRun) (h : capGroup a = capGroup b) : a.system = b.system := congrArg Prod.fst h
+theorem cap_group_keeps_scope_sort (a b : CapRun) (h : capGroup a = capGroup b) : a.project.isSome = b.project.isSome := congrArg (fun key => key.2.1) h
+
+theorem cap_pin_survives_root_selection (runs : List CapRun) (run : CapRun) (h : run ∈ runs) (pin : run.pins.isEmpty = false) : run.id ∈ capRoots runs := by
+  apply List.mem_map.mpr
+  refine ⟨run, List.mem_filter.mpr ⟨h, ?_⟩, rfl⟩
+  simp [capRoot,pin]
+
+theorem cap_original_root_survives_expansion (runs : List CapRun) (selected : List String) (id : String) (h : id ∈ selected) : id ∈ capExpand runs selected := by simp [capExpand,h]
+theorem cap_original_root_survives_reach (n : Nat) (runs : List CapRun) (selected : List String) (id : String) (h : id ∈ selected) : id ∈ capReach n runs selected := by
+  induction n generalizing selected with
+  | zero => exact h
+  | succ n ih => exact ih (capExpand runs selected) (cap_original_root_survives_expansion runs selected id h)
+
+theorem cap_empty_frontier_is_useful : capRuns [] = .ok [] := by simp [capRuns,capRoots,capReach]
+theorem cap_overflow_capacity_is_refused (files maximumFiles maximumBytes : Nat) : capCapacity files maximumFiles none maximumBytes = false := by simp [capCapacity]
+theorem cap_missing_retirement_never_reclaims (actual expected actualScope expectedScope : String) : capLock actual expected actualScope expectedScope false = false := rfl
+theorem cap_unbound_lock_never_reclaims (actualScope expectedScope : String) : capLock "" "" actualScope expectedScope true = false := rfl
+theorem cap_incomplete_is_not_a_receipt (completed files expected : Nat) : capReceipt "incomplete" completed files expected = "CaptureReceiptUnknown" := rfl
+theorem cap_complete_requires_coverage (a b expected : Nat) (h : capReceipt "complete" a b expected = "CaptureReceiptReplay") : a = expected ∧ b = expected := by simpa [capReceipt] using h
+
+theorem cap_generation_exhaustion_is_explicit (generation : Nat) (previous : Option String) : capGeneration generation previous (some (budgetMaximum,"d")) = "CaptureGenerationExhausted" := rfl
+theorem cap_initial_generation_is_useful : capGeneration 1 none none = "CaptureGenerationReady" := rfl
+theorem cap_unknown_writer_is_not_custody (participants : Nat) : capCustody true true true participants 1 = false := by simp [capCustody]
+
+theorem st_unknown_format_is_not_empty : stFormat "kernel" 99 = "StorageUnsupported" := rfl
+theorem st_current_format_is_useful : stFormat "kernel" 2 = "StorageCurrent" := rfl
+theorem st_verified_is_not_service_ready : stReady true 1 "verified" = false := rfl
+theorem st_no_journal_has_no_migration_hold (version : Nat) (stage : String) : stReady false version stage = true := rfl
+theorem st_source_change_requires_evidence (actual source : Option Nat) (target : Nat) : stSource actual source target false = (actual == source) := by simp [stSource]
+theorem st_recorded_target_is_recoverable (source : Option Nat) (target : Nat) : stSource (some target) source target true = true := by simp [stSource]
+theorem st_cancellation_is_not_settlement : stHold .cancelling = true := rfl
+theorem st_unknown_execution_is_not_settled : stHold .uncertain = true := rfl
+theorem st_other_pending_plan_cannot_take_over : stJournal true 1 "old" "new" "verified" = "StorageJournalConflict" := rfl
+theorem st_prior_completion_can_be_archived : stJournal true 1 "old" "new" "complete" = "StorageJournalArchive" := rfl
+theorem st_unknown_version_never_replays (actual expected stage : String) : stJournal true 99 actual expected stage = "StorageJournalUnsupported" := rfl
+theorem st_other_session_is_not_enrolled (key : String) : stEnrollment "other" "planned" key key true = false := rfl
+theorem st_same_session_does_not_enable_a_disabled_request (session key : String) : stEnrollment session session key key false = false := rfl
+theorem st_exact_enrollment_is_useful : stEnrollment "session" "session" "key" "key" true = true := rfl
+theorem st_other_labor_is_not_memory_custody : stLabor true 1 (some "guidance") true = false := rfl
+
+#print axioms cap_world_availability_is_not_recovery
+#print axioms cap_retired_presence_is_explicit
+#print axioms cap_packed_needs_restoration
+#print axioms cap_candidate_preserves_digest
+#print axioms cap_candidate_preserves_length
+#print axioms cap_unknown_amount_cannot_fit
+#print axioms cap_ready_pair_preserves_mode
+#print axioms cap_ready_pair_has_no_execute_bits
+#print axioms cap_group_keeps_system
+#print axioms cap_group_keeps_scope_sort
+#print axioms cap_pin_survives_root_selection
+#print axioms cap_original_root_survives_expansion
+#print axioms cap_original_root_survives_reach
+#print axioms cap_empty_frontier_is_useful
+#print axioms cap_overflow_capacity_is_refused
+#print axioms cap_missing_retirement_never_reclaims
+#print axioms cap_unbound_lock_never_reclaims
+#print axioms cap_incomplete_is_not_a_receipt
+#print axioms cap_complete_requires_coverage
+#print axioms cap_generation_exhaustion_is_explicit
+#print axioms cap_initial_generation_is_useful
+#print axioms cap_unknown_writer_is_not_custody
+#print axioms st_unknown_format_is_not_empty
+#print axioms st_current_format_is_useful
+#print axioms st_verified_is_not_service_ready
+#print axioms st_no_journal_has_no_migration_hold
+#print axioms st_source_change_requires_evidence
+#print axioms st_recorded_target_is_recoverable
+#print axioms st_cancellation_is_not_settlement
+#print axioms st_unknown_execution_is_not_settled
+#print axioms st_other_pending_plan_cannot_take_over
+#print axioms st_prior_completion_can_be_archived
+#print axioms st_unknown_version_never_replays
+#print axioms st_other_session_is_not_enrolled
+#print axioms st_same_session_does_not_enable_a_disabled_request
+#print axioms st_exact_enrollment_is_useful
+#print axioms st_other_labor_is_not_memory_custody
+def stInitialization (absent present : Bool) (version : Nat) (component stage actualSystem expectedSystem actualPlan expectedPlan : String) : Bool :=
+  absent && present && version == 1 && component == "memory" && stage == "verified" && actualSystem == expectedSystem && actualPlan == expectedPlan
+
+theorem st_initialization_requires_absent_source (absent present : Bool) (version : Nat) (component stage actualSystem expectedSystem actualPlan expectedPlan : String)
+    (h : stInitialization absent present version component stage actualSystem expectedSystem actualPlan expectedPlan = true) : absent = true := by
+  cases absent <;> simp_all [stInitialization]
+theorem st_initialization_remains_bound_to_plan (absent present : Bool) (version : Nat) (component stage actualSystem expectedSystem actualPlan expectedPlan : String)
+    (h : stInitialization absent present version component stage actualSystem expectedSystem actualPlan expectedPlan = true) : actualPlan = expectedPlan := by
+  by_cases same : actualPlan = expectedPlan
+  · exact same
+  · simp [stInitialization,same] at h
+theorem st_initialization_has_a_useful_forward_path : stInitialization true true 1 "memory" "verified" "system" "system" "plan" "plan" = true := rfl
+#print axioms st_initialization_requires_absent_source
+#print axioms st_initialization_remains_bound_to_plan
+#print axioms st_initialization_has_a_useful_forward_path
 end Moment
 
 def schLives : List (Moment.SchLife × String) := [(.active,"active"),(.completed,"completed"),(.cancelled,"cancelled")]
@@ -2672,7 +2931,198 @@ def memoryRetentionCases : IO Unit := do
         for status in Moment.retStatuses ++ ["future"] do
           IO.println s!"case|retAvailability|{raw}|{basis}|{ri}|{status}|{Moment.retAvailability raw basis reason status}"
 
+def capFlag (mask index : Nat) : Bool := mask / 2^index % 2 == 1
+
+def capPayload (id : String) : Moment.CapPayload :=
+  {id,kind:="archive",availability:="present",digest:="a",bytes:=1,pins:=0,parts:=[]}
+
+def capCandidateInputs (mask profile : Nat) : Moment.CapPayload × Moment.CapPayload × List String := Id.run do
+  let flag := capFlag mask
+  let kinds := if profile == 0 then ("archive","observation") else if profile == 1 then ("world","archive") else ("private","cache")
+  let allowed := if profile == 0 then ["archive"] else [kinds.1,kinds.2]
+  let source := {capPayload "s" with kind:=if flag 1 then kinds.1 else kinds.2,availability:=if flag 7 then "present" else "packed",pins:=if flag 3 then 1 else 0,parts:=if flag 5 then ["state"] else []}
+  let target := {capPayload (if flag 0 then "s" else "t") with kind:=if flag 2 then kinds.1 else kinds.2,availability:=if flag 8 then "present" else "packed",pins:=if flag 4 then 1 else 0,parts:=if flag 6 then ["recipient-state"] else [],digest:=if flag 9 then "a" else "b",bytes:=if flag 10 then 1 else 2}
+  return (source,target,allowed)
+
+def capPairInputs (mask mode : Nat) : Moment.CapFile × Moment.CapFile :=
+  let flag := capFlag mask
+  ({digest:=if flag 0 then "a" else "b",bytes:=if flag 2 then 1 else 2,mode,uid:=1,gid:=1,flags:=0,attrs:="same"},
+   {digest:=if flag 1 then "a" else "b",bytes:=if flag 3 then 1 else 2,mode:=if flag 4 then mode else Nat.xor mode 1,uid:=if flag 5 then 1 else 2,gid:=if flag 6 then 1 else 2,flags:=if flag 7 then 0 else 1,attrs:=if flag 8 then "same" else "other"})
+
+def capScopeSample (mask : Nat) : Moment.CapRun :=
+  let flag := capFlag mask
+  {id:="sample",system:=if flag 0 then "s" else "foreign",context:=if flag 1 then "c" else "other",project:=if flag 2 then some (if flag 3 then "p" else "c") else none,tree:=if flag 4 then some "tree" else none,category:=if flag 5 then "archive" else "cache",order:=0}
+
+def capRunVariant (variant index profile : Nat) : Moment.CapRun :=
+  let states := ["completed","completed","active","cancelled","cancelled","cancelled","completed","completed"]
+  let orders := [0,1,1,0,2,3,0,9007199254740991]
+  {id:="r"++toString index,system:=if profile == 1 then "s"++toString index else "s",context:=if profile == 3 then "c"++toString index else "c",
+   project:=if profile == 3 then some "shared" else if profile == 2 && index%2 == 0 then some "c" else none,
+   tree:=if profile == 4 && index%2 == 0 then some "tree" else none,category:=if profile == 4 && index%3 == 0 then "cache" else "archive",
+   state:=states[variant]!,current:=variant == 3,order:=orders[variant]!,pins:=if variant == 4 || variant == 6 then ["pin"] else []}
+
+def capGraphRuns (size mask profile : Nat) (missing : Bool) : List Moment.CapRun :=
+  (List.range size).map fun index =>
+    let row : Moment.CapRun := {id:="r"++toString index,system:=if profile == 3 then "s"++toString index else "s",context:="c",order:=index,state:=if profile == 2 then "cancelled" else "completed",current:=profile == 1 && index == 0,pins:=if profile == 2 && index == 0 then ["pin"] else []}
+    {row with dependencies:=((List.range size).filter (fun target => capFlag mask (index*size+target))).map (fun target => "r"++toString target) ++ (if missing && index == 0 then ["outside"] else [])}
+
+def capRunLabel : Except String (List String) → String
+  | .ok ids => "ok:" ++ String.intercalate "," ids
+  | .error code => "error:" ++ code
+
+def capComparisonLabel (a b : String) (orderA orderB : Nat) : Int :=
+  if orderA > orderB then -1 else if orderA < orderB then 1 else if a < b then -1 else if a == b then 0 else 1
+
+def captureAdmissionCases : IO Unit := do
+  let budgets : List (Option Nat × Nat) := [(none,1),(some 0,0),(some 0,1),(some 9007199254740991,9007199254740991)]
+  for mask in List.range 2048 do
+    for profile in List.range 3 do
+      let values := capCandidateInputs mask profile
+      for (budget,index) in budgets.zipIdx do
+        IO.println s!"case|capCandidate|{mask}|{profile}|{index}|{Moment.capCandidate values.1 values.2.1 values.2.2 budget.1 budget.2}"
+  for mask in List.range 512 do
+    for mode in [420,484,428,421,493,2147483647,4294967295] do
+      let observed := capPairInputs mask mode
+      IO.println s!"case|capPair|{mask}|{mode}|{Moment.capPair (capPayload "s") (capPayload "t") observed.1 observed.2}"
+  for kind in ["present","exact-shared","packed","rebuild-only","intentionally-retired"] do
+    for present in [false,true] do
+      for archive in [false,true] do
+        IO.println s!"case|capObservation|{kind}|{present}|{archive}|{Moment.capObservation kind present archive}"
+    for restoration in [0,1] do
+      for evidence in [0,1] do
+        for disposition in [0,1] do
+          for samePath in [false,true] do
+            IO.println s!"case|capDeclaration|{kind}|{restoration}|{evidence}|{disposition}|{samePath}|{Moment.capDeclaration kind restoration evidence disposition samePath}"
+  for kind in ["binary","archive","cache","observation","authored","world","state","recovery","private"] do
+    for pins in [0,1,3] do
+      IO.println s!"case|capProtection|{kind}|{pins}|{Moment.capProtection kind pins}"
+  let ids := [[],["a"],["a","a"],["a","b"]]
+  for (names,index) in ids.zipIdx do
+    for maximum in [0,1,2,64,9007199254740991] do
+      IO.println s!"case|capTargets|{index}|{maximum}|{Moment.capTargets names maximum}"
+    for (targets,ti) in ids.zipIdx do
+      IO.println s!"case|capSurvivors|{index}|{ti}|{Moment.capSurvivors names targets}"
+  for files in [0,1,64,9007199254740991] do
+    for maximumFiles in [0,1,64,9007199254740991] do
+      for (bytes,bi) in ([none,some 0,some 1,some 9007199254740991] : List (Option Nat)).zipIdx do
+        for maximum in [0,1,9007199254740991] do
+          IO.println s!"case|capCapacity|{files}|{maximumFiles}|{bi}|{maximum}|{Moment.capCapacity files maximumFiles bytes maximum}"
+  for size in List.range 3 do
+    for code in List.range (budgetValues.length^size) do
+      IO.println s!"case|capSum|{size}|{code}|{budgetLabel (Moment.capSum (fromCode budgetValues size code))}"
+  for enabled in [false,true] do
+    for confirmed in [false,true] do
+      for alive in [false,true] do
+        for participants in [0,1,3] do
+          for unknownWriters in [0,1,3] do
+            IO.println s!"case|capCustody|{enabled}|{confirmed}|{alive}|{participants}|{unknownWriters}|{Moment.capCustody enabled confirmed alive participants unknownWriters}"
+
+def captureSelectionCases : IO Unit := do
+  for a in List.range 64 do
+    for b in List.range 64 do
+      IO.println s!"case|capGroup|{a}|{b}|{Moment.capGroup (capScopeSample a) == Moment.capGroup (capScopeSample b)}"
+  for a in ["a","A","ä","z","𐀀",""] do
+    for b in ["a","A","ä","z","𐀀",""] do
+      for orderA in [0,1,9007199254740991] do
+        for orderB in [0,1,9007199254740991] do
+          IO.println s!"case|capCompare|{a}|{b}|{orderA}|{orderB}|{capComparisonLabel a b orderA orderB}"
+  for size in List.range 5 do
+    for code in List.range (8^size) do
+      for profile in List.range 5 do
+        let runs := ((fromCode (List.range 8) size code).zipIdx).map (fun (variant,index) => capRunVariant variant index profile)
+        IO.println s!"case|capRuns|{size}|{code}|{profile}|{capRunLabel (Moment.capRuns runs)}"
+  for size in List.range 4 do
+    for mask in List.range (2^(size*size)) do
+      for profile in List.range 4 do
+        for missing in [false,true] do
+          IO.println s!"case|capDependencies|{size}|{mask}|{profile}|{missing}|{capRunLabel (Moment.capRuns (capGraphRuns size mask profile missing))}"
+  let run := capRunVariant 0 0 0
+  let invalid := [[],[run,run],[{run with state:="future"}],[run,{run with state:="future"}],[run,{run with id:="other",state:="future"}]]
+  for (runs,index) in invalid.zipIdx do
+    IO.println s!"case|capRunInvalid|{index}|{capRunLabel (Moment.capRuns runs)}"
+
+def captureRecoveryCases : IO Unit := do
+  let counts := [0,1,2,9007199254740990,9007199254740991]
+  let heads : List (Option (Nat × String)) := [none,some (1,"d"),some (2,"d"),some (9007199254740990,"d"),some (9007199254740991,"d")]
+  for generation in counts do
+    for previous in [false,true] do
+      IO.println s!"case|capHeader|{generation}|{previous}|{Moment.capHeader generation previous}"
+    for (previous,pi) in ([none,some "d",some "other"] : List (Option String)).zipIdx do
+      for (head,hi) in heads.zipIdx do
+        IO.println s!"case|capGeneration|{generation}|{pi}|{hi}|{Moment.capGeneration generation previous head}"
+  for state in ["complete","incomplete","refused","future",""] do
+    for completed in [0,1,9007199254740991] do
+      for files in [0,1,9007199254740991] do
+        for expected in [0,1,9007199254740991] do
+          IO.println s!"case|capReceipt|{state}|{completed}|{files}|{expected}|{Moment.capReceipt state completed files expected}"
+  for sameOperation in [false,true] do
+    for sameScope in [false,true] do
+      for emptyOperation in [false,true] do
+        for retired in [false,true] do
+          let expected := if emptyOperation then "" else "operation"
+          IO.println s!"case|capLock|{sameOperation}|{sameScope}|{emptyOperation}|{retired}|{Moment.capLock (if sameOperation then expected else "other") expected "scope" (if sameScope then "scope" else "other") retired}"
+  for samePointer in [false,true] do
+    for sameDigest in [false,true] do
+      IO.println s!"case|capPointer|{samePointer}|{sameDigest}|{samePointer || sameDigest}"
+
+def storageRecoveryCases : IO Unit := do
+  let versions := [0,1,2,3,4,9007199254740991]
+  for component in ["kernel","memory","other"] do
+    for version in versions do
+      IO.println s!"case|stFormat|{component}|{version}|{Moment.stFormat component version}"
+  let stages := ["prepared","backed-up","converted","verified","complete","other"]
+  IO.println s!"case|stReady|false|0||{Moment.stReady false 0 ""}"
+  for version in [0,1,2,9007199254740991] do
+    for stage in stages do
+      IO.println s!"case|stReady|true|{version}|{stage}|{Moment.stReady true version stage}"
+  let memoryVersions : List (Option Nat) := [none,some 0,some 1,some 2,some 3,some 4,some 9007199254740991]
+  let targets : List (Nat × Nat) := [(2,3),(2,2),(1,3),(3,3),(2,4)]
+  for sourceKernel in [0,1,2,3,9007199254740991] do
+    for (sourceMemory,mi) in memoryVersions.zipIdx do
+      for (target,ti) in targets.zipIdx do
+        IO.println s!"case|stPlan|{sourceKernel}|{mi}|{ti}|{Moment.stPlan sourceKernel sourceMemory target.1 target.2}"
+  let sourceVersions : List (Option Nat) := [none,some 0,some 1,some 2,some 3,some 9007199254740991]
+  for (actual,ai) in sourceVersions.zipIdx do
+    for (source,si) in sourceVersions.zipIdx do
+      for target in [2,3] do
+        for converted in [false,true] do
+          IO.println s!"case|stSource|{ai}|{si}|{target}|{converted}|{Moment.stSource actual source target converted}"
+  for version in versions do
+    IO.println s!"case|stPreserve|{version}|{version == 2}"
+  for state in runStates do
+    IO.println s!"case|stHold|{runLabel state}|{Moment.stHold state}"
+  for status in ["pending","running","unknown","succeeded","failed","cancelled","skipped","future",""] do
+    IO.println s!"case|stMemory|{status}|{Moment.stMemoryReceipt status}:{Moment.stMemoryDispatch status}"
+  IO.println s!"case|stLabor|false|0|0|false|{Moment.stLabor false 0 none false}"
+  let holders : List (Option String) := [none,some "memory",some "guidance",some "other",some ""]
+  for version in [0,1,2] do
+    for (holder,hi) in holders.zipIdx do
+      for preserve in [false,true] do
+        IO.println s!"case|stLabor|true|{version}|{hi}|{preserve}|{Moment.stLabor true version holder preserve}"
+  IO.println s!"case|stJournal|false|0|true||{Moment.stJournal false 0 "" "plan" ""}"
+  for version in [0,1,2,9007199254740991] do
+    for same in [false,true] do
+      for stage in stages do
+        IO.println s!"case|stJournal|true|{version}|{same}|{stage}|{Moment.stJournal true version (if same then "plan" else "other") "plan" stage}"
+  for stage in stages do
+    IO.println s!"case|stConversion|{stage}|{stage != "verified"}"
+  for sameSession in [false,true] do
+    for sameKey in [false,true] do
+      for enabled in [false,true] do
+        IO.println s!"case|stEnrollment|{sameSession}|{sameKey}|{enabled}|{Moment.stEnrollment (if sameSession then "session" else "other") "session" (if sameKey then "key" else "other") "key" enabled}"
+
+def storageInitializationCases : IO Unit := do
+  for mask in List.range 32 do
+    for version in [0,1,99] do
+      for stage in ["prepared","backed-up","converted","verified","complete","other"] do
+        IO.println s!"case|stInitialization|{mask}|{version}|{stage}|{Moment.stInitialization (capFlag mask 0) (capFlag mask 1) version (if capFlag mask 2 then "memory" else "other") stage (if capFlag mask 3 then "system" else "other") "system" (if capFlag mask 4 then "plan" else "other") "plan"}"
+
 def main : IO Unit := do
   foundationalCases
   memoryAdapterCases
   memoryRetentionCases
+  captureAdmissionCases
+  captureSelectionCases
+  captureRecoveryCases
+  storageRecoveryCases
+  storageInitializationCases

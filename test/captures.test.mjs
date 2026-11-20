@@ -63,3 +63,22 @@ test('active-or-latest-two is per meaningful scope and preserves pins/transitive
   const f=fixture(t),run=(id,order,extra={})=>({...structuredClone(f.manifest),run:{...f.manifest.run,id,order,...extra}}),a=run('a',1),b=run('b',2),c=run('c',3);
   assert.deepEqual(selectCaptureRuns([a,b,c]),['b','c']);c.run.current=true;assert.deepEqual(selectCaptureRuns([a,b,c]),['c']);a.run.pins=['historical failure'];assert.deepEqual(selectCaptureRuns([a,b,c]),['a','c']);a.run.pins=[];c.run.dependencies=['a'];assert.deepEqual(selectCaptureRuns([a,b,c]),['a','c']);c.run.dependencies=['unknown'];assert.throws(()=>selectCaptureRuns([a,b,c]),{code:'NOT_FOUND'});
 });
+
+test('run selection keeps independent systems and project/context identity sorts separate',t=>{
+ const f=fixture(t),run=(id,order,extra={})=>({...structuredClone(f.manifest),run:{...f.manifest.run,id,order,...extra}});
+ const systems=['a','b','c'].map((id,index)=>({...run(id,index),target:{...f.target,systemId:randomUUID()}}));assert.deepEqual(selectCaptureRuns(systems),['a','b','c']);
+ const project=['a','b','c'].map((id,index)=>run(id,index,{projectId:f.contextId}));assert.deepEqual(selectCaptureRuns([...project,run('context',4)]),['b','c','context']);
+});
+
+test('unknown publication journal versions preserve their exact state',async t=>{
+ const f=fixture(t),input={contextId:f.contextId,expectedRevision:f.store.read(f.contextId).context.revision,idempotencyKey:randomUUID(),manifest:f.manifest};await publishCapture(f.directory,input,f.domain);
+ const directory=join(f.dir,'retention'),journalPath=join(directory,'publication-'+digest({contextId:input.contextId,idempotencyKey:input.idempotencyKey}).slice(7)+'.json'),journal=JSON.parse(readFileSync(journalPath));journal.formatVersion=99;writeFileSync(journalPath,canonical(journal));
+ await assert.rejects(publishCapture(f.directory,input,f.domain),{code:'UNSUPPORTED_VERSION'});assert.equal(JSON.parse(readFileSync(journalPath)).formatVersion,99);
+});
+
+test('unknown cooperative-lock versions cannot be mistaken for retired custody',t=>{
+ const f=fixture(t),directory=join(f.dir,'retention');mkdirSync(directory,{mode:0o700});
+ const retired=spawnSync(process.execPath,['-e',''],{encoding:'utf8'}).pid;assert.throws(()=>process.kill(retired,0),{code:'ESRCH'});
+ const operationDigest=digest('owned exact operation'),lockPath=join(directory,'scope.lock'),lock={formatVersion:99,id:randomUUID(),pid:retired,target:f.target,operationDigest};writeFileSync(lockPath,canonical(lock),{mode:0o600});
+ assert.throws(()=>captureLock(f.directory,f.target,{operationDigest,reconcile:true}),{code:'UNSUPPORTED_VERSION'});assert.deepEqual(JSON.parse(readFileSync(lockPath)),lock);
+});

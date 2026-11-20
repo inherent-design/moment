@@ -39,11 +39,38 @@ test('stale context, revoked custody and forged exclusion frontier refuse before
   await assert.rejects(applyCaptureMaintenance(f.root,plan,f.domain),{code:'REVISION_CONFLICT'});assert.equal(statSync(f.replacement,{bigint:true}).ino,before.ino);
 });
 
+test('a hand-edited plan cannot apply a representation that preview would defer',nativeOptions,async t=>{
+ const f=await fixture(t),plan=await planCaptureMaintenance(f.root,f.request,f.domain),next=structuredClone(f.manifest),before=statSync(f.replacement,{bigint:true});
+ next.id=randomUUID();next.generation=2;next.previousDigest=digest(f.manifest);next.payloads[1].availability={kind:'packed',path:'captures/recovery.zip',digest:next.payloads[1].digest,restoration:['Test-owned restoration recipe'],verifiedEvidence:[{systemId:f.systemId,contextId:f.contextId,id:f.target.incidentId}]};
+ await publishCapture(f.root,{contextId:f.contextId,expectedRevision:f.store.read(f.contextId).context.revision,idempotencyKey:randomUUID(),manifest:next},f.domain);
+ const forged={...plan,contextRevision:f.store.read(f.contextId).context.revision,manifestDigest:digest(next)};
+ await assert.rejects(applyCaptureMaintenance(f.root,forged,f.domain),{code:'FORBIDDEN'});assert.equal(statSync(f.replacement,{bigint:true}).ino,before.ino);
+});
+
+test('hand-edited executable observations cannot bypass the qualified adapter restriction',nativeOptions,async t=>{
+ const f=await fixture(t),plan=await planCaptureMaintenance(f.root,f.request,f.domain);chmodSync(f.source,0o755);chmodSync(f.replacement,0o755);
+ const [sourceBefore,before]=await nativeCapture('inspect',{paths:[f.source,f.replacement],roots:plan.roots,protectedPaths:plan.protectedPaths,maximumBytes:f.policy.maximumBytes}),inode=statSync(f.replacement,{bigint:true}).ino;
+ const forged={...plan,items:[{...plan.items[0],source_before:sourceBefore,before}]};
+ await assert.rejects(applyCaptureMaintenance(f.root,forged,f.domain),{code:'FORBIDDEN'});assert.equal(statSync(f.replacement,{bigint:true}).ino,inode);
+});
+
+test('an incomplete receipt cannot settle cooperative custody or claim a finished replay',nativeOptions,async t=>{
+ const f=await fixture(t),plan=await planCaptureMaintenance(f.root,f.request,f.domain),receipt=await applyCaptureMaintenance(f.root,plan,f.domain),path=join(captureDirectory(f.root,f.target),'maintenance-'+digest(plan).slice(7)+'.receipt.json');
+ writeFileSync(path,canonical({...receipt,state:'incomplete',completedItems:0})+'\n',{mode:0o600});
+ await assert.rejects(applyCaptureMaintenance(f.root,plan,f.domain,{reconcile:true}),{code:'OUTCOME_UNKNOWN'});assert.equal(JSON.parse(readFileSync(path,'utf8')).state,'incomplete');
+});
+
 test('world/state/pin classes, metadata differences, symlinks and hardlinks are concrete deferrals',nativeOptions,async t=>{
   const f=await fixture(t);let plan=await planCaptureMaintenance(f.root,{...f.request,pairs:[{sourceId:'world',targetId:'duplicate'}]},f.domain);assert.equal(plan.items.length,0);assert.match(plan.deferred[0].reason,/Protected/);
   chmodSync(f.source,0o600);plan=await planCaptureMaintenance(f.root,f.request,f.domain);assert.equal(plan.items.length,0);assert.match(plan.deferred[0].reason,/metadata/);chmodSync(f.source,0o644);
   linkSync(f.replacement,join(f.dir,'same-inode.jar'));plan=await planCaptureMaintenance(f.root,f.request,f.domain);assert.equal(plan.items.length,0);assert.match(plan.deferred[0].reason,/independent regular/);
   const linked=join(f.dir,'link.jar');symlinkSync(f.source,linked);await assert.rejects(nativeCapture('inspect',{paths:[linked],roots:[f.dir],protectedPaths:[],maximumBytes:1048576}),{code:'CAPABILITY_UNAVAILABLE'});
+});
+
+test('native protection observes the admitted root rather than unrelated host ancestors',nativeOptions,async t=>{
+ const f=await fixture(t),root=join(f.root,'state/unrelated/captures'),path=join(root,'archive.jar');mkdirSync(root,{recursive:true});writeFileSync(path,'Owned independent archive.');
+ const observed=await nativeCapture('inspect',{paths:[path],roots:[root],protectedPaths:[],maximumBytes:4096});assert.equal(observed[0].sha256,bytesDigest('Owned independent archive.').slice(7));
+ const protectedPath=join(root,'recipient-state/payload.jar');mkdirSync(join(root,'recipient-state'));writeFileSync(protectedPath,'Preserve operation state.');await assert.rejects(nativeCapture('inspect',{paths:[protectedPath],roots:[root],protectedPaths:[],maximumBytes:4096}),{code:'CAPABILITY_UNAVAILABLE'});
 });
 
 test('owned process interruption at durable native phases reconciles the exact plan without losing either original',nativeOptions,async t=>{
@@ -54,6 +81,12 @@ test('owned process interruption at durable native phases reconciles the exact p
     writeFileSync(driver,script);let observed=false;
     const backend=(operation,input)=>nativeCapture(operation,input,{adapter:driver,onSpawn:child=>child.stderr.on('data',data=>{if(data.toString().includes('OWNED_CHECKPOINT')){observed=true;child.kill('SIGKILL');}})});
     await assert.rejects(applyCaptureMaintenance(f.root,plan,f.domain,{backend}),{code:'OUTCOME_UNKNOWN'});assert.equal(observed,true,'The exact owned durable checkpoint was observed');
+    if(phase==='prepared'){
+      const journalPath=join(captureDirectory(f.root,f.target),'maintenance-'+digest(plan).slice(7)+'.journal.json'),saved=readFileSync(journalPath),unknown=JSON.parse(saved),inode=statSync(f.replacement,{bigint:true}).ino;
+      unknown.items['0'].phase='future-phase';writeFileSync(journalPath,canonical(unknown)+'\n');
+      await assert.rejects(applyCaptureMaintenance(f.root,plan,f.domain,{reconcile:true}),{code:'CAPABILITY_UNAVAILABLE'});assert.equal(statSync(f.replacement,{bigint:true}).ino,inode);assert.equal(JSON.parse(readFileSync(journalPath,'utf8')).items['0'].phase,'future-phase');
+      writeFileSync(journalPath,saved);
+    }
     const receipt=await applyCaptureMaintenance(f.root,plan,f.domain,{reconcile:true});assert.equal(receipt.state,'complete');assert.deepEqual(readFileSync(f.source),readFileSync(f.replacement));assert.equal(readFileSync(f.world,'utf8'),'KEEP_WORLD');
     assert.equal(existsSync(join(captureDirectory(f.root,f.target),'scope.lock')),false);
   }

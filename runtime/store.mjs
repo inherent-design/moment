@@ -1,12 +1,12 @@
 import { applyGraph } from './graph.mjs';
-import {storageVersion,assertStorageFormat,createSnapshotTables,writeSnapshot,readSnapshot} from './snapshot-values.mjs';
+import {assertStorageFormat,createSnapshotTables,writeSnapshot,readSnapshot,assertEmptyKernel,assertKernelLayout} from './snapshot-values.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, chmodSync, openSync, closeSync, lstatSync, constants } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { canonical, digest, fail, resultError } from './json.mjs';
-import {counterNext} from './semantic-core.mjs';
+import {counterNext,storageFormat} from './semantic-core.mjs';
 
 /** A candidate is reclaimable only after its recorded child is observed dead. */
 export function startupStatus(value) {
@@ -37,8 +37,9 @@ export class Store {
       this.db.exec(`PRAGMA busy_timeout=${busyTimeoutMillis}; PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;`);
       this.db.exec('BEGIN IMMEDIATE');
       const version = this.db.prepare('PRAGMA user_version').get().user_version;
-      if (version !== 0 && version !== storageVersion) fail('UNSUPPORTED_VERSION', version===1?'Legacy snapshot storage requires an explicit qualified migration':`Unsupported database version ${version}`);
-      if (version === 0) {this.db.exec(`
+      const format=storageFormat('kernel',version);
+      if (!['StorageEmpty','StorageCurrent'].includes(format)) fail('UNSUPPORTED_VERSION', format==='StorageLegacy'?'Legacy snapshot storage requires an explicit qualified migration':`Unsupported database version ${version}`);
+      if (format==='StorageEmpty') {assertEmptyKernel(this.db);this.db.exec(`
         CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE receipts(principal_id TEXT NOT NULL, context_id TEXT NOT NULL, method TEXT NOT NULL, key TEXT NOT NULL, digest TEXT NOT NULL, response TEXT NOT NULL, commit_value TEXT NOT NULL, PRIMARY KEY(principal_id, context_id, method, key));
         CREATE TABLE events(context_id TEXT NOT NULL, sequence INTEGER NOT NULL, event_id TEXT NOT NULL UNIQUE, value TEXT NOT NULL, PRIMARY KEY(context_id, sequence));
@@ -46,6 +47,7 @@ export class Store {
         CREATE TABLE imports(id TEXT PRIMARY KEY, digest TEXT NOT NULL, value TEXT NOT NULL);
         PRAGMA user_version=2;
       `);createSnapshotTables(this.db);}
+      assertKernelLayout(this.db);
       const identity = this.db.prepare("SELECT value FROM metadata WHERE key='systemId'").get();
       if (identity && identity.value !== systemId) fail('IDENTITY_CONFLICT', 'Database belongs to another system');
       if (!identity) this.db.prepare('INSERT INTO metadata VALUES (?, ?)').run('systemId', systemId);

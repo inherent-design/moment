@@ -608,3 +608,73 @@ export const memoryRetentionExcess=(retained,maximum)=>coreBoolean(Core.memory_r
 export function memoryNativeAvailability(manifest) {
  const value=Core.memory_retention_availability(!!manifest.raw,codecText(manifest.basisAvailability),manifest.rawUnavailable?.reason!==undefined,codecText(manifest.rawUnavailable?.reason??''),codecText(manifest.status));retentionTag(value,['RetentionNativeAvailable','RetentionNativeUnsupported']);if(value.$==='RetentionNativeUnsupported')fail('UNSUPPORTED_VERSION','Unrecognized assessment state or basis; native output availability is unqualified');return codecText(value.value);
 }
+
+const captureTag=(value,tags)=>{if(!tags.includes(value?.$))fail('INTERNAL','Invalid core capture decision');return value.$;};
+const coreComparison=value=>({LT:-1,EQ:0,GT:1}[captureTag(value,['LT','EQ','GT'])]);
+const capturePayload=value=>({$:'CapturePayload',id:codecText(value.id),kind:codecText(value.kind),availability:codecText(value.availability.kind),digest:codecText(value.digest),bytes:count(value.bytes),pins:count(value.pins.length),parts:codecTexts(value.path.split('/').map(part=>part.toLowerCase()))});
+const captureWord=value=>{if(!Number.isInteger(value)||value<0||value>0xffffffff)fail('INVALID_ARGUMENT','Capture file words must be unsigned32-bit observations');return value;};
+const captureFile=value=>({$:'CaptureFile',digest:'sha256:'+codecText(value.sha256),bytes:count(value.size),mode:captureWord(value.mode),uid:count(value.uid),gid:count(value.gid),flags:captureWord(value.flags),attrs:canonical(value.attrs)});
+export const captureProtectedParts=()=>textValues(Core.capture_protected_parts(),64);
+export const captureProtectedKind=kind=>coreBoolean(Core.capture_protected_kind(codecText(kind)));
+export const captureProtectedPath=path=>coreBoolean(Core.capture_protected_path(codecTexts(path.split('/').map(part=>part.toLowerCase()))));
+export const captureProtectedAvailability=(kind,availability)=>coreBoolean(Core.capture_protected_availability(codecText(kind),codecText(availability)));
+export const captureObservation=(kind,present,archive)=>codecText(Core.capture_observation(codecText(kind),!!present,!!archive));
+export const captureCandidate=(source,target,allowed,used,maximum)=>captureTag(Core.capture_candidate(capturePayload(source),capturePayload(target),codecTexts(allowed),amount(used),count(maximum)),['CaptureCandidateReady','CaptureCandidateProtected','CaptureCandidateAbsent','CaptureCandidateDifferent','CaptureCandidateBudget']);
+export const captureObservedPair=(source,target,a,b)=>captureTag(Core.capture_observed_pair(capturePayload(source),capturePayload(target),captureFile(a),captureFile(b)),['CapturePairReady','CapturePairBytes','CapturePairMetadata','CapturePairExecutable']);
+export const captureTargets=(ids,maximum)=>coreBoolean(Core.capture_targets(count(ids.length),count(maximum),codecTexts(ids)));
+export const captureSurvivors=(sources,targets)=>coreBoolean(Core.capture_survivors(codecTexts(sources),codecTexts(targets)));
+export const captureCapacity=(files,maximumFiles,bytes,maximumBytes)=>coreBoolean(Core.capture_capacity(count(files),count(maximumFiles),amount(bytes),count(maximumBytes)));
+export const captureRunCompare=(a,b)=>coreComparison(Core.capture_run_compare(count(a.order),codecText(a.id),count(b.order),codecText(b.id)));
+export const captureIdCompare=(a,b)=>coreComparison(Core.capture_id_compare(codecText(a),codecText(b)));
+export function captureRunGroup(manifest){
+ const run=manifest.run,value=Core.capture_group(codecText(manifest.target.systemId),codecText(manifest.target.contextId),run.projectId!==undefined,codecText(run.projectId??''),run.worktree!==undefined,codecText(run.worktree??''),codecText(run.category));captureTag(value,['CaptureRunGroup']);
+ for(const name of ['system','scope','tree','category'])codecText(value[name]);coreBoolean(value.project);coreBoolean(value.tree_present);return canonical(value);
+}
+export function captureRuns(manifests){
+ const byId=new Map(manifests.map(m=>[codecText(m.run.id),m])),input=Core.capture_inputs(count(manifests.length),count(byId.size),codecTexts(manifests.map(m=>m.run.state)));captureTag(input,['CaptureInputsReady','CaptureInputsDuplicate','CaptureInputsUnknown']);
+ if(input.$==='CaptureInputsDuplicate')fail('INVALID_ARGUMENT','Select one current manifest per run');if(input.$==='CaptureInputsUnknown')fail('UNSUPPORTED_VERSION','Unknown run state; preserve its disposition');
+ const groups=new Map();for(const manifest of manifests){const key=captureRunGroup(manifest);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(manifest.run);}
+ const selected=[];for(const group of groups.values()){
+  const sorted=group.toSorted(captureRunCompare),encoded=list(sorted.map(run=>({$:'CaptureRun',id:codecText(run.id),state:codecText(run.state),current:!!run.current,pins:count(run.pins.length)})));
+  selected.push(...textValues(Core.capture_select_group(encoded),group.length));
+ }
+ let state=Core.capture_dependency_start(codecTexts(selected),count(manifests.length));
+ for(;;){const request=Core.capture_dependency_demand(state);captureTag(request,['CaptureDepsReady','CaptureDepsRequest','CaptureDepsFailure']);
+  if(request.$==='CaptureDepsReady')return textValues(request.ids,manifests.length).toSorted(captureIdCompare);
+  if(request.$==='CaptureDepsFailure')fail('NOT_FOUND','Required run dependency is outside the complete selected frontier: '+codecText(request.id));
+  const manifest=byId.get(codecText(request.id));state=Core.capture_dependency_observe(request,!!manifest,codecTexts(manifest?.run.dependencies??[]));
+ }
+}
+export const captureGeneration=(manifest,head)=>captureTag(Core.capture_generation(count(manifest.generation),manifest.previousDigest!==undefined,codecText(manifest.previousDigest??''),!!head,count(head?.generation??0),codecText(head?.digest??'')),['CaptureGenerationReady','CaptureGenerationStale','CaptureGenerationExhausted']);
+export const capturePointer=(current,before,published)=>coreBoolean(Core.capture_pointer(canonical(current??null),canonical(before??null),codecText(current?.digest??''),codecText(published)));
+export const captureReceipt=(receipt,expected)=>captureTag(Core.capture_receipt(codecText(receipt.state),count(receipt.completedItems),count(receipt.files),count(expected)),['CaptureReceiptReplay','CaptureReceiptUnknown','CaptureReceiptRefused','CaptureReceiptUnsupported','CaptureReceiptConflict']);
+
+const storageTag=(value,tags)=>{if(!tags.includes(value?.$))fail('INTERNAL','Invalid core storage decision');return value.$;};
+const storageVersion=value=>Number.isSafeInteger(value)&&value>=0;
+export const storageVersionOne=value=>storageVersion(value)&&coreBoolean(Core.storage_version_one(count(value)));
+export const storageFormat=(component,version)=>storageVersion(version)?storageTag(Core.storage_format(codecText(component),count(version)),['StorageCurrent','StorageLegacy','StorageEmpty','StorageUnsupported']):'StorageUnsupported';
+export const storageReady=journal=>coreBoolean(Core.storage_ready(journal!==undefined,count(storageVersion(journal?.formatVersion)?journal.formatVersion:0),codecText(typeof journal?.stage==='string'?journal.stage:'')));
+export const storagePlanFormats=plan=>storageTag(Core.storage_plan_formats(count(plan.from?.kernel??0),plan.from?.memory!=null,count(plan.from?.memory??0),count(plan.to?.kernel??0),count(plan.to?.memory??0)),['StoragePlanReady','StoragePlanHistorical','StoragePlanUnsupported']);
+export const storageSourceFormat=(actual,source,target,converted)=>coreBoolean(Core.storage_source_format(actual!==null,count(actual??0),source!==null,count(source??0),count(target),!!converted));
+export const storagePreserveMemory=version=>coreBoolean(Core.storage_preserve_memory(count(version)));
+export function storageExecutionHold(state){if(typeof state!=='string'||!Object.hasOwn(runStates,state))fail('UNSUPPORTED_VERSION','Unsupported retained execution state; preserve storage custody');return coreBoolean(Core.storage_execution_hold(runState(state)));}
+export const storageMemoryReceipt=status=>coreBoolean(Core.storage_memory_receipt(codecText(status)));
+export const storageMemoryDispatch=status=>coreBoolean(Core.storage_memory_dispatch(codecText(status)));
+export const storageLabor=(labor,preserve)=>coreBoolean(Core.storage_labor(labor!==undefined,count(storageVersion(labor?.formatVersion)?labor.formatVersion:0),labor?.holder!==undefined&&labor?.holder!==null,!!preserve,codecText(typeof labor?.holder?.component==='string'?labor.holder.component:'')));
+export const storageJournal=(journal,expected)=>storageTag(Core.storage_journal(journal!==undefined,count(storageVersion(journal?.formatVersion)?journal.formatVersion:0),codecText(typeof journal?.planDigest==='string'?journal.planDigest:''),codecText(expected),codecText(typeof journal?.stage==='string'?journal.stage:'')),['StorageJournalFresh','StorageJournalResume','StorageJournalReplay','StorageJournalArchive','StorageJournalConflict','StorageJournalUnsupported']);
+export const storageConversionNeeded=stage=>coreBoolean(Core.storage_conversion_needed(codecText(stage)));
+
+export const captureManifestHeader=manifest=>coreBoolean(Core.capture_manifest_header(count(manifest.generation),manifest.previousDigest!==undefined));
+export const captureDeclaration=payload=>{const value=payload.availability;return coreBoolean(Core.capture_declaration(codecText(value.kind),count(value.restoration?.length??0),count(value.verifiedEvidence?.length??0),count(value.dispositionEvidence?.length??0),value.path===payload.path));};
+
+export const captureCustody=(policy,custody,ownerAlive)=>coreBoolean(Core.capture_custody(!!policy.enabled,!!custody.confirmed,!!ownerAlive,count(custody.participants.length),count(custody.unknownWriters.length)));
+
+export const captureLockReclaim=(lock,target,operation,retired)=>coreBoolean(Core.capture_lock_reclaim(codecText(lock.operationDigest??''),codecText(operation??''),canonical(lock.target),canonical(target),!!retired));
+
+export const captureSum=values=>amountValue(Core.capture_sum(list(values.map(count))));
+
+export const storageEnrollment=(request,session,key)=>coreBoolean(Core.storage_enrollment(canonical(request.session),canonical(session),codecText(request.idempotencyKey),codecText(key),request.enabled===true));
+
+export const captureProtection=payload=>coreBoolean(Core.capture_protection(codecText(payload.kind),count(payload.pins.length)));
+
+export const storageInitialization=(source,stage,intent,system,plan)=>coreBoolean(Core.storage_initialization(source===null,intent!==undefined,count(storageVersion(intent?.formatVersion)?intent.formatVersion:0),codecText(typeof intent?.component==='string'?intent.component:''),codecText(stage),codecText(typeof intent?.systemId==='string'?intent.systemId:''),codecText(system),codecText(typeof intent?.planDigest==='string'?intent.planDigest:''),codecText(plan)));

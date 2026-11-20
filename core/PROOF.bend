@@ -765,3 +765,227 @@ def Laws.retention_working_metadata_is_charged():
 
 def Laws.retention_pool_overflow_does_not_fit():
   {==}
+
+
+def Laws.capture_equal_archive_pair_is_useful():
+  {==}
+
+
+def Laws.capture_packed_representation_is_not_an_exact_local_target():
+  {==}
+
+
+def Laws.capture_pinned_payload_is_not_a_replacement():
+  {==}
+
+
+def Laws.capture_world_cannot_declare_packed_availability():
+  {==}
+
+
+def Laws.capture_operation_state_components_are_protected():
+  {==}
+
+
+def Laws.capture_regular_archive_metadata_is_useful():
+  {==}
+
+
+def Laws.capture_executable_requires_a_different_qualification():
+  {==}
+
+
+def Laws.capture_project_key_preserves_system_and_sort(system, project, context, category):
+  {==}
+
+
+def Laws.capture_context_key_is_not_a_project_key(system, context):
+  {==}
+
+
+def Laws.capture_latest_two_uses_the_ordered_group():
+  {==}
+
+
+def Laws.capture_current_run_survives_completed_history():
+  {==}
+
+
+def Laws.capture_explicit_pin_survives_active_selection():
+  {==}
+
+
+def Laws.capture_empty_dependency_frontier_is_complete(size):
+  {==}
+
+
+def Laws.capture_unknown_dependency_is_not_completed(id, tail, selected, fuel, dependencies):
+  {==}
+
+
+def Laws.capture_dependency_budget_does_not_drop_pending_identity():
+  {==}
+
+
+def Laws.capture_dependency_cycle_can_finish():
+  {==}
+
+
+def Laws.capture_initial_generation_is_useful():
+  {==}
+
+
+def Laws.capture_last_exact_generation_is_useful():
+  {==}
+
+
+def Laws.capture_exhausted_generation_cannot_wrap(generation):
+  {==}
+
+
+def Laws.capture_matching_published_pointer_can_reconcile():
+  {==}
+
+
+def Laws.capture_other_pointer_cannot_be_rewound():
+  {==}
+
+
+def Laws.capture_live_lock_cannot_be_reclaimed(actual, expected, scope, target):
+  {==}
+
+
+def Laws.capture_unbound_lock_cannot_be_reclaimed():
+  {==}
+
+
+def Laws.capture_complete_receipt_requires_exact_coverage():
+  {==}
+
+
+def Laws.capture_incomplete_receipt_remains_uncertain(completed, files, expected):
+  {==}
+
+
+def Laws.capture_complete_receipt_can_replay():
+  {==}
+
+
+def Laws.capture_confirmed_live_custody_is_useful():
+  {==}
+
+
+def Laws.capture_unknown_writer_prevents_custody():
+  {==}
+
+
+def Laws.capture_initial_header_has_no_previous_identity():
+  {==}
+
+
+def Laws.capture_cost_overflow_remains_explicit():
+  {==}
+
+
+def Laws.storage_current_kernel_is_recognized():
+  {==}
+
+
+def Laws.storage_legacy_memory_requires_conversion():
+  {==}
+
+
+def Laws.storage_unknown_format_does_not_initialize():
+  {==}
+
+
+def Laws.storage_missing_journal_is_not_a_migration_hold(version, stage):
+  {==}
+
+
+def Laws.storage_verified_is_not_service_completion():
+  {==}
+
+
+def Laws.storage_supported_plan_can_convert():
+  {==}
+
+
+def Laws.storage_historical_target_requires_its_reader():
+  {==}
+
+
+def Laws.storage_changed_source_needs_recorded_conversion():
+  {==}
+
+
+def Laws.storage_recorded_target_supports_forward_recovery():
+  {==}
+
+
+def Laws.storage_cancellation_request_keeps_effect_custody():
+  {==}
+
+
+def Laws.storage_uncertain_execution_keeps_effect_custody():
+  {==}
+
+
+def Laws.storage_pending_same_plan_can_resume():
+  {==}
+
+
+def Laws.storage_pending_other_plan_cannot_replace_custody():
+  {==}
+
+
+def Laws.storage_complete_old_plan_can_be_archived():
+  {==}
+
+
+def Laws.storage_complete_same_plan_can_replay():
+  {==}
+
+
+def Laws.storage_unknown_journal_version_never_becomes_complete(actual, expected):
+  {==}
+
+
+def Laws.storage_legacy_receipt_does_not_invent_cancellation():
+  {==}
+
+
+def Laws.storage_legacy_dispatch_preserves_unknown():
+  {==}
+
+
+def Laws.storage_enrollment_remains_bound_to_its_session():
+  {==}
+
+
+def Laws.storage_enrollment_exact_binding_is_useful():
+  {==}
+
+
+def Laws.storage_unknown_memory_custody_is_preservable_only_when_selected():
+  {==}
+
+
+def Laws.storage_other_labor_is_not_memory_custody():
+  {==}
+
+
+def Laws.storage_initialization_has_a_useful_forward_path():
+  {==}
+
+
+def Laws.storage_initialization_cannot_replace_an_existing_source():
+  {==}
+
+
+def Laws.storage_initialization_requires_its_own_plan():
+  {==}
+
+
+def Laws.storage_initialization_waits_for_verified_conversion():
+  {==}

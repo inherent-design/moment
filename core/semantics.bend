@@ -12,6 +12,8 @@ import ./guidance.bend as Guide
 import ./memory.bend as Mem
 import ./memory-adapters.bend as MA
 import ./memory-retention.bend as Ret
+import ./captures.bend as Caps
+import ./storage.bend as Storage
 
 def execution_step(state: Run.State, action: Run.Action) -> Run.Step:
   Run.step(state, action)
@@ -1227,3 +1229,166 @@ def memory_retention_availability(raw: Bool, +basis: String, reason_present: Boo
 
 def memory_retention_classify(+kind: String) -> Ret.ValueClass:
   Ret.classify(kind)
+
+
+def capture_protected_parts() -> +List<String>:
+  Caps.protected_parts()
+
+
+def capture_protected_kind(kind: String) -> Bool:
+  Caps.protected_kind(kind)
+
+
+def capture_protected_path(parts: +List<String>) -> Bool:
+  Caps.protected_path(parts)
+
+
+def capture_protected_availability(kind: String, availability: String) -> Bool:
+  Caps.protected_availability(kind, availability)
+
+
+def capture_observation(+kind: String, present: Bool, archive: Bool) -> String:
+  Caps.observation(kind, present, archive)
+
+
+def capture_candidate(source: Caps.Payload, target: Caps.Payload, +allowed: +List<String>, used: Budget.Amount, maximum: Budget.Count) -> Caps.Candidate:
+  Caps.candidate(source, target, allowed, used, maximum)
+
+
+def capture_observed_pair(source: Caps.Payload, target: Caps.Payload, a: Caps.ObservedFile, b: Caps.ObservedFile) -> Caps.ObservedPair:
+  Caps.observed_pair(source, target, a, b)
+
+
+def capture_targets(count: Budget.Count, maximum: Budget.Count, ids: +List<String>) -> Bool:
+  Caps.targets(count, maximum, ids)
+
+
+def capture_survivors(sources: +List<String>, targets: +List<String>) -> Bool:
+  Caps.survivors(sources, targets)
+
+
+def capture_capacity(count: Budget.Count, maximum_count: Budget.Count, bytes: Budget.Amount, maximum_bytes: Budget.Count) -> Bool:
+  Caps.capacity(count, maximum_count, bytes, maximum_bytes)
+
+
+def capture_group(system: String, context: String, +project_present: Bool, project: String, tree_present: Bool, tree: String, category: String) -> Caps.Group:
+  Caps.group(system, context, project_present, project, tree_present, tree, category)
+
+
+def capture_run_compare(+a: Budget.Count, ai: String, +b: Budget.Count, bi: String) -> Cmp:
+  Caps.run_compare(a, ai, b, bi)
+
+
+def capture_id_compare(a: String, b: String) -> Cmp:
+  Caps.id_compare(a, b)
+
+
+def capture_inputs(count: Budget.Count, unique: Budget.Count, states: +List<String>) -> Caps.Inputs:
+  Caps.inputs(count, unique, states)
+
+
+def capture_select_group(+runs: +List<Caps.Run>) -> +List<String>:
+  Caps.select_group(runs)
+
+
+def capture_dependency_start(+ids: +List<String>, size: Budget.Count) -> Caps.DependencyState:
+  Caps.dependency_start(ids, size)
+
+
+def capture_dependency_demand(state: Caps.DependencyState) -> Caps.DependencyDemand:
+  Caps.dependency_demand(state)
+
+
+def capture_dependency_observe(request: Caps.DependencyDemand, present: Bool, dependencies: +List<String>) -> Caps.DependencyState:
+  Caps.dependency_observe(request, present, dependencies)
+
+
+def capture_generation(generation: Budget.Count, previous_present: Bool, previous: String, head_present: Bool, head: Budget.Count, head_digest: String) -> Caps.Generation:
+  Caps.generation(generation, previous_present, previous, head_present, head, head_digest)
+
+
+def capture_pointer(current: String, before: String, digest: String, published: String) -> Bool:
+  Caps.pointer(current, before, digest, published)
+
+
+def capture_receipt(+state: String, completed: Budget.Count, files: Budget.Count, expected: Budget.Count) -> Caps.Receipt:
+  Caps.receipt(state, completed, files, expected)
+
+
+def storage_format(+component: String, +version: Budget.Count) -> Storage.Format:
+  Storage.format(component, version)
+
+
+def storage_version_one(version: Budget.Count) -> Bool:
+  Storage.version_one(version)
+
+
+def storage_ready(present: Bool, version: Budget.Count, stage: String) -> Bool:
+  Storage.ready(present, version, stage)
+
+
+def storage_plan_formats(+source_kernel: Budget.Count, memory_present: Bool, +source_memory: Budget.Count, +target_kernel: Budget.Count, +target_memory: Budget.Count) -> Storage.PlanFormats:
+  Storage.plan_formats(source_kernel, memory_present, source_memory, target_kernel, target_memory)
+
+
+def storage_source_format(+actual_present: Bool, +actual: Budget.Count, source_present: Bool, source: Budget.Count, target: Budget.Count, converted: Bool) -> Bool:
+  Storage.source_format(actual_present, actual, source_present, source, target, converted)
+
+
+def storage_preserve_memory(source_kernel: Budget.Count) -> Bool:
+  Storage.preserve_memory(source_kernel)
+
+
+def storage_execution_hold(state: Run.State) -> Bool:
+  Storage.execution_hold(state)
+
+
+def storage_memory_receipt(status: String) -> Bool:
+  Storage.memory_receipt(status)
+
+
+def storage_memory_dispatch(status: String) -> Bool:
+  Storage.memory_dispatch(status)
+
+
+def storage_labor(present: Bool, version: Budget.Count, holder: Bool, preserve: Bool, component: String) -> Bool:
+  Storage.labor(present, version, holder, preserve, component)
+
+
+def storage_journal(present: Bool, version: Budget.Count, actual: String, expected: String, +stage: String) -> Storage.Journal:
+  Storage.journal(present, version, actual, expected, stage)
+
+
+def storage_conversion_needed(stage: String) -> Bool:
+  Storage.conversion_needed(stage)
+
+
+def capture_manifest_header(generation: Budget.Count, previous: Bool) -> Bool:
+  Caps.manifest_header(generation, previous)
+
+def capture_declaration(availability: String, restoration: Budget.Count, evidence: Budget.Count, disposition: Budget.Count, same_path: Bool) -> Bool:
+  Caps.declaration(availability, restoration, evidence, disposition, same_path)
+
+
+def capture_custody(enabled: Bool, confirmed: Bool, owner_alive: Bool, participants: Budget.Count, unknown_writers: Budget.Count) -> Bool:
+  Caps.custody(enabled, confirmed, owner_alive, participants, unknown_writers)
+
+
+def capture_lock_reclaim(actual_operation: String, expected_operation: String, actual_scope: String, expected_scope: String, retired: Bool) -> Bool:
+  Caps.lock_reclaim(actual_operation, expected_operation, actual_scope, expected_scope, retired)
+
+
+def capture_sum(values: +List<Budget.Count>) -> Budget.Amount:
+  Caps.sum(values)
+
+
+def storage_enrollment(actual_session: String, expected_session: String, actual_key: String, expected_key: String, enabled: Bool) -> Bool:
+  Storage.enrollment(actual_session, expected_session, actual_key, expected_key, enabled)
+
+
+def capture_protection(kind: String, pins: Budget.Count) -> Bool:
+  Caps.protection(kind, pins)
+
+
+def storage_initialization(absent: Bool, present: Bool, version: Budget.Count, component: String, stage: String, actual_system: String, expected_system: String, actual_plan: String, expected_plan: String) -> Bool:
+  Storage.initialization(absent, present, version, component, stage, actual_system, expected_system, actual_plan, expected_plan)

@@ -39,8 +39,8 @@ if(command==='build') {
   const bend=tools.invoke(tools.bend,['core/PROOF.bend','--verdict'],{cwd:directory});
   if(!bend.includes('ALL PROOFS CHECK')||bend.includes('SOME PROOFS FAIL'))throw Error('Bend kernel verdict did not accept every law\n'+bend);
   const lean=tools.invoke(tools.lean,['--run','proof/Moment.lean'],{cwd:directory});
-  if(/sorryAx|warning:|error:/.test(lean))throw Error('Lean rejected a proof or its axiom audit\n'+lean);
-  const {checkCorrespondence,checkAxioms}=await import(pathToFileURL(join(directory,'scripts/core-correspondence.mjs')).href);
+  const {checkCorrespondence,checkAxioms,checkModelDiagnostics}=await import(pathToFileURL(join(directory,'scripts/core-correspondence.mjs')).href);
+  checkModelDiagnostics(lean);
   const declarations=[...readFileSync(join(directory,'proof/Moment.lean'),'utf8').matchAll(/^#print axioms ([\w.]+)$/gm)].map(m=>m[1].startsWith('Moment.')?m[1]:'Moment.'+m[1]);
   if(!declarations.length)throw Error('No declared Lean claims to audit');
   const audits=checkAxioms(lean,declarations),correspondence=checkCorrespondence(lean);

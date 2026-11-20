@@ -85,7 +85,7 @@ export class SessionMemory {
       this.db.exec('PRAGMA busy_timeout=5000');
       this.transaction(()=>{
         const version=this.db.prepare('PRAGMA user_version').get().user_version;
-        if(version!==0 && version!==memoryStorageVersion)fail('UNSUPPORTED_VERSION','Unsupported session memory storage version');
+        if(!['StorageEmpty','StorageCurrent'].includes(core.storageFormat('memory',version)))fail('UNSUPPORTED_VERSION','Unsupported session memory storage version');
         const tables=this.db.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all().map(row=>row.name);
         const expectedTables=Object.keys(memorySchemaColumns).sort();
         if(version===0 && tables.length || version===memoryStorageVersion && canonical(tables)!==canonical(expectedTables))fail('UNSUPPORTED_VERSION','Existing SQLite schema is not a recognized Moment session memory store');
@@ -98,7 +98,7 @@ export class SessionMemory {
       this.db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;');
       this.transaction(()=>{
         const version=this.db.prepare('PRAGMA user_version').get().user_version;
-        if(version!==0 && version!==memoryStorageVersion) fail('UNSUPPORTED_VERSION','Unsupported session memory storage version');
+        if(!['StorageEmpty','StorageCurrent'].includes(core.storageFormat('memory',version)))fail('UNSUPPORTED_VERSION','Unsupported session memory storage version');
         if(version===0) this.db.exec(`
           CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
           CREATE TABLE memory_sessions(key TEXT PRIMARY KEY,value TEXT NOT NULL);

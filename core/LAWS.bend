@@ -12,6 +12,8 @@ import ./guidance.bend as Guide
 import ./memory.bend as Mem
 import ./memory-adapters.bend as MA
 import ./memory-retention.bend as MR
+import ./captures.bend as Caps
+import ./storage.bend as Storage
 
 law deny_precedence:
   for permits: Core.Truth
@@ -913,3 +915,251 @@ law retention_working_metadata_is_charged:
 
 law retention_pool_overflow_does_not_fit:
   {Core.memory_retention_usage(MR.RetentionProfile{}, Con{MR.RetentionValue{"profile", Budget.BudgetCount{2097151, 4294967295}}, Nil{}}, Nil{}, Nil{}, Nil{}, Budget.zero(), Budget.zero()) == MR.RetentionUsage{Budget.BudgetOverflow{}} : MR.Usage}
+
+
+law capture_equal_archive_pair_is_useful:
+  {Core.capture_candidate(Caps.CapturePayload{"s", "archive", "present", "d", Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 0}, Nil{}}, Caps.CapturePayload{"t", "archive", "present", "d", Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 0}, Nil{}}, Con{"archive", Nil{}}, Budget.BudgetFinite{Budget.zero()}, Budget.BudgetCount{0, 1}) == Caps.CaptureCandidateReady{} : Caps.Candidate}
+
+
+law capture_packed_representation_is_not_an_exact_local_target:
+  {Core.capture_candidate(Caps.CapturePayload{"s", "archive", "present", "d", Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 0}, Nil{}}, Caps.CapturePayload{"t", "archive", "packed", "d", Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 0}, Nil{}}, Con{"archive", Nil{}}, Budget.BudgetFinite{Budget.zero()}, Budget.BudgetCount{0, 1}) == Caps.CaptureCandidateAbsent{} : Caps.Candidate}
+
+
+law capture_pinned_payload_is_not_a_replacement:
+  {Core.capture_candidate(Caps.CapturePayload{"s", "archive", "present", "d", Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 0}, Nil{}}, Caps.CapturePayload{"t", "archive", "present", "d", Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 1}, Nil{}}, Con{"archive", Nil{}}, Budget.BudgetFinite{Budget.zero()}, Budget.BudgetCount{0, 1}) == Caps.CaptureCandidateProtected{} : Caps.Candidate}
+
+
+law capture_world_cannot_declare_packed_availability:
+  {Core.capture_protected_availability("world", "packed") == False{} : Bool}
+
+
+law capture_operation_state_components_are_protected:
+  {Core.capture_protected_path(Con{"recipient-state", Nil{}}) == True{} : Bool}
+
+
+law capture_regular_archive_metadata_is_useful:
+  {Core.capture_observed_pair(Caps.CapturePayload{"s", "archive", "present", "d", Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 0}, Nil{}}, Caps.CapturePayload{"t", "archive", "present", "d", Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 0}, Nil{}}, Caps.CaptureFile{"d", Budget.BudgetCount{0, 1}, 420, Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 1}, 0, "{}"}, Caps.CaptureFile{"d", Budget.BudgetCount{0, 1}, 420, Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 1}, 0, "{}"}) == Caps.CapturePairReady{} : Caps.ObservedPair}
+
+
+law capture_executable_requires_a_different_qualification:
+  {Core.capture_observed_pair(Caps.CapturePayload{"s", "archive", "present", "d", Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 0}, Nil{}}, Caps.CapturePayload{"t", "archive", "present", "d", Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 0}, Nil{}}, Caps.CaptureFile{"d", Budget.BudgetCount{0, 1}, 493, Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 1}, 0, "{}"}, Caps.CaptureFile{"d", Budget.BudgetCount{0, 1}, 493, Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 1}, 0, "{}"}) == Caps.CapturePairExecutable{} : Caps.ObservedPair}
+
+
+law capture_project_key_preserves_system_and_sort:
+  for system: String
+  for project: String
+  for context: String
+  for category: String
+  {Core.capture_group(system, context, True{}, project, False{}, "", category) == Caps.CaptureRunGroup{system, True{}, project, False{}, "", category} : Caps.Group}
+
+
+law capture_context_key_is_not_a_project_key:
+  for system: String
+  for context: String
+  {Core.capture_group(system, context, False{}, "", False{}, "", "archive") == Caps.CaptureRunGroup{system, False{}, context, False{}, "", "archive"} : Caps.Group}
+
+
+law capture_latest_two_uses_the_ordered_group:
+  {Core.capture_select_group(Con{Caps.CaptureRun{"a", "completed", False{}, Budget.BudgetCount{0, 0}}, Con{Caps.CaptureRun{"b", "completed", False{}, Budget.BudgetCount{0, 0}}, Con{Caps.CaptureRun{"c", "completed", False{}, Budget.BudgetCount{0, 0}}, Nil{}}}}) == Con{"a", Con{"b", Nil{}}} : +List<String>}
+
+
+law capture_current_run_survives_completed_history:
+  {Core.capture_select_group(Con{Caps.CaptureRun{"completed", "completed", False{}, Budget.BudgetCount{0, 0}}, Con{Caps.CaptureRun{"current", "completed", True{}, Budget.BudgetCount{0, 0}}, Con{Caps.CaptureRun{"old", "completed", False{}, Budget.BudgetCount{0, 0}}, Nil{}}}}) == Con{"current", Nil{}} : +List<String>}
+
+
+law capture_explicit_pin_survives_active_selection:
+  {Core.capture_select_group(Con{Caps.CaptureRun{"active", "active", False{}, Budget.BudgetCount{0, 0}}, Con{Caps.CaptureRun{"old", "cancelled", False{}, Budget.BudgetCount{0, 1}}, Nil{}}}) == Con{"active", Con{"old", Nil{}}} : +List<String>}
+
+
+law capture_empty_dependency_frontier_is_complete:
+  for size: Budget.Count
+  {Core.capture_dependency_demand(Core.capture_dependency_start(Nil{}, size)) == Caps.CaptureDepsReady{Nil{}} : Caps.DependencyDemand}
+
+
+law capture_unknown_dependency_is_not_completed:
+  for id: String
+  for tail: +List<String>
+  for selected: +List<String>
+  for fuel: Budget.Count
+  for dependencies: +List<String>
+  {Core.capture_dependency_observe(Caps.CaptureDepsRequest{id, tail, selected, fuel}, False{}, dependencies) == Caps.CaptureDepsMissingState{id} : Caps.DependencyState}
+
+
+law capture_dependency_budget_does_not_drop_pending_identity:
+  {Core.capture_dependency_demand(Core.capture_dependency_start(Con{"a", Nil{}}, Budget.zero())) == Caps.CaptureDepsFailure{"exhausted", "a"} : Caps.DependencyDemand}
+
+
+law capture_dependency_cycle_can_finish:
+  {Core.capture_dependency_demand(Core.capture_dependency_observe(Caps.CaptureDepsRequest{"a", Nil{}, Con{"a", Nil{}}, Budget.BudgetCount{0, 1}}, True{}, Con{"a", Nil{}})) == Caps.CaptureDepsReady{Con{"a", Nil{}}} : Caps.DependencyDemand}
+
+
+law capture_initial_generation_is_useful:
+  {Core.capture_generation(Budget.BudgetCount{0, 1}, False{}, "", False{}, Budget.zero(), "") == Caps.CaptureGenerationReady{} : Caps.Generation}
+
+
+law capture_last_exact_generation_is_useful:
+  {Core.capture_generation(Budget.BudgetCount{2097151, 4294967295}, True{}, "d", True{}, Budget.BudgetCount{2097151, 4294967294}, "d") == Caps.CaptureGenerationReady{} : Caps.Generation}
+
+
+law capture_exhausted_generation_cannot_wrap:
+  for generation: Budget.Count
+  {Core.capture_generation(generation, True{}, "d", True{}, Budget.BudgetCount{2097151, 4294967295}, "d") == Caps.CaptureGenerationExhausted{} : Caps.Generation}
+
+
+law capture_matching_published_pointer_can_reconcile:
+  {Core.capture_pointer("current", "before", "digest", "digest") == True{} : Bool}
+
+
+law capture_other_pointer_cannot_be_rewound:
+  {Core.capture_pointer("current", "before", "digest", "other") == False{} : Bool}
+
+
+law capture_live_lock_cannot_be_reclaimed:
+  for actual: String
+  for expected: String
+  for scope: String
+  for target: String
+  {Core.capture_lock_reclaim(actual, expected, scope, target, False{}) == False{} : Bool}
+
+
+law capture_unbound_lock_cannot_be_reclaimed:
+  {Core.capture_lock_reclaim("", "", "scope", "scope", True{}) == False{} : Bool}
+
+
+law capture_complete_receipt_requires_exact_coverage:
+  {Core.capture_receipt("complete", Budget.zero(), Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 1}) == Caps.CaptureReceiptConflict{} : Caps.Receipt}
+
+
+law capture_incomplete_receipt_remains_uncertain:
+  for completed: Budget.Count
+  for files: Budget.Count
+  for expected: Budget.Count
+  {Core.capture_receipt("incomplete", completed, files, expected) == Caps.CaptureReceiptUnknown{} : Caps.Receipt}
+
+
+law capture_complete_receipt_can_replay:
+  {Core.capture_receipt("complete", Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 1}) == Caps.CaptureReceiptReplay{} : Caps.Receipt}
+
+
+law capture_confirmed_live_custody_is_useful:
+  {Core.capture_custody(True{}, True{}, True{}, Budget.BudgetCount{0, 1}, Budget.zero()) == True{} : Bool}
+
+
+law capture_unknown_writer_prevents_custody:
+  {Core.capture_custody(True{}, True{}, True{}, Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 1}) == False{} : Bool}
+
+
+law capture_initial_header_has_no_previous_identity:
+  {Core.capture_manifest_header(Budget.BudgetCount{0, 1}, True{}) == False{} : Bool}
+
+
+law capture_cost_overflow_remains_explicit:
+  {Core.capture_sum(Con{Budget.BudgetCount{2097151, 4294967295}, Con{Budget.BudgetCount{0, 1}, Nil{}}}) == Budget.BudgetOverflow{} : Budget.Amount}
+
+
+law storage_current_kernel_is_recognized:
+  {Core.storage_format("kernel", Budget.BudgetCount{0, 2}) == Storage.StorageCurrent{} : Storage.Format}
+
+
+law storage_legacy_memory_requires_conversion:
+  {Core.storage_format("memory", Budget.BudgetCount{0, 2}) == Storage.StorageLegacy{} : Storage.Format}
+
+
+law storage_unknown_format_does_not_initialize:
+  {Core.storage_format("kernel", Budget.BudgetCount{0, 99}) == Storage.StorageUnsupported{} : Storage.Format}
+
+
+law storage_missing_journal_is_not_a_migration_hold:
+  for version: Budget.Count
+  for stage: String
+  {Core.storage_ready(False{}, version, stage) == True{} : Bool}
+
+
+law storage_verified_is_not_service_completion:
+  {Core.storage_ready(True{}, Budget.BudgetCount{0, 1}, "verified") == False{} : Bool}
+
+
+law storage_supported_plan_can_convert:
+  {Core.storage_plan_formats(Budget.BudgetCount{0, 1}, True{}, Budget.BudgetCount{0, 2}, Budget.BudgetCount{0, 2}, Budget.BudgetCount{0, 3}) == Storage.StoragePlanReady{} : Storage.PlanFormats}
+
+
+law storage_historical_target_requires_its_reader:
+  {Core.storage_plan_formats(Budget.BudgetCount{0, 1}, True{}, Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 2}, Budget.BudgetCount{0, 2}) == Storage.StoragePlanHistorical{} : Storage.PlanFormats}
+
+
+law storage_changed_source_needs_recorded_conversion:
+  {Core.storage_source_format(True{}, Budget.BudgetCount{0, 2}, True{}, Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 2}, False{}) == False{} : Bool}
+
+
+law storage_recorded_target_supports_forward_recovery:
+  {Core.storage_source_format(True{}, Budget.BudgetCount{0, 2}, True{}, Budget.BudgetCount{0, 1}, Budget.BudgetCount{0, 2}, True{}) == True{} : Bool}
+
+
+law storage_cancellation_request_keeps_effect_custody:
+  {Core.storage_execution_hold(Run.RunCancelling{}) == True{} : Bool}
+
+
+law storage_uncertain_execution_keeps_effect_custody:
+  {Core.storage_execution_hold(Run.RunUncertain{}) == True{} : Bool}
+
+
+law storage_pending_same_plan_can_resume:
+  {Core.storage_journal(True{}, Budget.BudgetCount{0, 1}, "plan", "plan", "backed-up") == Storage.StorageJournalResume{} : Storage.Journal}
+
+
+law storage_pending_other_plan_cannot_replace_custody:
+  {Core.storage_journal(True{}, Budget.BudgetCount{0, 1}, "old", "new", "verified") == Storage.StorageJournalConflict{} : Storage.Journal}
+
+
+law storage_complete_old_plan_can_be_archived:
+  {Core.storage_journal(True{}, Budget.BudgetCount{0, 1}, "old", "new", "complete") == Storage.StorageJournalArchive{} : Storage.Journal}
+
+
+law storage_complete_same_plan_can_replay:
+  {Core.storage_journal(True{}, Budget.BudgetCount{0, 1}, "plan", "plan", "complete") == Storage.StorageJournalReplay{} : Storage.Journal}
+
+
+law storage_unknown_journal_version_never_becomes_complete:
+  for actual: String
+  for expected: String
+  {Core.storage_journal(True{}, Budget.BudgetCount{0, 99}, actual, expected, "complete") == Storage.StorageJournalUnsupported{} : Storage.Journal}
+
+
+law storage_legacy_receipt_does_not_invent_cancellation:
+  {Core.storage_memory_receipt("cancelled") == False{} : Bool}
+
+
+law storage_legacy_dispatch_preserves_unknown:
+  {Core.storage_memory_dispatch("unknown") == True{} : Bool}
+
+
+law storage_enrollment_remains_bound_to_its_session:
+  {Core.storage_enrollment("other", "planned", "key", "key", True{}) == False{} : Bool}
+
+
+law storage_enrollment_exact_binding_is_useful:
+  {Core.storage_enrollment("planned", "planned", "key", "key", True{}) == True{} : Bool}
+
+
+law storage_unknown_memory_custody_is_preservable_only_when_selected:
+  {Core.storage_labor(True{}, Budget.BudgetCount{0, 1}, True{}, True{}, "memory") == True{} : Bool}
+
+
+law storage_other_labor_is_not_memory_custody:
+  {Core.storage_labor(True{}, Budget.BudgetCount{0, 1}, True{}, True{}, "guidance") == False{} : Bool}
+
+
+law storage_initialization_has_a_useful_forward_path:
+  {Core.storage_initialization(True{}, True{}, Budget.one(), "memory", "verified", "system", "system", "plan", "plan") == True{} : Bool}
+
+
+law storage_initialization_cannot_replace_an_existing_source:
+  {Core.storage_initialization(False{}, True{}, Budget.one(), "memory", "verified", "system", "system", "plan", "plan") == False{} : Bool}
+
+
+law storage_initialization_requires_its_own_plan:
+  {Core.storage_initialization(True{}, True{}, Budget.one(), "memory", "verified", "system", "system", "other", "plan") == False{} : Bool}
+
+
+law storage_initialization_waits_for_verified_conversion:
+  {Core.storage_initialization(True{}, True{}, Budget.one(), "memory", "converted", "system", "system", "plan", "plan") == False{} : Bool}

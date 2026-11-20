@@ -1,3 +1,4 @@
+import * as core from './semantic-core.mjs';
 import {DatabaseSync,backup} from 'node:sqlite';
 import {mkdirSync,openSync,closeSync,constants,lstatSync,readFileSync,existsSync} from 'node:fs';
 import {join,isAbsolute} from 'node:path';
@@ -40,7 +41,7 @@ function currentOwner(db) {
 function idle(root,kernel,memory,{preserveMemoryCustody=false}={}) {
   currentOwner(kernel);
   const labor=optionalJson(join(root,'runtime/native-labor.json'),8192);
-  if(labor && (labor.formatVersion!==1 || labor.holder && (!preserveMemoryCustody||labor.holder.component!=='memory')))fail('OUTCOME_UNKNOWN','Native labor is retained or unrecognized; settle it before storage migration','reconcile');
+  if(!core.storageLabor(labor,preserveMemoryCustody))fail('OUTCOME_UNKNOWN','Native labor is retained or unrecognized; settle it before storage migration','reconcile');
   if(labor?.holder&&preserveMemoryCustody){
     const row=memory?.prepare('SELECT value FROM dispatches WHERE id=?').get(labor.holder.dispatchId),dispatch=row?JSON.parse(row.value):undefined;
     if(!dispatch||dispatch.inputDigest!==labor.holder.inputDigest)fail('OUTCOME_UNKNOWN','Retained memory labor has no matching dispatch; preserve its custody for inspection','reconcile');
@@ -53,7 +54,7 @@ function idle(root,kernel,memory,{preserveMemoryCustody=false}={}) {
     else { // Decode through the same integrity-checking storage reader.
       state=readCurrent(kernel,row.context_id,row.revision);
     }
-    if(Object.values(state.controlState?.executions??{}).some(item=>['running','unknown'].includes(item.value?.state)))fail('OUTCOME_UNKNOWN','An execution needs observed settlement before migration','reconcile');
+    if(Object.values(state.controlState?.executions??{}).some(item=>core.storageExecutionHold(item.value?.state)))fail('OUTCOME_UNKNOWN','An execution needs observed settlement before migration','reconcile');
   }
 }
 import {readSnapshot as readCurrent} from './snapshot-values.mjs';
@@ -94,7 +95,7 @@ function privateDirectory(path){
   const stat=lstatSync(path);if(!stat.isDirectory()||stat.isSymbolicLink()||stat.uid!==process.getuid()||stat.mode&0o077)fail('IDENTITY_CONFLICT','Migration directories must be private, owned and direct');
 }
 function completeJournal(root,systemId,journal,planDigest){
-  if(!journal||journal.formatVersion!==1||journal.stage!=='complete'||!journal.plan||!journal.result||journal.planDigest!==planDigest||digest(journal.plan)!==planDigest||journal.plan.root!==root||journal.plan.systemId!==systemId||journal.result.systemId!==systemId||!/^[0-9a-f-]{36}$/.test(journal.plan.id??'')||journal.recovery!==join(root,'runtime/recovery',journal.plan.id)||journal.result.recovery!==journal.recovery||canonical(journal.result.formats)!==canonical(journal.plan.to))fail('IDENTITY_CONFLICT','Completed migration receipt has inconsistent identity');
+  if(core.storageJournal(journal,planDigest)!=='StorageJournalReplay'||!journal.plan||!journal.result||journal.planDigest!==planDigest||digest(journal.plan)!==planDigest||journal.plan.root!==root||journal.plan.systemId!==systemId||journal.result.systemId!==systemId||!/^[0-9a-f-]{36}$/.test(journal.plan.id??'')||journal.recovery!==join(root,'runtime/recovery',journal.plan.id)||journal.result.recovery!==journal.recovery||canonical(journal.result.formats)!==canonical(journal.plan.to))fail('IDENTITY_CONFLICT','Completed migration receipt has inconsistent identity');
   return journal;
 }
 function archivedComplete(root,systemId,plan){
@@ -103,39 +104,48 @@ function archivedComplete(root,systemId,plan){
   const value=active?.planDigest===hash?active:optionalJson(join(root,'runtime/recovery',plan.id,'completed-journal.json'));
   return value?completeJournal(root,systemId,value,hash):undefined;
 }
+function initializationAdmission(journal,plan,planDigest) {
+  const intent=journal?.initialization;
+  if(intent===undefined)return false;
+  if(!intent||Object.keys(intent).sort().join(',')!=='component,formatVersion,planDigest,systemId'||!core.storageInitialization(plan.from.memory,journal.stage,intent,plan.systemId,planDigest))
+    fail('IDENTITY_CONFLICT','Retained memory initialization is outside its exact verified migration plan');
+  return true;
+}
 
 /** Explicit operator operation; the caller owns publishing matching code and stopping Moment. */
 export async function migrateStorage(root,plan,{onStage=()=>{}}={}) {
   const home=inspectHome({override:root});
   if(!home.registry || plan?.formatVersion!==1 || home.root!==plan.root || home.registry.systemId!==plan.systemId || !/^[0-9a-f-]{36}$/.test(plan.id??''))fail('IDENTITY_CONFLICT','Migration plan does not identify this store');
-  if(canonical(plan.to)===canonical({kernel:2,memory:2})){
+  const formats=core.storagePlanFormats(plan);
+  if(formats==='StoragePlanHistorical'){
     const historical=archivedComplete(home.root,plan.systemId,plan);
     if(historical)return historical.result;
     fail('UNSUPPORTED_VERSION','This retained plan targets memory format 2; preserve its journal/backups and recover it with its qualified original build before a format-3 plan');
   }
-  if(canonical(plan.to)!==canonical({kernel:2,memory:3})||![1,2].includes(plan.from?.kernel)||![null,1,2,3].includes(plan.from?.memory))fail('IDENTITY_CONFLICT','Migration plan does not identify supported source and target formats');
+  if(formats!=='StoragePlanReady')fail('IDENTITY_CONFLICT','Migration plan does not identify supported source and target formats');
   const files=sourceFiles(home.root),planDigest=digest(plan),lock=acquire(home.root);
   let kernel,memory,journal,priorCompleted;
-  const custody={preserveMemoryCustody:plan.from.kernel===2};
+  const custody={preserveMemoryCustody:core.storagePreserveMemory(plan.from.kernel)};
   const save=stage=>{journal.stage=stage;replacePrivate(migrationJournal(home.root),canonical(journal)+'\n');onStage(stage);};
   try {
     journal=optionalJson(migrationJournal(home.root));
-    if(journal){
-      if(journal.planDigest!==planDigest){
-        if(journal.stage!=='complete')fail('IDENTITY_CONFLICT','A different retained migration owns this journal; resume its original exact plan');
-        priorCompleted=completeJournal(home.root,plan.systemId,journal,journal.planDigest);journal=undefined;
-      }else if(journal.stage==='complete')return completeJournal(home.root,plan.systemId,journal,planDigest).result;
-      else if(!['prepared','backed-up','converted','verified'].includes(journal.stage))fail('UNSUPPORTED_VERSION','Unknown migration recovery stage');
-    }
+    const action=core.storageJournal(journal,planDigest);
+    if(action==='StorageJournalUnsupported')fail('UNSUPPORTED_VERSION','Unknown migration journal version or recovery stage; preserve its exact state');
+    if(action==='StorageJournalConflict')fail('IDENTITY_CONFLICT','A different retained migration owns this journal; resume its original exact plan');
+    if(action==='StorageJournalArchive'){priorCompleted=completeJournal(home.root,plan.systemId,journal,journal.planDigest);journal=undefined;}
+    else if(action==='StorageJournalReplay')return completeJournal(home.root,plan.systemId,journal,planDigest).result;
+    if(journal&&(!journal.plan||digest(journal.plan)!==planDigest||canonical(journal.plan)!==canonical(plan)))fail('IDENTITY_CONFLICT','Retained migration input differs from its exact plan');
+    const initializing=initializationAdmission(journal,plan,planDigest);
     const owner=readPrivateJson(files.owner);match({principalId:owner.principalId,digest:bytesDigest(readFileSync(files.owner))},plan.owner,'Owner credential custody changed since the plan');
     match(configuredMemoryLimits(home.root),plan.memoryLimits,'Memory limits changed since the plan; create a fresh plan');
     kernel=openPrivate(files.kernel);memory=existsSync(files.memory)?openPrivate(files.memory):undefined;
-    if(version(kernel)!==plan.from.kernel&&!(journal?.conversion?.kernel&&version(kernel)===plan.to.kernel))fail('REVISION_CONFLICT','Kernel format changed since the plan','refresh');
-    if((memory?version(memory):null)!==plan.from.memory&&!(journal?.conversion?.memory&&memory&&version(memory)===plan.to.memory))fail('REVISION_CONFLICT','Memory format changed since the plan','refresh');
+    if(!core.storageSourceFormat(version(kernel),plan.from.kernel,plan.to.kernel,!!journal?.conversion?.kernel))fail('REVISION_CONFLICT','Kernel format changed since the plan','refresh');
+    if(!core.storageSourceFormat(memory?version(memory):null,plan.from.memory,plan.to.memory,!!journal?.conversion?.memory||initializing))fail('REVISION_CONFLICT','Memory format changed since the plan','refresh');
+    if(initializing&&memory)fingerprintMemory(memory,plan.systemId);
     idle(home.root,kernel,memory,custody);
     match(fingerprintStorage(kernel,plan.systemId,{includeOwnership:false}),plan.kernel,'Context history or auxiliary state changed since the plan; create a fresh plan');
-    const expectedMemory=()=>memory&&version(memory)===3&&journal?.conversion?.memory?.afterFingerprint?journal.conversion.memory.afterFingerprint:plan.memory;
-    if(journal?.stage!=='verified')match(memory?fingerprintMemory(memory,plan.systemId):null,expectedMemory(),'Session memory changed since the plan or converted cutoff; preserve accepted state');
+    const expectedMemory=()=>memory&&core.storageFormat('memory',version(memory))==='StorageCurrent'&&journal?.conversion?.memory?.afterFingerprint?journal.conversion.memory.afterFingerprint:plan.memory;
+    if(core.storageConversionNeeded(journal?.stage??''))match(memory?fingerprintMemory(memory,plan.systemId):null,expectedMemory(),'Session memory changed since the plan or converted cutoff; preserve accepted state');
     if(!journal){
       const recovery=join(home.root,'runtime/recovery',plan.id);privateDirectory(join(home.root,'runtime/recovery'));privateDirectory(recovery);
       journal={formatVersion:1,planDigest,plan,recovery,stage:'prepared',backups:{kernel:join(recovery,'store.sqlite'),...(memory?{memory:join(recovery,'session-memory.sqlite')}:{})}};
@@ -149,7 +159,7 @@ export async function migrateStorage(root,plan,{onStage=()=>{}}={}) {
       onStage('prepared');
     }
     if(journal.recovery!==join(home.root,'runtime/recovery',plan.id))fail('IDENTITY_CONFLICT','Retained recovery directory does not match this migration');
-    if(journal.stage!=='verified'){
+    if(core.storageConversionNeeded(journal.stage)){
     for(const [component,source] of [['kernel',kernel],['memory',memory]])if(source){
       const path=journal.backups[component];
       if(!isAbsolute(path) || path!==join(journal.recovery,component==='kernel'?'store.sqlite':'session-memory.sqlite'))fail('IDENTITY_CONFLICT','Retained recovery path is invalid');
@@ -162,7 +172,7 @@ export async function migrateStorage(root,plan,{onStage=()=>{}}={}) {
     idle(home.root,kernel,memory,custody);
     match(fingerprintStorage(kernel,plan.systemId,{includeOwnership:false}),plan.kernel,'A competing writer changed context state before cutover');
     match(memory?fingerprintMemory(memory,plan.systemId):null,expectedMemory(),'A competing writer changed session memory before cutover');
-    const kernelResult=convertLegacySnapshots(kernel,plan.systemId),memoryResult=memory?(version(memory)===3&&journal.conversion?.memory?.afterFingerprint?journal.conversion.memory:convertLegacyMemory(memory,plan.systemId,{limits:plan.memoryLimits})):null;
+    const kernelResult=convertLegacySnapshots(kernel,plan.systemId),memoryResult=memory?(core.storageFormat('memory',version(memory))==='StorageCurrent'&&journal.conversion?.memory?.afterFingerprint?journal.conversion.memory:convertLegacyMemory(memory,plan.systemId,{limits:plan.memoryLimits})):null;
     journal.conversion={kernel:kernelResult,memory:memoryResult};save('backed-up');
     onStage('before-commit');
     // Kernel first: old binaries refuse format 2 even if a crash leaves memory
@@ -180,14 +190,22 @@ export async function migrateStorage(root,plan,{onStage=()=>{}}={}) {
     save('verified');
     }
     if(kernel){kernel.close();kernel=undefined;}if(memory){memory.close();memory=undefined;}
+    if(plan.from.memory===null&&journal.initialization===undefined){
+      journal.initialization={formatVersion:1,component:'memory',systemId:plan.systemId,planDigest};
+      save('verified');
+    }
+    initializationAdmission(journal,plan,planDigest);
     const sessionMemory=new SessionMemory(files.memory,plan.systemId,plan.memoryLimits);
     const enrollments=[];
     try{
+      onStage('memory-initialized');
       journal.configurationRequests??=[];
       for(let i=0;i<plan.enroll.length;i++){
         const session=plan.enroll[i];
         if(!journal.configurationRequests[i]){const current=sessionMemory.subscription(session);journal.configurationRequests[i]={session,expectedRevision:current.revision,idempotencyKey:'migration:'+plan.id,enabled:true};save('verified');}
-        enrollments.push(sessionMemory.configure(journal.configurationRequests[i],owner.principalId));
+        const request=journal.configurationRequests[i];
+        if(!request||Object.keys(request).sort().join(',')!=='enabled,expectedRevision,idempotencyKey,session'||!core.storageEnrollment(request,session,'migration:'+plan.id))fail('IDENTITY_CONFLICT','Retained enrollment request is outside its exact migration plan');
+        enrollments.push(sessionMemory.configure(request,owner.principalId));
       }
       publishEnrollment(home.root,plan.systemId,sessionMemory.subscriptions());
     }finally{sessionMemory.close();}

@@ -1,28 +1,17 @@
+import * as core from './semantic-core.mjs';
 import {createHash} from 'node:crypto';
 import {canonical,bytesDigest,fail} from './json.mjs';
-import {storageVersion,createSnapshotTables,writeSnapshot,readSnapshot} from './snapshot-values.mjs';
+import {storageVersion,createSnapshotTables,writeSnapshot,readSnapshot,assertKernelLayout} from './snapshot-values.mjs';
 import {legacyMemoryColumns,memoryContinuityColumns,memorySchemaColumns,createMemoryContinuityTables,MemoryContinuity} from './memory-continuity.mjs';
 import {memoryDefaults,memorySessionKey,memoryStorageVersion} from './session-memory.mjs';
 
-const legacyColumns={
-  metadata:['key','value'],snapshots:['context_id','revision','value'],
-  receipts:['principal_id','context_id','method','key','digest','response','commit_value'],
-  events:['context_id','sequence','event_id','value'],outbox:['context_id','execution_id','value'],imports:['id','digest','value']
-};
 const versionOf=db=>db.prepare('PRAGMA user_version').get().user_version;
 function identity(db,systemId) {
   if(db.prepare("SELECT value FROM metadata WHERE key='systemId'").get()?.value!==systemId)
     fail('IDENTITY_CONFLICT','Storage migration system identity differs from its selected store');
 }
 function legacy(db) {
-  const tables=db.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all().map(x=>x.name);
-  if(canonical(tables)!==canonical(Object.keys(legacyColumns).sort())) fail('UNSUPPORTED_VERSION','Legacy storage tables require inspection before conversion');
-  for(const [table,columns] of Object.entries(legacyColumns)){
-    if(canonical(db.prepare('PRAGMA table_info('+table+')').all().map(x=>x.name))!==canonical(columns))
-      fail('UNSUPPORTED_VERSION','Legacy '+table+' columns do not match the consumed storage contract');
-  }
-  if(db.prepare("SELECT 1 FROM sqlite_schema WHERE type IN ('trigger','view') LIMIT 1").get())
-    fail('UNSUPPORTED_VERSION','Legacy storage has additional triggers/views requiring an explicit migration');
+  assertKernelLayout(db,{legacy:true});
 }
 function ownedRead(db,action) {
   const own=!db.isTransaction;
@@ -31,14 +20,14 @@ function ownedRead(db,action) {
   catch(error){if(own)try{db.exec('ROLLBACK');}catch{}throw error;}
 }
 function* states(db,version) {
-  if(version===1){
+  if(core.storageFormat('kernel',version)==='StorageLegacy'){
     for(const row of db.prepare('SELECT context_id,revision,value FROM snapshots ORDER BY context_id,revision').iterate()){
       let state;try{state=JSON.parse(row.value);}catch{fail('IDENTITY_CONFLICT','Legacy snapshot is not valid JSON');}
       if(state?.context?.id!==row.context_id || state?.context?.revision!==row.revision)
         fail('IDENTITY_CONFLICT','Legacy snapshot row and context identity disagree');
       yield {contextId:row.context_id,revision:row.revision,state};
     }
-  } else if(version===storageVersion){
+  } else if(core.storageFormat('kernel',version)==='StorageCurrent'){
     for(const row of db.prepare('SELECT context_id,revision FROM context_revisions ORDER BY context_id,revision').iterate())
       yield {contextId:row.context_id,revision:row.revision,state:readSnapshot(db,row.context_id,row.revision)};
   } else fail('UNSUPPORTED_VERSION','Storage fingerprint does not recognize this format');
@@ -47,7 +36,7 @@ function* states(db,version) {
 /** Public state plus exact auxiliary values, with outbox logical ordering retained. */
 export function fingerprintStorage(db,systemId,{includeOwnership=true}={}) {
   return ownedRead(db,()=>{
-    const version=versionOf(db);if(version===1)legacy(db);identity(db,systemId);
+    const version=versionOf(db);if(core.storageFormat('kernel',version)==='StorageLegacy')legacy(db);else assertKernelLayout(db);identity(db,systemId);
     const stateHash=createHash('sha256'),otherHash=createHash('sha256'),revisions=new Map();let snapshots=0;
     for(const row of states(db,version)){
       const stateDigest=bytesDigest(canonical(row.state));
@@ -74,8 +63,8 @@ export function fingerprintStorage(db,systemId,{includeOwnership=true}={}) {
 export function convertLegacySnapshots(db,systemId) {
   if(!db.isTransaction)fail('INTERNAL','Storage conversion requires its owning transaction');
   const version=versionOf(db);
-  if(version===storageVersion)return {changed:false,formatVersion:storageVersion,...fingerprintStorage(db,systemId)};
-  if(version!==1)fail('UNSUPPORTED_VERSION','Only recognized legacy snapshot storage can be converted');
+  if(core.storageFormat('kernel',version)==='StorageCurrent')return {changed:false,formatVersion:storageVersion,...fingerprintStorage(db,systemId)};
+  if(core.storageFormat('kernel',version)!=='StorageLegacy')fail('UNSUPPORTED_VERSION','Only recognized legacy snapshot storage can be converted');
   legacy(db);identity(db,systemId);
   const before=fingerprintStorage(db,systemId);
   createSnapshotTables(db);
@@ -92,11 +81,13 @@ export function convertLegacySnapshots(db,systemId) {
       fail('IDENTITY_CONFLICT','Converted historical snapshot differs from its original canonical state');
     converted++;
   }
+  // The legacy table disappears in the same owning transaction as publication.
+  // Any failure below rolls it back together with the new representation.
+  db.exec('DROP TABLE snapshots');
   const after=fingerprintStorage(db,systemId);
   if(canonical(before)!==canonical(after))fail('IDENTITY_CONFLICT','Converted storage fingerprint differs from retained state or auxiliary values');
   if(converted!==before.snapshots)fail('IDENTITY_CONFLICT','Converted historical coverage differs');
-  // Old prepared SQL must fail after cutover rather than writing the old layout.
-  db.exec('DROP TABLE snapshots');
+  // Old prepared SQL fails after cutover instead of writing the old layout.
   return {changed:true,formatVersion:storageVersion,converted,...after};
 }
 
@@ -104,17 +95,17 @@ export function convertLegacySnapshots(db,systemId) {
 export function fingerprintMemory(db,systemId,{originalOnly=false}={}) {
   return ownedRead(db,()=>{
     const version=versionOf(db);
-    if(![1,2,memoryStorageVersion].includes(version))fail('UNSUPPORTED_VERSION','Unrecognized session memory format');
-    const actualColumns=version===memoryStorageVersion?memorySchemaColumns:legacyMemoryColumns;
+    if(!['StorageLegacy','StorageCurrent'].includes(core.storageFormat('memory',version)))fail('UNSUPPORTED_VERSION','Unrecognized session memory format');
+    const actualColumns=core.storageFormat('memory',version)==='StorageCurrent'?memorySchemaColumns:legacyMemoryColumns;
     const tables=db.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all().map(x=>x.name);
     if(canonical(tables)!==canonical(Object.keys(actualColumns).sort()) || db.prepare("SELECT 1 FROM sqlite_schema WHERE type IN ('trigger','view') LIMIT 1").get())fail('UNSUPPORTED_VERSION','Session memory schema requires an explicit reviewed conversion');
     identity(db,systemId);const hash=createHash('sha256'),rows={};
     for(const [table,columns] of Object.entries(actualColumns)){
       if(canonical(db.prepare('PRAGMA table_info('+table+')').all().map(x=>x.name))!==canonical(columns))fail('UNSUPPORTED_VERSION','Unrecognized memory '+table+' columns');
     }
-    const selected=version===memoryStorageVersion&&!originalOnly?{...legacyMemoryColumns,...memoryContinuityColumns}:legacyMemoryColumns;
+    const selected=core.storageFormat('memory',version)==='StorageCurrent'&&!originalOnly?{...legacyMemoryColumns,...memoryContinuityColumns}:legacyMemoryColumns;
     for(const [table,columns] of Object.entries(selected)){
-      const physical=version===memoryStorageVersion&&table==='sessions'?'memory_sessions':table;
+      const physical=core.storageFormat('memory',version)==='StorageCurrent'&&table==='sessions'?'memory_sessions':table;
       hash.update(table+'\n');rows[table]=0;
       for(const row of db.prepare('SELECT * FROM '+physical+' ORDER BY '+columns.join(',')).iterate()){hash.update(canonical(row)+'\n');rows[table]++;}
     }
@@ -124,7 +115,7 @@ export function fingerprintMemory(db,systemId,{originalOnly=false}={}) {
 export function convertLegacyMemory(db,systemId,{limits=memoryDefaults}={}) {
   if(!db.isTransaction)fail('INTERNAL','Memory conversion requires its owning transaction');
   const before=fingerprintMemory(db,systemId,{originalOnly:true}),version=versionOf(db);
-  if(version===memoryStorageVersion){const after=fingerprintMemory(db,systemId);return {changed:false,formatVersion:memoryStorageVersion,originalFingerprint:before,afterFingerprint:after};}
+  if(core.storageFormat('memory',version)==='StorageCurrent'){const after=fingerprintMemory(db,systemId);return {changed:false,formatVersion:memoryStorageVersion,originalFingerprint:before,afterFingerprint:after};}
   const parse=(bytes,label)=>{try{const value=JSON.parse(bytes);canonical(value);return value;}catch{fail('IDENTITY_CONFLICT','Unrecognized retained memory '+label);}};
   const states=new Map(db.prepare('SELECT * FROM sessions ORDER BY key').all().map(row=>{
     const value=parse(row.value,'session');if(memorySessionKey(value.session)!==row.key||value.key!==row.key||!Array.isArray(value.entries))fail('IDENTITY_CONFLICT','Retained memory session identity disagrees');return [row.key,value];
@@ -157,10 +148,10 @@ export function convertLegacyMemory(db,systemId,{limits=memoryDefaults}={}) {
       continuity.putManifest(manifest);
     };
     for(const row of db.prepare('SELECT * FROM receipts ORDER BY rowid').all()){
-      const value=parse(row.value,'receipt');if(value.dispatchId!==row.id||!['succeeded','failed'].includes(value.status))fail('IDENTITY_CONFLICT','Unrecognized retained assessment receipt');legacy(row.id,value,value.status,value.session);
+      const value=parse(row.value,'receipt');if(value.dispatchId!==row.id||!core.storageMemoryReceipt(value.status))fail('IDENTITY_CONFLICT','Unrecognized retained assessment receipt');legacy(row.id,value,value.status,value.session);
     }
     for(const row of db.prepare('SELECT * FROM dispatches ORDER BY rowid').all()){
-      const value=parse(row.value,'dispatch');if(value.id!==row.id||!['running','unknown'].includes(value.status)||!value.request?.session)fail('IDENTITY_CONFLICT','Unrecognized retained dispatch custody');legacy(row.id,value,value.status,value.request.session);
+      const value=parse(row.value,'dispatch');if(value.id!==row.id||!core.storageMemoryDispatch(value.status)||!value.request?.session)fail('IDENTITY_CONFLICT','Unrecognized retained dispatch custody');legacy(row.id,value,value.status,value.request.session);
     }
     continuity.ensure('assessment');continuity.ensure('working');
     db.exec('PRAGMA user_version=3');

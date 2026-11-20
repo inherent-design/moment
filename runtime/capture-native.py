@@ -28,8 +28,12 @@ def pairs_unique(items):
     return result
 
 
+def nonfinite(value):
+    raise RuntimeError('Non-finite JSON value: ' + value)
+
+
 def decode(raw):
-    return json.loads(raw, object_pairs_hook=pairs_unique)
+    return json.loads(raw, object_pairs_hook=pairs_unique, parse_constant=nonfinite)
 
 
 require(sys.platform == 'darwin', 'Darwin clone adapter unavailable')
@@ -159,15 +163,18 @@ def save(path, value):
         os.close(directory)
 
 
-def guarded_path(path, roots, protected):
+def guarded_path(path, roots, protected, components):
     path = Path(path)
     require(any(path != Path(root) and path.is_relative_to(Path(root)) for root in roots),
             'File is outside the admitted capture roots')
     require(not any(path == Path(p) or path.is_relative_to(Path(p)) for p in protected),
             'Protected capture subtree')
-    forbidden = {'state', 'recipient-state', 'recovery', 'runtime', 'retention',
-                 'storage-minimization', 'world', 'worlds', 'saves', 'backups', 'lods'}
-    require(not forbidden.intersection(part.lower() for part in path.parts), 'Protected capture category')
+    # The controller projects this domain policy from the executed core. Path
+    # confinement and saved-world observations remain physical adapter checks.
+    forbidden = set(components)
+    require(not any(forbidden.intersection(part.lower() for part in path.relative_to(Path(root)).parts)
+                    for root in roots if path != Path(root) and path.is_relative_to(Path(root))),
+            'Protected capture category')
     for parent in path.parents:
         if not any(parent == Path(r) or parent.is_relative_to(Path(r)) for r in roots):
             break
@@ -212,19 +219,57 @@ def open_guard(paths):
             require(False, 'Selected capture is open in another process')
 
 
+def journal_state(value, plan, identity):
+    require(isinstance(value, dict) and {'planDigest', 'items'} <= set(value) and
+            set(value) <= {'formatVersion', 'planDigest', 'items'}, 'Unsupported clone journal shape')
+    require('formatVersion' not in value or type(value['formatVersion']) is int and value['formatVersion'] == 1,
+            'Unsupported clone journal version')
+    require(value['planDigest'] == identity and isinstance(value['items'], dict), 'Journal names another exact plan')
+    fields = {'dev', 'ino', 'size', 'sha256', 'mode', 'uid', 'gid', 'flags', 'attrs',
+              'birth', 'mtime_ns', 'atime_ns', 'ctime_ns', 'allocated'}
+    for key, item in value['items'].items():
+        require(isinstance(key, str) and key.isascii() and key.isdigit() and
+                str(int(key)) == key and 0 <= int(key) < len(plan['items']), 'Invalid clone journal index')
+        require(isinstance(item, dict) and {'stage', 'phase'} <= set(item) and
+                set(item) <= {'stage', 'phase', 'clone', 'done', 'after'}, 'Unsupported clone item shape')
+        phase = item['phase']
+        require(phase in ['staging', 'prepared', 'swapped', 'complete'], 'Unsupported clone journal phase')
+        expected = Path(plan['items'][int(key)]['target']).with_name('.moment-share-' + identity[7:27] + '-' + key)
+        require(item['stage'] == str(expected), 'Clone journal staging identity differs')
+        require('done' not in item or type(item['done']) is bool, 'Invalid clone completion flag')
+        require((item.get('done') is True) == (phase == 'complete'), 'Clone completion and phase disagree')
+        require(phase == 'staging' or 'clone' in item, 'Prepared clone identity is missing')
+        require(phase != 'complete' or 'after' in item, 'Completed clone evidence is missing')
+        require(phase == 'complete' or 'after' not in item, 'Unsettled clone claims completed evidence')
+        for name in ['clone', 'after']:
+            if name not in item:
+                continue
+            observed = item[name]
+            require(isinstance(observed, dict) and set(observed) == fields, 'Unsupported clone evidence format')
+            require(all(type(observed[field]) is int and 0 <= observed[field] <= 9007199254740991
+                        for field in ['size', 'mode', 'uid', 'gid', 'flags', 'allocated']), 'Invalid clone evidence quantity')
+            require(all(isinstance(observed[field], str) for field in
+                        ['dev', 'ino', 'sha256', 'mtime_ns', 'atime_ns', 'ctime_ns']), 'Invalid clone evidence identity')
+            require(isinstance(observed['attrs'], dict) and all(isinstance(k, str) and isinstance(v, str)
+                    for k, v in observed['attrs'].items()), 'Invalid clone attribute observations')
+            require(isinstance(observed['birth'], list) and len(observed['birth']) == 2 and
+                    all(type(n) is int for n in observed['birth']) and 0 <= observed['birth'][1] < 1000000000,
+                    'Invalid clone birth-time observation')
+    return value
+
+
 def apply_one(request):
     plan, identity, index = request['plan'], request['planDigest'], request['index']
     require(plan['operation'] == 'exact-share' and 0 <= index < len(plan['items']), 'Invalid clone selection')
     row, maximum = plan['items'][index], request['maximumBytes']
     source, target = Path(row['source']), Path(row['target'])
     for path in [source, target]:
-        guarded_path(path, plan['roots'], plan['protectedPaths'])
+        guarded_path(path, plan['roots'], plan['protectedPaths'], request['protectedComponents'])
     journal_path = Path(request['journalPath'])
-    state = decode(read_private(journal_path)) if journal_path.exists() else dict(planDigest=identity, items={})
-    require(state['planDigest'] == identity, 'Journal names another exact plan')
+    state = journal_state(decode(read_private(journal_path)), plan, identity) if journal_path.exists() else dict(formatVersion=1, planDigest=identity, items={})
     key = str(index)
     item = state['items'].get(key)
-    if item and item.get('done'):
+    if item and item.get('done') is True:
         return item  # Never inspect or replace a later restored path on exact replay.
     stage = target.with_name('.moment-share-' + identity[7:27] + '-' + key)
     custody(request, plan)
@@ -331,12 +376,16 @@ def main():
         raw = sys.stdin.buffer.read(524289)
         require(len(raw) <= 524288, 'Native capture request exceeds512KiB')
         request = decode(raw)
-        require(request['formatVersion'] == 1, 'Unsupported native capture protocol')
+        require(type(request['formatVersion']) is int and request['formatVersion'] == 2, 'Unsupported native capture protocol')
+        components = request.get('protectedComponents')
+        require(isinstance(components, list) and 1 <= len(components) <= 64 and
+                all(isinstance(part, str) and 0 < len(part) <= 128 and part == part.lower() and
+                    '/' not in part and '\\' not in part for part in components), 'Unsupported protection projection')
         if sys.argv[1] == 'inspect':
             require(len(request['paths']) <= 128, 'Too many paths')
             result = []
             for path in request['paths']:
-                guarded_path(path, request['roots'], request['protectedPaths'])
+                guarded_path(path, request['roots'], request['protectedPaths'], components)
                 result.append(snapshot(path, request['maximumBytes']))
         elif sys.argv[1] == 'apply-one':
             result = apply_one(request)
