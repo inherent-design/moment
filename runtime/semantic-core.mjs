@@ -61,12 +61,12 @@ export const policyIssuers=(candidate,current)=>Core.policy_issuers(list(candida
 export const policyRules=(candidate,current,grant)=>Core.policy_rules(list(candidate.map(policyRule)),list(current.map(policyRule)),list(grant)).$;
 const runStates={queued:'RunQueued',leased:'RunLeased',running:'RunRunning',cancel_requested:'RunCancelling',unknown:'RunUncertain',succeeded:'RunSucceeded',failed:'RunFailed',cancelled:'RunCancelled'};
 const runLabels=Object.fromEntries(Object.entries(runStates).map(([key,value])=>[value,key]));
-const runState=value=>{const tag=runStates[value];if(!tag)fail('INVALID_ARGUMENT','Unsupported execution state');return {$:tag};};
+const runState=value=>{if(typeof value!=='string'||!Object.hasOwn(runStates,value))fail('INVALID_ARGUMENT','Unsupported execution state');return {$:runStates[value]};};
 export const executionTerminal=state=>Core.execution_terminal(runState(state));
 export function executionStep(state,action,outcome) {
- const tag={claim:'Claim',heartbeat:'Heartbeat',finish:'Finish',cancel:'Cancel',lost:'Lost',retry:'Retry',observed:'Observed'}[action];
- if(!tag)fail('INVALID_ARGUMENT','Unsupported execution signal');
- const event={$:'Run'+tag};if(['finish','observed'].includes(action)){const kind={succeeded:'Success',failed:'Failure',cancelled:'Cancellation',unknown:'Unobserved'}[outcome];if(!kind)fail('INVALID_ARGUMENT','Unsupported execution outcome');event.outcome={$:'Run'+kind};}
+ const actions={claim:'Claim',heartbeat:'Heartbeat',finish:'Finish',cancel:'Cancel',lost:'Lost',retry:'Retry',observed:'Observed'};
+ if(typeof action!=='string'||!Object.hasOwn(actions,action))fail('INVALID_ARGUMENT','Unsupported execution signal');
+ const event={$:'Run'+actions[action]};if(['finish','observed'].includes(action)){const kinds={succeeded:'Success',failed:'Failure',cancelled:'Cancellation',unknown:'Unobserved'};if(typeof outcome!=='string'||!Object.hasOwn(kinds,outcome))fail('INVALID_ARGUMENT','Unsupported execution outcome');event.outcome={$:'Run'+kinds[outcome]};}
  const result=Core.execution_step(runState(state),event);
  if(result?.$==='RunNext') {const selected=runLabels[result.state?.$];if(!selected||['cancellation','authority','immediate'].some(k=>typeof result[k]!=='boolean'))fail('INTERNAL','Invalid core execution transition');return {kind:'next',state:selected,cancellation:result.cancellation,authority:result.authority,immediate:result.immediate};}
  if(!['RunNotClaimable','RunInactive','RunDispatchRequired','RunNotUncertain'].includes(result?.$))fail('INTERNAL','Invalid core execution refusal');

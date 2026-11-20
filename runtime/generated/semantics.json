@@ -27,8 +27,12 @@
       "digest": "sha256:36e33eb3cd09bbe57e0f4387a9f8df10bf1bc00c2c33e70b9765fed0ebe90da8"
     },
     {
+      "path": "runtime/semantic-core.mjs",
+      "digest": "sha256:839343738f0c28ded6122f357828bf6d7f3364e64ce8b0898787e2abd344ce47"
+    },
+    {
       "path": "runtime/semantic-manifest.mjs",
-      "digest": "sha256:d46e8b447dee3eac5d16a7b98f483be1af7dad535400aac07443d681dba4960b"
+      "digest": "sha256:ff7b57925310199cb69e09a8448dac6d1cc16cd25d929614c77bb6057ed34f6e"
     },
     {
       "path": "scripts/build-core.mjs",
