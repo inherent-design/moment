@@ -36,8 +36,9 @@ jobs:
         env:
           PNPM_HOME: ${{ runner.temp }}/moment-native-tools
         run: |
+          export PATH="$PNPM_HOME/bin:$PATH"
           pnpm add --global @openai/codex@0.169.0 --ignore-scripts
-          echo "$PNPM_HOME" >> "$GITHUB_PATH"
+          pnpm bin --global >> "$GITHUB_PATH"
       - run: pnpm test:integration
       - run: pnpm test:codex-protocol
       - run: pnpm test:codex-mcp:protocol
