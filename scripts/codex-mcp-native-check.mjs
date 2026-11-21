@@ -167,6 +167,7 @@ try {
   }process.exitCode=1;
 } finally {
   await native?.close();if(daemon && daemon.exitCode===null && daemon.signalCode===null){daemon.ref();await stop(daemon);};
-  rmSync(root,{recursive:true,force:true});selected.ownedTemporaryStateRemoved=!existsSync(root);
+  if(selected.completed)rmSync(root,{recursive:true,force:true});
+  selected.ownedTemporaryStateRemoved=!existsSync(root);if(!selected.ownedTemporaryStateRemoved)selected.retainedRecoveryRoot=root;
   console.log(JSON.stringify(selected,null,2));
 }

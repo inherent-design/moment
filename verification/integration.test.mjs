@@ -18,6 +18,8 @@ import { limits,incident } from '../test/helpers.mjs';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
+const commandEnv={PATH:process.env.PATH,HOME:process.env.HOME,CODEX_HOME:process.env.CODEX_HOME};
+
 const original='# Keep this owner comment\ncli_auth_credentials_store = "ephemeral"\n\n[mcp_servers.other]\ncommand = "/usr/bin/true"\n';
 function fixture(t,{config=true}={}) {
   const root=realpathSync(mkdtempSync(join(tmpdir(),'mi-'))),codexHome=join(root,'c'),momentHome=join(root,'m'),target=join(codexHome,'config.toml');
@@ -41,7 +43,7 @@ test('supported CLI preview/apply/repeat/remove preserves unrelated bytes and ex
   const receipt=JSON.parse(readFileSync(join(f.receiptDirectory(),'receipt.json')));assert.equal(receipt.codexVersion,observeCodexVersion('codex'));
   const mcp=new Client({name:'moment-emitted-launcher',version:'1'});
   try {
-    await mcp.connect(new StdioClientTransport({...receipt.launcher,env:{PATH:process.env.PATH,...receipt.launcher.env},stderr:'pipe'}));
+    await mcp.connect(new StdioClientTransport({...receipt.launcher,env:{...commandEnv,...receipt.launcher.env},stderr:'pipe'}));
     const tools=(await mcp.listTools()).tools;assert.deepEqual(tools.map(tool=>tool.name).sort(),exposedOperations('continuity').map(id=>'moment_'+id.replaceAll('.','_')).sort());assert.ok(tools.some(tool=>tool.name==='moment_memory_read'));assert.ok(tools.every(tool=>tool._meta['moment/catalog']===receipt.launcher.env.MOMENT_CATALOG_REVISION));assert.equal(existsSync(join(f.momentHome,'runtime')),false);
   } finally {await mcp.close();}
   const disconnected=await f.run('disconnect');state(disconnected,'applied');assert.equal(readFileSync(f.target,'utf8'),original);
@@ -139,7 +141,7 @@ test('a second real CLI installer cannot enter a cooperating transaction held by
   const port=createIntegration({credentialFile:null,onPhase:async phase=>{if(phase==='planned') {enter();await gate;}}}),first=port.reconcile(f.request());
   await entered;
   try {
-    const second=spawnSync(process.execPath,[cli.pathname,'connect','--codex-home',f.codexHome,'--moment-home',f.momentHome,'--apply','--json'],{env:{PATH:process.env.PATH},encoding:'utf8',timeout:15000});
+    const second=spawnSync(process.execPath,[cli.pathname,'connect','--codex-home',f.codexHome,'--moment-home',f.momentHome,'--apply','--json'],{env:commandEnv,encoding:'utf8',timeout:15000});
     assert.equal(second.status,1,second.stderr);const result=JSON.parse(second.stdout);assert.equal(result.error.code,'IDENTITY_CONFLICT');assert.match(result.error.message,/integration transaction/);assert.equal(readFileSync(f.target,'utf8'),original);
   } finally {release();await first;}
   state(await first,'applied');state(await f.run('disconnect'),'applied');assert.equal(readFileSync(f.target,'utf8'),original);
@@ -152,7 +154,7 @@ test('interrupted publication recovers the owned receipt without saving unrelate
   const directory=f.receiptDirectory(),pending=readFileSync(join(directory,'pending.json'),'utf8');
   const beforePreview=readFileSync(f.target,'utf8');
   for(const format of [[],['--json']]){
-    const preview=spawnSync(process.execPath,[cli.pathname,'connect','--codex-home',f.codexHome,'--moment-home',f.momentHome,...format],{env:{PATH:process.env.PATH},encoding:'utf8',timeout:15000});
+    const preview=spawnSync(process.execPath,[cli.pathname,'connect','--codex-home',f.codexHome,'--moment-home',f.momentHome,...format],{env:commandEnv,encoding:'utf8',timeout:15000});
     assert.equal(preview.status,1);assert.equal(preview.stderr,'');
     if(format.length)assert.equal(JSON.parse(preview.stdout).value.state,'recovery_required');else assert.match(preview.stdout,/interrupted integration needs apply.*preview has no effects/);
     assert.equal(readFileSync(f.target,'utf8'),beforePreview);assert.equal(readFileSync(join(directory,'pending.json'),'utf8'),pending);
@@ -175,7 +177,7 @@ test('recovery completes both sides of configuration and receipt publication wit
 test('actual owned process interruption retains a journal and reclaims only its dead installer lock',async t=>{
   const f=fixture(t),module=new URL('../runtime/integration.mjs',import.meta.url).href;
   const source=`import {createIntegration} from ${JSON.stringify(module)};const port=createIntegration({onPhase:async phase=>{if(phase==='config-published'){process.stdout.write('paused\\n');await new Promise(()=>setInterval(()=>{},1000));}}});await port.reconcile(JSON.parse(process.env.MOMENT_TEST_INTEGRATION_REQUEST));`;
-  const child=spawn(process.execPath,['--input-type=module','-e',source],{env:{PATH:process.env.PATH,MOMENT_TEST_INTEGRATION_REQUEST:JSON.stringify(f.request())},stdio:['ignore','pipe','pipe']});
+  const child=spawn(process.execPath,['--input-type=module','-e',source],{env:{...commandEnv,MOMENT_TEST_INTEGRATION_REQUEST:JSON.stringify(f.request())},stdio:['ignore','pipe','pipe']});
   f.cleanup(async()=>{if(child.exitCode===null && child.signalCode===null) {const exit=once(child,'exit');child.kill('SIGTERM');await exit;}});
   await new Promise((resolve,reject)=>{
     const timer=setTimeout(()=>reject(new Error('Owned installer did not reach publication')),10000);let text='';
@@ -218,7 +220,7 @@ test('ownership edits during interrupted recovery are preserved',async t=>{
 });
 
 test('CLI commands use explicit roots and disconnect preserves a real running store, credentials and retained intent',async t=>{
-  const f=fixture(t),run=args=>spawnSync(process.execPath,[cli.pathname,...args],{env:{PATH:process.env.PATH},encoding:'utf8',timeout:15000,maxBuffer:1048576});
+  const f=fixture(t),run=args=>spawnSync(process.execPath,[cli.pathname,...args],{env:commandEnv,encoding:'utf8',timeout:15000,maxBuffer:1048576});
   const args=['--codex-home',f.codexHome,'--moment-home',f.momentHome,'--json'];
   const preview=run(['connect',...args]);assert.equal(preview.status,0,preview.stderr);state(JSON.parse(preview.stdout),'planned');
   const apply=run(['connect',...args,'--apply']);assert.equal(apply.status,0,apply.stderr);state(JSON.parse(apply.stdout),'applied');

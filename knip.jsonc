@@ -12,6 +12,11 @@
     "contracts/evolution.examples.ts",
     // Separate proposed API owner, intentionally outside installed dispatch.
     "contracts/evolution.ts",
+    // Explicit targets of the shared verification runner and its --script mode.
+    "verification/integration.test.mjs",
+    "scripts/codex-isolated-probe.mjs",
+    "scripts/codex-native-check.mjs",
+    "scripts/codex-mcp-native-check.mjs",
     // Opt-in owned-native/empirical consumers, invoked explicitly with private inputs.
     "verification/memory-continuation.mjs",
     "verification/memory-native-recovery.mjs",

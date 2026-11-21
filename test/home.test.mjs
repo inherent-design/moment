@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, symlinkSync, realpathSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, symlinkSync, realpathSync,readlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -32,6 +32,15 @@ test('existing directory is preserved; dangling aliases are refused', t => {
   assert.equal(openHome({ home }).root, realpathSync(join(home, '.moment')));
   const other = setup(t); symlinkSync(join(other, 'missing'), join(other, '.moment'));
   assert.throws(() => openHome({ home: other }), { code: 'INVALID_ARGUMENT' });
+});
+
+test('an explicit store remains usable when an unrelated home alias is dangling',t=>{
+  const home=setup(t),retired=join(home,'retired'),first=openHome({home,override:retired}),alias=join(home,'.moment');
+  assert.equal(readlinkSync(alias),first.root);rmSync(retired,{recursive:true});
+  assert.throws(()=>openHome({home}),{code:'INVALID_ARGUMENT'});
+  const selected=openHome({home,override:join(home,'selected')});assert.equal(selected.root,realpathSync(join(home,'selected')));assert.equal(selected.warnings.length,1);
+  assert.equal(readlinkSync(alias),first.root);assert.deepEqual(openHome({home,override:selected.root}).registry,selected.registry);
+  assert.throws(()=>openHome({home,override:alias}),{code:'INVALID_ARGUMENT'});assert.throws(()=>openHome({home}),{code:'INVALID_ARGUMENT'});
 });
 
 test('bootstrap import retains exact bytes without activating work; changed imports and escaped content fail', t => {

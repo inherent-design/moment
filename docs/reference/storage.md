@@ -4,7 +4,7 @@ Moment keeps active intent and runtime state in one user-owned store. The user-f
 
 ## Discovery and relocation
 
-Resolve the store in this order: an absolute `MOMENT_HOME` value, an existing `~/.moment` directory or resolvable symlink, then the default backing directory. Reject relative overrides, dangling links, and inaccessible destinations with an actionable error. Expand `~` in user-entered configuration before validating, without shell evaluation. Canonicalize the selected path once and display it in diagnostics.
+Resolve the store in this order: an absolute `MOMENT_HOME` value, an existing `~/.moment` directory or resolvable symlink, then the default backing directory. Reject relative overrides, a selected dangling link, and inaccessible destinations with an actionable error. An explicit valid override remains usable when an unrelated alias is dangling; preserve that alias and report the mismatch. Expand `~` in user-entered configuration before validating, without shell evaluation. Canonicalize the selected path once and display it in diagnostics.
 
 First-time setup creates the selected store with user-only permissions and creates `~/.moment` as a symlink if that name does not exist. If an existing alias resolves elsewhere, preserve it and report the mismatch; an explicit override can still select another store for that process, but setup must not repoint the alias implicitly. Existing directories are never replaced by links. Native Windows implementations must use an explicit supported directory or junction strategy; this initial Unix-host layout does not claim Windows installation support.
 

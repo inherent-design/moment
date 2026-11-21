@@ -31,16 +31,12 @@ export function inspectHome({ home = homedir(), override = process.env.MOMENT_HO
   return { root,alias,registry };
 }
 export function openHome({ home = homedir(), override = process.env.MOMENT_HOME } = {}) {
-  const alias = join(home, '.moment');
-  if (override === '~' || override?.startsWith('~/')) override = join(home, override.slice(2));
-  if (override !== undefined && (!override || !isAbsolute(override))) fail('INVALID_ARGUMENT', 'MOMENT_HOME must be absolute');
-  if (present(alias) && !existsSync(alias)) fail('INVALID_ARGUMENT', 'The ~/.moment link is dangling; repair it explicitly');
-  const selected = override ?? (present(alias) ? alias : join(home, '.local/share/moment'));
+  const selectedHome=inspectHome({home,override}),alias=selectedHome.alias,selected=selectedHome.root;
   mkdirSync(selected, { recursive: true, mode: 0o700 });
   const root = realpathSync(selected);
   if (!statSync(root).isDirectory()) fail('INVALID_ARGUMENT', 'Moment store must be a directory');
   if (!present(alias)) try{symlinkSync(root, alias, 'dir');}catch(error){if(error.code!=='EEXIST') throw error;}
-  const warnings = realpathSync(alias) === root ? [] : ['MOMENT_HOME differs from ~/.moment; existing alias preserved'];
+  const warnings = existsSync(alias) && realpathSync(alias) === root ? [] : ['MOMENT_HOME differs from ~/.moment; existing alias preserved'];
   const registryPath = join(root, 'registry.json');
   if (!present(registryPath)) {
     if(present(join(root,'runtime/store.sqlite')) && statSync(join(root,'runtime/store.sqlite')).size>0 && !present(registryPath)) fail('IDENTITY_CONFLICT','Central registry is missing for retained state; restore its original custody without resetting identity');
