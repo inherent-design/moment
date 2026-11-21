@@ -1,13 +1,29 @@
 import {spawn} from 'node:child_process';
-import {once} from 'node:events';
 import {EventEmitter} from 'node:events';
 import {parseJson} from './wire.mjs';
 import {codexApiError,validateCodexResponse,validateCodexNotification} from './codex-api.mjs';
 
+/** Retire a caller-owned child and its inherited standard channels, or retain uncertainty. */
+export function retireOwnedCodex(child) {
+  return new Promise((resolve,reject)=>{
+    let escalation,deadline;
+    const finish=error=>{clearTimeout(escalation);clearTimeout(deadline);child.removeListener('close',closed);if(error)reject(error);else resolve();};
+    const closed=()=>finish();
+    const live=()=>child.exitCode===null && child.signalCode===null;
+    child.once('close',closed);
+    // A terminal parent can still have a descendant holding its stderr pipe.
+    // Conversely, close may already have been observed before retirement began.
+    if(!live() && child.stdio.every(stream=>!stream || stream.closed)){finish();return;}
+    escalation=setTimeout(()=>{if(live())child.kill('SIGKILL');},3000);
+    deadline=setTimeout(()=>finish(Error('Owned Codex retirement could not establish closed process channels; preserve its recovery state')),6000);
+    if(live())child.kill('SIGTERM');
+  });
+}
+
 /** Dedicated child transport. Callers supply only test/provider-owned cwd and state. */
 export async function openCodexTransport({binary,env,workspace,version='unknown',onNotification=()=>{}}) {
   const child=spawn(binary,['app-server','--listen','stdio://'],{cwd:workspace,env,stdio:['pipe','pipe','pipe']});
-  const pending=new Map(),events=new EventEmitter();let sequence=0,buffer=Buffer.alloc(0),closed=false,failure,stderrBytes=0,refusedRequests=0;
+  const pending=new Map(),events=new EventEmitter();let sequence=0,buffer=Buffer.alloc(0),closed=false,retirement,failure,stderrBytes=0,refusedRequests=0;
   events.setMaxListeners(0);
   const rejectAll=error=>{failure??=error;for(const waiter of pending.values()){clearTimeout(waiter.timer);waiter.reject(error);}pending.clear();events.emit('failure',error);};
   child.stderr.on('data',bytes=>{stderrBytes+=bytes.length;});
@@ -19,12 +35,9 @@ export async function openCodexTransport({binary,env,workspace,version='unknown'
     const frame=JSON.stringify(message)+'\n';if(Buffer.byteLength(frame)>2097152)throw Error('Owned Codex request exceeds 2 MiB');
     child.stdin.write(frame);
   }
-  const close=async()=>{
-    if(closed)return;closed=true;rejectAll(Error('Owned Codex connection closed'));
-    if(child.exitCode===null && child.signalCode===null) {
-      const exited=once(child,'exit');child.kill('SIGTERM');const timer=setTimeout(()=>child.kill('SIGKILL'),3000);
-      try {await exited;} finally {clearTimeout(timer);}
-    }
+  const close=()=>{
+    if(retirement)return retirement;closed=true;rejectAll(Error('Owned Codex connection closed'));
+    retirement=retireOwnedCodex(child);return retirement;
   };
   child.stdout.on('data',bytes=>{
     try {
@@ -42,7 +55,7 @@ export async function openCodexTransport({binary,env,workspace,version='unknown'
         } else if(typeof message.method==='string') {validateCodexNotification(message.method,message.params,version);events.emit(message.method,message.params);onNotification(message.method,message.params);}
       }
       if(buffer.length>16777216)throw Error('Owned Codex unterminated response exceeds 16 MiB');
-    } catch(error) {rejectAll(error.codexDiagnostic?error:codexApiError('transport','bounded valid JSON-RPC messages',version));void close();}
+    } catch(error) {rejectAll(error.codexDiagnostic?error:codexApiError('transport','bounded valid JSON-RPC messages',version));void close().catch(()=>{});}
   });
   function call(method,params,timeoutMillis=15000) {
     return new Promise((resolve,reject)=>{

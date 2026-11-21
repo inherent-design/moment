@@ -1,6 +1,6 @@
 // Opt-in G5: actual SDK MCP, persisted native history, restart/reload and one child.
 import assert from 'node:assert/strict';
-import { constants,openSync,closeSync,fstatSync,readSync,mkdtempSync,realpathSync,mkdirSync,writeFileSync,readFileSync,rmSync,existsSync } from 'node:fs';
+import { constants,openSync,closeSync,fstatSync,readSync,mkdtempSync,realpathSync,mkdirSync,writeFileSync,readFileSync,readdirSync,rmSync,existsSync } from 'node:fs';
 import { join,isAbsolute } from 'node:path';
 import { randomUUID,randomBytes } from 'node:crypto';
 import { createClient } from '../runtime/client.mjs';
@@ -166,8 +166,12 @@ try {
     });
   }process.exitCode=1;
 } finally {
-  await native?.close();if(daemon && daemon.exitCode===null && daemon.signalCode===null){daemon.ref();await stop(daemon);};
-  if(selected.completed)rmSync(root,{recursive:true,force:true});
-  selected.ownedTemporaryStateRemoved=!existsSync(root);if(!selected.ownedTemporaryStateRemoved)selected.retainedRecoveryRoot=root;
+  selected.qualificationCompleted=selected.completed;
+  const cleanupErrors=[];
+  try{await native?.close();}catch(error){cleanupErrors.push({component:'native',message:error.message});}
+  try{if(daemon)await stop(daemon);}catch(error){cleanupErrors.push({component:'moment',message:error.message});}
+  if(selected.completed && !cleanupErrors.length)try{rmSync(root,{recursive:true,force:true});}catch(error){cleanupErrors.push({component:'owned-state',code:error.code,message:error.message});}
+  if(cleanupErrors.length){selected.completed=false;selected.cleanupErrors=cleanupErrors;process.exitCode=1;}
+  selected.ownedTemporaryStateRemoved=!existsSync(root);if(!selected.ownedTemporaryStateRemoved){selected.retainedRecoveryRoot=root;selected.remainingRootEntries=readdirSync(root).slice(0,40);}
   console.log(JSON.stringify(selected,null,2));
 }

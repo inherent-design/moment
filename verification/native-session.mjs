@@ -2,10 +2,10 @@
 import { accessSync,constants,realpathSync,mkdirSync,writeFileSync,readFileSync,existsSync,readdirSync } from 'node:fs';
 import { join,delimiter,basename } from 'node:path';
 import { spawn,execFileSync } from 'node:child_process';
-import { once } from 'node:events';
 import { digest } from '../runtime/json.mjs';
 import { compileDocument } from '../runtime/validation.mjs';
 import {observeCodexVersion,codexApiError} from '../runtime/codex-api.mjs';
+import {retireOwnedCodex} from '../runtime/codex-transport.mjs';
 
 export function nativeEnvironment(root) {
   const env={PATH:process.env.PATH??'',HOME:join(root,'home'),CODEX_HOME:join(root,'state'),TMPDIR:join(root,'tmp')};
@@ -47,16 +47,16 @@ export async function startNative({binary,env,workspace,onItem=()=>{}}) {
   // The goal authorizes this exact fixture mutation. Approval remains separate
   // from Moment's restricted credential; never weaken the advertised annotation.
   const child=spawn(binary,['-c','mcp_servers.moment.tools.moment_graph_transact.approval_mode="approve"','app-server','--listen','stdio://'],{cwd:workspace,env,stdio:['pipe','pipe','pipe']});
-  const pending=new Map(),events=[];let sequence=0,buffer=Buffer.alloc(0),closed=false,failure,stderrBytes=0,eventBytes=0;
+  const pending=new Map(),events=[];let sequence=0,buffer=Buffer.alloc(0),closed=false,retirement,failure,stderrBytes=0,eventBytes=0;
   const rejectAll=reason=>{failure??=reason;for(const waiter of pending.values()){clearTimeout(waiter.timer);waiter.reject(reason);}pending.clear();};
   child.stderr.on('data',bytes=>{stderrBytes+=bytes.length;}); // Never retain raw authenticated diagnostics.
   child.on('error',()=>rejectAll(Error('Owned app-server failed to start')));
   child.on('exit',()=>rejectAll(Error('Owned app-server exited')));
   child.stdin.on('error',()=>rejectAll(Error('Owned app-server transport closed')));
   const send=message=>{if(!closed && !failure)child.stdin.write(JSON.stringify(message)+'\n');};
-  const close=async()=>{
-    if(closed)return;closed=true;rejectAll(Error('Owned app-server closed'));
-    if(child.exitCode===null && child.signalCode===null){const exited=once(child,'exit');child.kill('SIGTERM');const timer=setTimeout(()=>child.kill('SIGKILL'),3000);try{await exited;}finally{clearTimeout(timer);}}
+  const close=()=>{
+    if(retirement)return retirement;closed=true;rejectAll(Error('Owned app-server closed'));
+    retirement=retireOwnedCodex(child);return retirement;
   };
   child.stdout.on('data',bytes=>{
     try {
@@ -78,7 +78,7 @@ export async function startNative({binary,env,workspace,onItem=()=>{}}) {
         }
       }
       if(buffer.length>16777216)throw Error('Owned app-server unterminated frame exceeds 16 MiB');
-    }catch(error){rejectAll(error);void close();}
+    }catch(error){rejectAll(error);void close().catch(()=>{});}
   });
   const call=(method,params,timeout=15000)=>new Promise((resolve,reject)=>{
     if(closed || failure){reject(failure??Error('Owned app-server closed'));return;}
